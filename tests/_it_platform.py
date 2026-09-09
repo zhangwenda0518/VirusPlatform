@@ -246,6 +246,22 @@ def main():
     except Exception as _e:
         check(False, f'gbdraw 双模式出图失败: {_e}')
 
+    # ---------- 3e. 内置示例体系 ----------
+    # 所有模块都应能一键填示例；示例文件必须齐全，且与 UI 文案一致
+    # （UI 写「CMV RNA1-3」「四病毒混合 6 条」，文件就必须是 3 段 / 6 条）。
+    _exjs = open(_os.path.join(PLATFORM_ROOT, 'webapp', 'static',
+                               'examples.js'), encoding='utf-8').read()
+    check('CARD_EXAMPLES' in _exjs or 'var MAP' in _exjs,
+          'examples.js 定义卡片示例映射')
+    check('examples.js' in hv, '/tools 接入 examples.js')
+    for _fn in ('example_R1.fastq.gz', 'example_R2.fastq.gz'):
+        check(_os.path.isfile(_os.path.join(EX, _fn)), f'示例测序数据存在: {_fn}')
+    from vp.utils import iter_fasta as _if
+    _n_cmv = len(list(_if(_os.path.join(EX, 'example_cmv.fasta'))))
+    _n_mix = len(list(_if(_os.path.join(EX, 'example_mix.fasta'))))
+    check(_n_cmv == 3, f'CMV 示例含三分体（实际 {_n_cmv} 段）')
+    check(_n_mix == 6, f'Mix All 示例含 6 条记录（实际 {_n_mix} 条）')
+
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')
     check(r.status_code == 200, 'app.js 静态资源 200')
