@@ -207,64 +207,79 @@ function autoscrollLogs() {
    ext: '.fasta' | '.fastq' | '.tsv' | '.txt'
    宽屏大文本框（约 1040px 宽 / 22 行高，可拖拽放大、窗口矮时自动收缩）：长序列/多记录 FASTA
    粘贴时不再挤压在窄框里；实时显示字符数与记录数，Ctrl+Enter 确认、Esc 取消。 */
+/* 输入框旁的 📋：在**文件输入行下方**展开/收起一个独立的大文本框
+   （尺寸对齐 CDD / BLAST 卡：rows=10 / min-height 220px），与文件选择彻底分开。
+   粘贴内容自动写入临时文件（防抖 700ms + 失焦）并回填路径，各卡原有运行逻辑
+   无需改动；实时显示字符数/记录数，Ctrl+Enter 立即写入并收起，Esc 收起，
+   再点一次 📋 也收起。 */
+var _pasteTimers = {};
+function _pasteWrite(inputId, ext, ta, onDone) {
+  var text = (ta.value || '').trim();
+  if (!text) return;
+  fetch('/api/paste_input', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: text, ext: ext })
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (!d.path) { alert(d.error || '写入失败'); return; }
+    var inp = $(inputId);
+    if (inp) {
+      inp.value = d.path;
+      /* 通知页面「值已变」：如 /genome 的实时预览需要立刻重绘 */
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (typeof onDone === 'function') onDone(d.path);
+  }).catch(function (e) { alert('无法连接: ' + e); });
+}
 function pasteSeq(inputId, ext) {
   ext = ext || '.fasta';
-  var mask = document.createElement('div');
-  mask.className = 'dlgmask';
-  mask.style.zIndex = 300;
+  var inp = $(inputId);
+  if (!inp) return;
+  var boxId = 'pastebox-' + inputId;
+  var old = document.getElementById(boxId);
+  if (old) { old.remove(); return; }               // 再点一次 = 收起
   var isFq = ext === '.fastq' || ext === '.fq';
   var isFa = !isFq && ['.fasta', '.fa', '.fna', '.fas', '.faa'].indexOf(ext) >= 0;
   var fmtHint = isFq ? 'FASTQ（@ 开头）' : (isFa ? 'FASTA（> 开头）' : '文本');
-  var phHint = isFq ? 'FASTQ' : (isFa ? 'FASTA' : '文本');
-  mask.innerHTML = '<div class="dlg" style="width:min(1040px,94vw)">' +
-    '<div class="dlghead"><b>📋 粘贴' + fmtHint + ' 序列</b>' +
-    '<button class="btn small" onclick="this.closest(\'.dlgmask\').remove()">✕</button></div>' +
-    '<textarea id="pasteTA" rows="22" spellcheck="false" style="width:calc(100% - 32px);margin:10px 16px 6px;' +
-    'flex:1 1 auto;min-height:240px;font-family:var(--mono);font-size:12.5px;line-height:1.55;border:1px solid #ddd;' +
-    'border-radius:6px;padding:10px 12px;resize:vertical" placeholder="粘贴 ' + phHint + ' 序列文本…"></textarea>' +
-    '<div style="padding:0 16px;display:flex;justify-content:space-between;align-items:center;gap:12px">' +
-    '<span class="hint" id="pasteStat" style="margin:0">0 字符</span>' +
-    '<span class="hint" style="margin:0">Ctrl+Enter 确认 · Esc 取消</span></div>' +
-    '<div style="padding:8px 16px 12px;text-align:right">' +
-    '<button class="btn small" onclick="this.closest(\'.dlgmask\').remove()">取消</button> ' +
-    '<button class="btn small primary" id="pasteOk">✓ 确认粘贴</button></div></div>';
-  document.body.appendChild(mask);
-  var ta = mask.querySelector('#pasteTA');
-  var stat = mask.querySelector('#pasteStat');
-  var ok = mask.querySelector('#pasteOk');
+  var box = document.createElement('div');
+  box.id = boxId;
+  box.style.margin = '6px 0 2px';
+  box.innerHTML =
+    '<textarea rows="10" spellcheck="false" style="width:100%;min-height:220px;' +
+    'font-family:var(--mono);font-size:12.5px;line-height:1.55;padding:10px 12px;' +
+    'resize:vertical;border-radius:6px" placeholder="直接 Ctrl+V 粘贴 ' + fmtHint +
+    ' 序列…"></textarea>' +
+    '<div class="hint" style="margin:4px 0 0;display:flex;justify-content:space-between;gap:12px">' +
+    '<span class="paste-stat">0 字符</span>' +
+    '<span>粘贴后自动写入临时文件 · Ctrl+Enter 立即写入并收起 · Esc 收起</span></div>';
+  var row = inp.closest('.filerow') || inp.parentElement;
+  row.insertAdjacentElement('afterend', box);
+  var ta = box.querySelector('textarea');
+  var stat = box.querySelector('.paste-stat');
   function updStat() {
     var v = ta.value;
     var n = v.replace(/\s/g, '').length;
     var recs = (v.match(/^[>@]/gm) || []).length;
     stat.textContent = n.toLocaleString() + ' 字符' + (recs ? ' · ' + recs + ' 条记录' : '');
   }
-  ta.addEventListener('input', updStat);
-  ta.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); ok.click(); }
-    else if (e.key === 'Escape') { e.preventDefault(); mask.remove(); }
+  function schedule() {
+    updStat();
+    clearTimeout(_pasteTimers[inputId]);
+    _pasteTimers[inputId] = setTimeout(function () { _pasteWrite(inputId, ext, ta); }, 700);
+  }
+  ta.addEventListener('input', schedule);
+  ta.addEventListener('blur', function () { _pasteWrite(inputId, ext, ta); });
+  ta.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(_pasteTimers[inputId]);
+      _pasteWrite(inputId, ext, ta, function () {
+        if (typeof toast === 'function') toast('已写入临时文件', '', { ttl: 2200 });
+        box.remove();
+      });
+    } else if (e.key === 'Escape') { e.preventDefault(); box.remove(); }
   });
   ta.focus();
-  ok.addEventListener('click', function() {
-    var text = mask.querySelector('#pasteTA').value.trim();
-    if (!text) { alert('请粘贴序列内容'); return; }
-    var btn = this;
-    btn.disabled = true; btn.textContent = '写入中…';
-    fetch('/api/paste_input', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text, ext: ext })
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.path) {
-        var inp = $(inputId);
-        if (inp) {
-          inp.value = d.path;
-          /* 通知页面「值已变」：如 /genome 的实时预览需要立刻重绘 */
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        mask.remove();
-      } else { alert(d.error || '写入失败'); btn.disabled = false; btn.textContent = '✓ 确认粘贴'; }
-    }).catch(function(e) { alert('无法连接: ' + e); btn.disabled = false; btn.textContent = '✓ 确认粘贴'; });
-  });
 }
 
 // ---------------- 内置示例数据 ----------------
@@ -479,12 +494,16 @@ function alColor(ch, type) {
 
 async function alignRun(btn) {
   const seqs = _v('al_fa');
-  if (!seqs) { alert('请选择或粘贴 FASTA（≥2 条序列）'); return; }
+  const extra = _v('al_fa_extra');
+  if (!seqs && !extra) {
+    alert('请选择或粘贴 FASTA（≥2 条序列）'); return;
+  }
   try {
     const r = await fetch('/api/tool/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tool: 'align',
-                             params: { seqs,
+                             params: { seqs: seqs || extra,
+                                       seqs_extra: extra || '',
                                        strategy: _v('al_strategy') || 'auto',
                                        trimal: _v('al_trimal') || 'automated1',
                                        max_n: +_v('al_maxn') || 100 } })});
@@ -620,12 +639,6 @@ function alignSend(target) {
     location.hash = '#t-sdt';
   }
   if (typeof renderModuleTree === 'function') renderModuleTree();
-}
-
-function tbMolChanged() {
-  const mol = ($('tbMolecule') && $('tbMolecule').value) || 'genome';
-  const gene = $('tbGene');
-  if (gene) gene.disabled = mol === 'genome';
 }
 
 /* ================= 进化树构建：集合下拉 + 建树 ================= */
@@ -2957,261 +2970,8 @@ async function gbExtract(name, btn) {
     startPolling();
     _watchTask(d.task, () => {
       loadGbCollections();
-      const sel = $('exColl');
-      if (sel) sel.value = name;
-      gbExtractFilesLoad();
     }, btn, '⏳ 提取中…');
   } catch (e) { alert('无法连接平台服务: ' + e); }
-}
-
-async function gbExtractFilesLoad() {
-  const box = $('exFiles');
-  if (!box) return;
-  const name = ($('exColl') && $('exColl').value) || '';
-  if (!name) { box.innerHTML = '<p class="hint">（先选择集合；未提取的集合点上方「🧬 提取」）</p>'; return; }
-  try {
-    const r = await fetch('/api/gb/extract_files?name=' + encodeURIComponent(name));
-    if (!r.ok) {
-      box.innerHTML = '<p class="hint">' + esc((await r.json()).error || '未提取') + '</p>';
-      return;
-    }
-    const items = await r.json();
-    const label = k => ({ 'genome.fa': '🧬 genome.fa（全基因组）',
-                          'CDS.fa': '🧬 CDS.fa（全部 CDS 核酸）',
-                          'PEP.fa': '🧬 PEP.fa（全部蛋白）',
-                          'genes.tsv': '📋 genes.tsv（基因×基因组摘要）',
-                          'cds_gene': '📕', 'pep_gene': '📘' }[k] || k);
-    box.innerHTML = '<table class="table" style="width:100%;border-collapse:collapse">' +
-      '<tr><th>产物</th><th style="width:260px">操作</th></tr>' +
-      items.map(x => `<tr><td>${label(x.kind).startsWith('📕') || label(x.kind).startsWith('📘')
-        ? `${x.kind === 'cds_gene' ? '📕 CDS/' : '📘 PEP/'}<b>${esc(x.path.split('/').pop())}</b>（按基因）`
-        : label(x.kind)}</td>` +
-        `<td>` +
-        `<a class="btn small" href="${esc(x.path)}" download>⬇ 下载</a> ` +
-        `<button class="btn small" onclick="exSend('${esc(x.path)}', 'align')">→ 送比对</button> ` +
-        `<button class="btn small" onclick="exSend('${esc(x.path)}', 'treebuild')">→ 送建树</button>` +
-        `</td></tr>`).join('') + '</table>';
-  } catch (e) { box.innerHTML = '<p class="hint">无法连接: ' + esc(e) + '</p>'; }
-}
-
-function exSend(path, target) {
-  if (target === 'align') {
-    $('al_fa').value = path;
-    location.hash = '#t-align';
-  } else {
-    $('qt_fa').value = path;
-    location.hash = '#t-treebuild';
-  }
-  if (typeof renderModuleTree === 'function') renderModuleTree();
-}
-
-/* ================= CDS 人工挑选界面 ================= */
-let _cpData = null;                 // /api/gb/cds_table 返回值
-let _cpSel = new Map();             // rid -> 基因名（人工确认后）
-
-async function cdsPickOpen() {
-  const name = ($('cpColl') && $('cpColl').value) || '';
-  const msg = $('cpMsg');
-  if (!name) { if (msg) msg.textContent = '先选择集合'; return; }
-  const panel = $('cdsPickPanel');
-  const tbl = $('cpTable');
-  if (panel) panel.style.display = '';
-  if (tbl) tbl.innerHTML = '<p class="hint">解析中…</p>';
-  try {
-    const r = await fetch('/api/gb/cds_table?name=' + encodeURIComponent(name));
-    if (!r.ok) {
-      const e = await r.json().catch(() => ({}));
-      if (tbl) tbl.innerHTML = '<p class="hint">' + esc(e.error || '解析失败') + '</p>';
-      return;
-    }
-    _cpData = await r.json();
-    _cpSel = new Map();
-    const saved = (_cpData.selection && _cpData.selection.items) || [];
-    saved.forEach(x => { if (x && x.rid) _cpSel.set(x.rid, x.gene || 'gene'); });
-    const fill = (id, vals) => {
-      const el = $(id); if (!el) return;
-      const cur = el.value;
-      el.innerHTML = '<option value="">（全部）</option>' +
-        vals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
-      el.value = cur;
-    };
-    fill('cpFam', _cpData.families || []);
-    fill('cpGen', _cpData.genera || []);
-    cdsPickRender();
-    if (msg) msg.textContent = `已解析 ${_cpData.n_cds} 条 CDS / ${_cpData.n_virus} 个病毒` +
-      (saved.length ? `，恢复上次选择 ${saved.length} 条` : '');
-  } catch (e) {
-    if (tbl) tbl.innerHTML = '<p class="hint">无法连接: ' + esc(e) + '</p>';
-  }
-}
-
-function cdsPickRows() {
-  if (!_cpData) return [];
-  const fam = ($('cpFam') && $('cpFam').value) || '';
-  const gen = ($('cpGen') && $('cpGen').value) || '';
-  const showHyp = $('cpShowHyp') && $('cpShowHyp').checked;
-  return _cpData.rows.filter(r => {
-    if (fam && r.family !== fam) return false;
-    if (gen && r.genus !== gen) return false;
-    if (!showHyp && isHypothetical(r)) return false;
-    return true;
-  });
-}
-
-function isHypothetical(r) {
-  const s = ((r.product || '') + ' ' + (r.gene || '')).toLowerCase();
-  return s.includes('hypothetical') || s.includes('unknown') ||
-         s.includes('putative uncharacterized') ||
-         /^(hp|orf\d+)$/.test((r.gene || '').toLowerCase());
-}
-
-function cdsPickRender() {
-  const box = $('cpTable');
-  if (!box || !_cpData) return;
-  const rows = cdsPickRows();
-  const cnt = $('cpCount');
-  if (cnt) cnt.textContent = `显示 ${rows.length} / ${_cpData.n_cds} 条，已选 ${_cpSel.size} 条`;
-  if (!rows.length) { box.innerHTML = '<p class="hint">无匹配记录</p>'; cdsPickSelRender(); return; }
-
-  const groups = new Map();
-  rows.forEach(r => {
-    if (!groups.has(r.virus)) groups.set(r.virus, []);
-    groups.get(r.virus).push(r);
-  });
-  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
-    '<thead><tr><th style="width:34px"></th>' +
-    '<th style="text-align:left">基因名</th><th style="text-align:left">产物</th>' +
-    '<th style="width:78px">起始</th><th style="width:78px">终止</th>' +
-    '<th style="width:74px">长度</th><th style="width:44px">链</th></tr></thead><tbody>';
-  for (const [virus, list] of groups) {
-    const nsel = list.filter(r => _cpSel.has(r.rid)).length;
-    const g0 = list[0];
-    html += `<tr><td colspan="7" style="padding:6px 8px;background:var(--line-100,#f2f2f2);` +
-      `font-weight:600">🦠 ${esc(virus)} <span class="hint" style="font-weight:400">` +
-      `${esc(g0.family || '')}${g0.genus ? ' / ' + esc(g0.genus) : ''} · ${list.length} 条` +
-      `${nsel ? ` · 已选 ${nsel}` : ''}</span></td></tr>`;
-    list.forEach(r => {
-      const on = _cpSel.has(r.rid);
-      const showGene = on ? _cpSel.get(r.rid) : r.gene;
-      html += '<tr style="border-bottom:1px solid var(--line-100,#eee)">' +
-        `<td style="text-align:center"><input type="checkbox" ${on ? 'checked' : ''} ` +
-        `onchange="cdsPickToggle('${esc(r.rid)}', this.checked)"></td>` +
-        `<td class="cp-gene" data-rid="${esc(r.rid)}" ondblclick="cdsPickEdit(this)" ` +
-        `title="双击可改名" style="cursor:text">${esc(showGene)}</td>` +
-        `<td class="hint">${esc(r.product || '')}</td>` +
-        `<td style="text-align:right">${r.start}</td>` +
-        `<td style="text-align:right">${r.end}</td>` +
-        `<td style="text-align:right">${r.length}</td>` +
-        `<td style="text-align:center">${esc(r.strand)}</td></tr>`;
-    });
-  }
-  html += '</tbody></table>';
-  box.innerHTML = html;
-  cdsPickSelRender();
-}
-
-function cdsPickToggle(rid, on) {
-  if (on) {
-    const row = (_cpData.rows || []).find(r => r.rid === rid);
-    _cpSel.set(rid, (row && row.gene) || 'gene');
-  } else {
-    _cpSel.delete(rid);
-  }
-  cdsPickRender();
-}
-
-function cdsPickEdit(td) {
-  const rid = td.dataset.rid;
-  const cur = _cpSel.has(rid) ? _cpSel.get(rid) : td.textContent.trim();
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.value = cur;
-  inp.style.cssText = 'width:96%;font:inherit;padding:1px 3px';
-  let done = false;
-  const commit = (ok) => {
-    if (done) return;
-    done = true;
-    const v = (inp.value || '').trim();
-    // 改名即纳入选择：否则改动只留在 DOM 上，导出取不到
-    if (ok && v) _cpSel.set(rid, v);
-    cdsPickRender();
-  };
-  inp.onblur = () => commit(true);
-  inp.onkeydown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
-    if (e.key === 'Escape') { e.preventDefault(); commit(false); }
-  };
-  td.innerHTML = '';
-  td.appendChild(inp);
-  inp.focus();
-  inp.select();
-}
-
-function cdsPickSelRender() {
-  const box = $('cpSel');
-  if (!box) return;
-  if (!_cpSel.size) { box.innerHTML = '<p class="hint">（未选择）</p>'; return; }
-  const byGene = new Map();
-  for (const [rid, gene] of _cpSel) {
-    const r = (_cpData.rows || []).find(x => x.rid === rid) || {};
-    if (!byGene.has(gene)) byGene.set(gene, []);
-    byGene.get(gene).push({ rid, r });
-  }
-  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
-  for (const [gene, list] of [...byGene.entries()].sort()) {
-    html += `<tr><td colspan="3" style="padding:4px 6px;background:var(--line-100,#f2f2f2);` +
-      `font-weight:600">📕 ${esc(gene)} <span class="hint" style="font-weight:400">` +
-      `${list.length} 条</span></td></tr>`;
-    list.forEach(({ rid, r }) => {
-      html += '<tr style="border-bottom:1px solid var(--line-100,#eee)">' +
-        `<td style="padding:3px 6px" title="${esc(r.virus || '')}">${esc((r.virus || '').slice(0, 22))}</td>` +
-        `<td style="text-align:right;white-space:nowrap">${r.length || 0}nt</td>` +
-        `<td style="width:22px"><button class="btn small" style="padding:0 5px" ` +
-        `onclick="cdsPickToggle('${esc(rid)}', false)">×</button></td></tr>`;
-    });
-  }
-  html += '</table>';
-  box.innerHTML = html;
-}
-
-function cdsPickClear() { _cpSel.clear(); cdsPickRender(); }
-
-function cdsPickItems() {
-  return [..._cpSel.entries()].map(([rid, gene]) => ({ rid, gene }));
-}
-
-async function cdsPickSave() {
-  const name = ($('cpColl') && $('cpColl').value) || '';
-  const msg = $('cpMsg');
-  if (!name) return;
-  try {
-    const r = await fetch('/api/gb/selection/save', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, items: cdsPickItems() })
-    });
-    const j = await r.json();
-    if (msg) msg.textContent = r.ok ? `✔ 已保存 ${j.n} 条` : ('保存失败: ' + (j.error || ''));
-  } catch (e) { if (msg) msg.textContent = '保存失败: ' + e; }
-}
-
-async function cdsPickExport() {
-  const name = ($('cpColl') && $('cpColl').value) || '';
-  const msg = $('cpMsg');
-  if (!name) return;
-  if (!_cpSel.size) { if (msg) msg.textContent = '请先勾选 CDS'; return; }
-  if (msg) msg.textContent = '导出中…';
-  try {
-    const r = await fetch('/api/gb/export_selected', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, items: cdsPickItems() })
-    });
-    const j = await r.json();
-    if (!r.ok) { if (msg) msg.textContent = '导出失败: ' + (j.error || ''); return; }
-    if (msg) msg.innerHTML = `✔ 导出 ${j.n_cds} 条 CDS / ${j.n_pep} 条蛋白，` +
-      `${(j.genes || []).length} 个基因 → <span title="${esc(j.dir || '')}">extract/selected/</span>` +
-      ((j.missing || []).length ? `（${j.missing.length} 条未找到）` : '');
-    if (typeof gbExtractFilesLoad === 'function') gbExtractFilesLoad();
-  } catch (e) { if (msg) msg.textContent = '导出失败: ' + e; }
 }
 
 /* 集合列表「🌳 建树」按钮：切换到进化树构建卡并选中该集合 */
@@ -3238,20 +2998,95 @@ async function gbInspect(name, btn) {
   } catch (e) { alert('无法连接平台服务: ' + e); }
 }
 
-/* 集合建树：全基因组 MAFFT 比对 → FastTree/IQ-TREE；
-   产物在结果中心 MSA / 进化树 / SDT 查看器以「🧬 集合」样品展示 */
+/* 集合建树：三种来源——
+   genome  全基因组树（集合 extract/genome.fa → MAFFT → 建树，molecule=genome）
+   selected 挑选的序列集（extract/selected/CDS.fa|PEP.fa → MAFFT → 建树）
+   aligned  已比对 FASTA（跳过 MAFFT 直接建树） */
 async function gbBuildTree(name, btn) {
   const treeTool = ($('s_tree_tool')?.value) || 'fasttree';
+  const src = ($('tbSource') && $('tbSource').value) || 'genome';
   try {
-    const r = await fetch('/api/gb/phylo', {
+    if (src === 'genome') {
+      const r = await fetch('/api/gb/phylo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tree_tool: treeTool })});
+      if (!r.ok) { alert('启动失败: ' + ((await r.json()).error || '')); return; }
+      const d = await r.json();
+      _watchTask(d.task, loadGbCollections, btn, '⏳ 建树中…');
+      return;
+    }
+    const mol = ($('tbSelectedMol')?.value) || 'CDS';
+    const seqs = src === 'aligned'
+      ? (_v('tbAlignedPath') || '')
+      : `databases/misc/gb/${name}/extract/selected/${mol}.fa`;
+    if (!seqs) { alert('请填写已比对 FASTA 路径（或到「序列比对」卡打开后点「用刚才的比对」）'); return; }
+    const method = treeTool === 'nj' ? 'nj' : 'fasttree';
+    const r = await fetch('/api/tool/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, tree_tool: treeTool,
-                             molecule: $('tbMolecule')?.value || 'genome',
-                             gene: ($('tbGene') && $('tbGene').value || '').trim() })});
+      body: JSON.stringify({ tool: 'quicktree',
+        params: { seqs, method,
+                  aligned: src === 'aligned' ? '1' : '0' } })});
     if (!r.ok) { alert('启动失败: ' + ((await r.json()).error || '')); return; }
     const d = await r.json();
-    _watchTask(d.task, loadGbCollections, btn, '⏳ 建树中…');
+    if (typeof taskLogOpen !== 'undefined') taskLogOpen.add(d.task);
+    startPolling();
+    _watchTask(d.task, null, btn, '⏳ 建树中…');
   } catch (e) { alert('无法连接平台服务: ' + e); }
+}
+
+/* 建树来源切换：按来源显示/隐藏对应控件 */
+function tbSourceChanged() {
+  const src = ($('tbSource') && $('tbSource').value) || 'genome';
+  const selItem = $('tbSelectedItem'), alItem = $('tbAlignedItem');
+  const useAl = $('tbUseAlPath'), coll = $('tbColl');
+  if (selItem) selItem.style.display = src === 'selected' ? '' : 'none';
+  if (alItem) alItem.style.display = src === 'aligned' ? '' : 'none';
+  if (useAl) useAl.style.display = src === 'aligned' ? '' : 'none';
+  /* 全基因组树必须选集合；另两种来源集合仍用于定位 selected/ 目录 */
+  if (coll) coll.style.opacity = (src === 'aligned') ? '0.5' : '';
+}
+
+/* 把比对卡里当前打开的比对路径带入建树卡 */
+function tbUseAlPath() {
+  const p = (alData && alData.path) || _v('alPath');
+  if (!p) { alert('还没有打开的比对文件，请先到「序列比对」卡打开一个比对'); return; }
+  const inp = $('tbAlignedPath');
+  if (inp) inp.value = p;
+}
+
+/* 比对卡来源切换：全长序列 / 挑选序列集 / 手填 */
+function alSourceChanged() {
+  const src = ($('alSource') && $('alSource').value) || 'manual';
+  const item = $('alSelItem');
+  if (item) item.style.display = src === 'selected' ? '' : 'none';
+}
+
+/* 按来源填入比对输入框 */
+async function alFillFromSource() {
+  const src = ($('alSource') && $('alSource').value) || 'manual';
+  if (src === 'manual') { alert('手填模式下请直接选择文件或粘贴序列'); return; }
+  const coll = _v('alColl');
+  if (!coll) { alert('请先选择 GenBank 集合'); return; }
+  const inp = $('al_fa');
+  if (!inp) return;
+  if (src === 'genome') {
+    inp.value = `databases/misc/gb/${coll}/extract/genome.fa`;
+  } else {
+    const mol = ($('alSelMol')?.value) || 'CDS';
+    inp.value = `databases/misc/gb/${coll}/extract/selected/${mol}.fa`;
+  }
+}
+
+/* 比对卡集合下拉（来源为集合时用） */
+async function loadAlColls() {
+  const sel = $('alColl');
+  if (!sel) return;
+  try {
+    const cols = await (await fetch('/api/gb/collections')).json();
+    sel.innerHTML = cols.length
+      ? cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}（${c.n_records} 条记录）</option>`).join('')
+      : '<option value="">（暂无集合——先到「参考序列获取」下载）</option>';
+  } catch (e) { sel.innerHTML = '<option value="">（无法连接）</option>'; }
 }
 
 /* 「▶ 比较」实际使用的阈值/风格来自上方表单——在集合表上方实时提示 */
@@ -3305,22 +3140,6 @@ async function loadGbCollections() {
         `<button class="btn small primary" data-name="${esc(c.name)}" onclick="gbExtract(this.dataset.name, this)" title="提取 genome / CDS / PEP（分类分目录 + 按基因拆分）">🧬 提取</button> ` +
         `<button class="btn small" data-name="${esc(c.name)}" onclick="gbInspect(this.dataset.name, this)" title="重解析全部 .gb，重建清单与警告">🔍 巡检</button>`)));
     }
-    const exSel = $('exColl');
-    if (exSel) {
-      const cur = exSel.value;
-      exSel.innerHTML = '<option value="">（选择集合查看提取产物）</option>' +
-        cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}${c.has_extract ? '（已提取）' : ''}</option>`).join('');
-      if (cur && cols.some(c => c.name === cur)) exSel.value = cur;
-    }
-    // CDS 人工挑选卡的集合选择下拉（#cpColl）
-    const cpSel = $('cpColl');
-    if (cpSel) {
-      const curCp = cpSel.value;
-      cpSel.innerHTML = '<option value="">（选择集合）</option>' +
-        cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}（${c.n_records} 条）</option>`).join('');
-      if (curCp && cols.some(c => c.name === curCp)) cpSel.value = curCp;
-      else if (cols.length === 1) cpSel.value = cols[0].name;
-    }
     // 共线性比较卡的集合选择下拉（#synColl）
     const synSel = $('synColl');
     if (synSel) {
@@ -3352,6 +3171,9 @@ loadNcbiCollections();
 loadGbCollections();
 ictvCascadeRefetch();
 loadTbColls();
+loadAlColls();
+tbSourceChanged();
+alSourceChanged();
 
 /* ================= 比较基因组独立工作区：⑦ MSA / ⑧ 进化树 / ⑨ SDT ================= */
 /* 三张卡片各自的输入/参数/输出都独立于结果中心；渲染器为共享实现。 */
