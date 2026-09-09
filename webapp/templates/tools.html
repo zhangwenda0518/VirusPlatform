@@ -1048,7 +1048,10 @@
           <button class="btn small" onclick="browse('cddSeqIn')">📁</button>
           <button class="btn small" onclick="caSeqFromPaste('cddSeqIn')" data-i18n="tk.btnPaste">📋 粘贴</button>
         </div>
-        <textarea id="cddSeqText" rows="3" style="width:100%;font-family:monospace;font-size:11px;margin-top:6px" placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
+        <textarea id="cddSeqText" rows="10" spellcheck="false"
+          style="width:100%;min-height:220px;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin-top:6px;padding:10px 12px;resize:vertical;border-radius:6px"
+          placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
+        <div class="hint" style="margin:4px 0 0" data-i18n="tk.pasteBoxHint">可直接 Ctrl+V 粘贴多行 FASTA / 纯序列；文本框右下角可拖拽放大</div>
         <div style="margin-top:8px">
           <button class="btn small primary" onclick="runCaSeqInput('cdd')" data-i18n="tk.runCdd">▶ 运行 CDD 域搜索</button>
           <span class="hint" style="margin-left:8px">对输入序列做 CDD（6-frame 翻译取最长 ORF ≥50aa）</span>
@@ -1089,7 +1092,10 @@
           <button class="btn small" onclick="browse('homSeqIn')">📁</button>
           <button class="btn small" onclick="caSeqFromPaste('homSeqIn')" data-i18n="tk.btnPaste">📋 粘贴</button>
         </div>
-        <textarea id="homSeqText" rows="3" style="width:100%;font-family:monospace;font-size:11px;margin-top:6px" placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
+        <textarea id="homSeqText" rows="10" spellcheck="false"
+          style="width:100%;min-height:220px;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin-top:6px;padding:10px 12px;resize:vertical;border-radius:6px"
+          placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
+        <div class="hint" style="margin:4px 0 0" data-i18n="tk.pasteBoxHint">可直接 Ctrl+V 粘贴多行 FASTA / 纯序列；文本框右下角可拖拽放大</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn small primary" onclick="runCaSeqInput('hom','blastn')">▶ BLASTN</button>
           <button class="btn small primary" onclick="runCaSeqInput('hom','blastx')">▶ BLASTX</button>
@@ -2467,17 +2473,33 @@ const ANA_SCOPES = {
   hom: { run: 'homRun', wrap: 'homResult', title: 'homTitle', body: 'homBody' },
 };
 
-/* 直接输入序列模式：从文件/粘贴读取 FASTA，或运行 4 件套分析（无需选运行） */
-function caSeqFromPaste(fileId) {
+/* 直接输入序列模式：「📋 粘贴」按钮 = 把剪贴板内容填进下方大文本框；
+   也兼容「序列被误粘到上方文件路径框」的情况（自动搬下来）。
+   文本框本身支持 Ctrl+V 多行粘贴，右下角可拖拽放大。 */
+const CA_SEQ_TEXT = { cddSeqIn: 'cddSeqText', homSeqIn: 'homSeqText' };
+async function caSeqFromPaste(fileId) {
   const inp = $(fileId);
-  if (!inp) return;
-  let text = inp.value.trim();
-  if (!text || (!text.startsWith('>') && !text.includes('\n'))) {
-    alert('请先在文件输入框选择文件，或在下方文本框粘贴序列'); return;
+  const ta = $(CA_SEQ_TEXT[fileId]);
+  if (!ta) return;
+  // ① 路径框里已是序列文本（> 开头 / 多行）→ 搬到下方文本框
+  const raw = (inp?.value || '').trim();
+  if (raw.startsWith('>') || raw.includes('\n')) {
+    ta.value = raw;
+    if (inp) inp.value = '';
+    toast('已移入下方序列文本框', ta.id, { ttl: 2500 });
+    ta.focus();
+    return;
   }
-  // 若输入框是路径而非序列，尝试按路径读取
-  if (!text.startsWith('>')) {
-    toast('已在下方文本框填入序列，请确认后运行', fileId, {ttl: 3000});
+  // ② 读剪贴板（localhost/https 下浏览器允许）
+  try {
+    const t = ((await navigator.clipboard.readText()) || '').trim();
+    if (!t) { ta.focus(); alert('剪贴板为空，请直接在大文本框内 Ctrl+V 粘贴'); return; }
+    ta.value = ta.value.trim() ? ta.value.replace(/\s*$/, '\n') + t : t;
+    toast('已粘贴剪贴板内容', t.replace(/\s/g, '').length + ' 字符', { ttl: 2500 });
+    ta.focus();
+  } catch (e) {
+    ta.focus();
+    alert('浏览器不允许读取剪贴板，请直接在下方大文本框内 Ctrl+V 粘贴');
   }
 }
 function runCaSeqInput(scope, presetAction) {

@@ -204,26 +204,47 @@ function autoscrollLogs() {
 
 // ---------------- 粘贴序列输入 ----------------
 /* pasteSeq(inputId, ext)：弹出粘贴对话框，确认后写入 uploads/ 并回填路径。
-   ext: '.fasta' | '.fastq' | '.tsv' */
+   ext: '.fasta' | '.fastq' | '.tsv' | '.txt'
+   宽屏大文本框（约 1040px 宽 / 22 行高，可拖拽放大、窗口矮时自动收缩）：长序列/多记录 FASTA
+   粘贴时不再挤压在窄框里；实时显示字符数与记录数，Ctrl+Enter 确认、Esc 取消。 */
 function pasteSeq(inputId, ext) {
   ext = ext || '.fasta';
   var mask = document.createElement('div');
   mask.className = 'dlgmask';
   mask.style.zIndex = 300;
   var isFq = ext === '.fastq' || ext === '.fq';
-  var fmtHint = isFq ? 'FASTQ（@ 开头）' : 'FASTA（> 开头）';
-  mask.innerHTML = '<div class="dlg" style="width:640px">' +
+  var isFa = !isFq && ['.fasta', '.fa', '.fna', '.fas', '.faa'].indexOf(ext) >= 0;
+  var fmtHint = isFq ? 'FASTQ（@ 开头）' : (isFa ? 'FASTA（> 开头）' : '文本');
+  var phHint = isFq ? 'FASTQ' : (isFa ? 'FASTA' : '文本');
+  mask.innerHTML = '<div class="dlg" style="width:min(1040px,94vw)">' +
     '<div class="dlghead"><b>📋 粘贴' + fmtHint + ' 序列</b>' +
     '<button class="btn small" onclick="this.closest(\'.dlgmask\').remove()">✕</button></div>' +
-    '<textarea id="pasteTA" rows="14" style="width:calc(100% - 32px);margin:10px 16px;' +
-    'font-family:monospace;font-size:11.5px;border:1px solid #ddd;border-radius:4px;' +
-    'padding:8px;resize:vertical" placeholder="粘贴 ' + fmtHint + ' 序列文本…"></textarea>' +
-    '<div style="padding:0 16px 12px;text-align:right">' +
+    '<textarea id="pasteTA" rows="22" spellcheck="false" style="width:calc(100% - 32px);margin:10px 16px 6px;' +
+    'flex:1 1 auto;min-height:240px;font-family:var(--mono);font-size:12.5px;line-height:1.55;border:1px solid #ddd;' +
+    'border-radius:6px;padding:10px 12px;resize:vertical" placeholder="粘贴 ' + phHint + ' 序列文本…"></textarea>' +
+    '<div style="padding:0 16px;display:flex;justify-content:space-between;align-items:center;gap:12px">' +
+    '<span class="hint" id="pasteStat" style="margin:0">0 字符</span>' +
+    '<span class="hint" style="margin:0">Ctrl+Enter 确认 · Esc 取消</span></div>' +
+    '<div style="padding:8px 16px 12px;text-align:right">' +
     '<button class="btn small" onclick="this.closest(\'.dlgmask\').remove()">取消</button> ' +
     '<button class="btn small primary" id="pasteOk">✓ 确认粘贴</button></div></div>';
   document.body.appendChild(mask);
-  mask.querySelector('#pasteTA').focus();
-  mask.querySelector('#pasteOk').addEventListener('click', function() {
+  var ta = mask.querySelector('#pasteTA');
+  var stat = mask.querySelector('#pasteStat');
+  var ok = mask.querySelector('#pasteOk');
+  function updStat() {
+    var v = ta.value;
+    var n = v.replace(/\s/g, '').length;
+    var recs = (v.match(/^[>@]/gm) || []).length;
+    stat.textContent = n.toLocaleString() + ' 字符' + (recs ? ' · ' + recs + ' 条记录' : '');
+  }
+  ta.addEventListener('input', updStat);
+  ta.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); ok.click(); }
+    else if (e.key === 'Escape') { e.preventDefault(); mask.remove(); }
+  });
+  ta.focus();
+  ok.addEventListener('click', function() {
     var text = mask.querySelector('#pasteTA').value.trim();
     if (!text) { alert('请粘贴序列内容'); return; }
     var btn = this;
