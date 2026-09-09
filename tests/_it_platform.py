@@ -288,12 +288,17 @@ def main():
     check(any(f['path'].endswith('.html') and f['kind'] == 'html'
               for f in _lgan),
           f'LOGAN 示例报告可按 html 内联预览（{len(_lgan)} 个产物）')
+    _r = c.get('/api/examples/synteny')
+    _syn = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
+    check(any(f['path'].endswith('.png') for f in _syn) and
+          any(f['path'].endswith('.html') for f in _syn),
+          f'共线性比较示例含图与报告（{len(_syn)} 个产物）')
     _man = json.load(open(_os.path.join(EX, 'results', 'manifest.json'),
                           encoding='utf-8'))
     _missing = [m for m in _man
                 if not _os.path.isdir(_os.path.join(EX, 'results', m))]
     check(not _missing, f'示例结果清单与目录一致（{len(_man)} 个模块）')
-    check(len(_man) >= 23, f'示例结果覆盖 ≥23 个模块（实际 {len(_man)}）')
+    check(len(_man) >= 26, f'示例结果覆盖 ≥26 个模块（实际 {len(_man)}）')
 
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')

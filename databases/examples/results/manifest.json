@@ -946,6 +946,20 @@
   },
   "title": "结构比较"
  },
+ "synteny": {
+  "files": [
+   "compare.html",
+   "compare.png",
+   "compare.svg",
+   "gene_clusters.tsv",
+   "genome_similarity.tsv",
+   "summary.json"
+  ],
+  "generated_at": "2026-09-10 00:05:26",
+  "note": "示例 3 个同属 GenBank：18 基因 → 6 个家族",
+  "source": "databases/examples/example_synteny_{A,B,C}.gb",
+  "title": "同属共线性比较（LoVis4u / 内置引擎）"
+ },
  "variant": {
   "files": [
    {

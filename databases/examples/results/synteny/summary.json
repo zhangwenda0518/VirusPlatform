@@ -1,0 +1,76 @@
+{
+  "name": null,
+  "dir": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny",
+  "files": {
+    "html": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.html",
+    "svg": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.svg",
+    "png": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.png",
+    "lovis4u_pdf": null,
+    "clusters": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\gene_clusters.tsv",
+    "similarity": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\genome_similarity.tsv",
+    "faa": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\cds_proteins.faa",
+    "m8": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\cds_allvsall.m8"
+  },
+  "n_genomes": 3,
+  "n_genes": 18,
+  "n_clusters": 6,
+  "n_singletons": 0,
+  "genomes": [
+    {
+      "acc": "example_synteny_A",
+      "organism": "Potexvirus example A",
+      "length": 3300,
+      "n_genes": 6,
+      "model": "CDS"
+    },
+    {
+      "acc": "example_synteny_B",
+      "organism": "Potexvirus example B",
+      "length": 3300,
+      "n_genes": 6,
+      "model": "CDS"
+    },
+    {
+      "acc": "example_synteny_C",
+      "organism": "Potexvirus example C",
+      "length": 3300,
+      "n_genes": 6,
+      "model": "CDS"
+    }
+  ],
+  "pairs": [
+    {
+      "a": "example_synteny_A",
+      "b": "example_synteny_B",
+      "shared": 6,
+      "frac_a": 1.0,
+      "frac_b": 1.0,
+      "ident": 92.46666666666667
+    },
+    {
+      "a": "example_synteny_A",
+      "b": "example_synteny_C",
+      "shared": 6,
+      "frac_a": 1.0,
+      "frac_b": 1.0,
+      "ident": 75.15
+    },
+    {
+      "a": "example_synteny_B",
+      "b": "example_synteny_C",
+      "shared": 6,
+      "frac_a": 1.0,
+      "frac_b": 1.0,
+      "ident": 69.83333333333333
+    }
+  ],
+  "warnings": [],
+  "params": {
+    "min_ident": 0.3,
+    "min_cov": 0.5,
+    "max_evalue": 0.001,
+    "mat_peptide": true,
+    "style": "lovis",
+    "lovis4u": false
+  }
+}

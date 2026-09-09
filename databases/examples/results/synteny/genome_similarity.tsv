@@ -1,0 +1,4 @@
+genome_a	genome_b	shared_families	shared_frac_a	shared_frac_b	mean_identity_pct
+example_synteny_A	example_synteny_B	6	1.000	1.000	92.5
+example_synteny_A	example_synteny_C	6	1.000	1.000	75.2
+example_synteny_B	example_synteny_C	6	1.000	1.000	69.8

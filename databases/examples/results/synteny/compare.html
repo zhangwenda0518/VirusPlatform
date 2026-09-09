@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<title>自备文件 · 同属共线性比较</title>
+<style>
+ body{font-family:"Microsoft YaHei",system-ui,sans-serif;margin:22px;color:#1f2937}
+ h1{font-size:20px;margin:0 0 6px} h2{font-size:16px;margin-top:22px}
+ .hint{color:#6b7280;font-size:12.5px;margin:4px 0 10px}
+ table{border-collapse:collapse;font-size:12.5px;margin-top:8px}
+ th,td{border:1px solid #e5e7eb;padding:3px 8px;text-align:left}
+ th{background:#f3f6fa}
+ .figbox{overflow:auto;border:1px solid #e5e7eb;border-radius:6px;
+          padding:10px;background:#fff}
+ .figbox svg{max-width:100%;height:auto}
+</style></head>
+<body>
+<h1>同属病毒共线性比较 — 自备文件</h1>
+<p class="hint">3 个基因组 · 18 个基因 · 6 个同源家族 ·
+阈值 identity≥30% / 双侧覆盖度≥50% / E≤0.001 · 生成于 2026-09-10 00:05<br>
+基因按产物功能类别着色（灰=未知/无同源），浅灰连线带=相邻基因组同源家族；
+<b>鼠标悬停基因</b>可查看产物/坐标/家族；矢量图 compare.svg 可直接用于论文排版。</p>
+<div class="figbox">
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="872.082084pt" height="284.9688pt" viewBox="0 0 872.082084 284.9688" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-10T00:05:25.985223</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.0, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 284.9688 
+L 872.082084 284.9688 
+L 872.082084 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 153.572785 55.292822 
+L 335.620193 55.292822 
+L 335.620193 127.055438 
+L 153.572785 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 261.934338 55.292822 
+L 443.981746 55.292822 
+L 443.981746 127.055438 
+L 261.934338 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 370.29589 55.292822 
+L 552.343298 55.292822 
+L 552.343298 127.055438 
+L 370.29589 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 478.657443 55.292822 
+L 660.704851 55.292822 
+L 660.704851 127.055438 
+L 478.657443 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 587.018995 55.292822 
+L 769.066403 55.292822 
+L 769.066403 127.055438 
+L 587.018995 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 695.380548 55.292822 
+L 877.427956 55.292822 
+L 877.427956 127.055438 
+L 695.380548 127.055438 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 153.572785 127.055438 
+L 335.620193 127.055438 
+L 335.620193 198.818053 
+L 153.572785 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 261.934338 127.055438 
+L 443.981746 127.055438 
+L 443.981746 198.818053 
+L 261.934338 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 370.29589 127.055438 
+L 552.343298 127.055438 
+L 552.343298 198.818053 
+L 370.29589 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 478.657443 127.055438 
+L 660.704851 127.055438 
+L 660.704851 198.818053 
+L 478.657443 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 587.018995 127.055438 
+L 769.066403 127.055438 
+L 769.066403 198.818053 
+L 587.018995 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 695.380548 127.055438 
+L 877.427956 127.055438 
+L 877.427956 198.818053 
+L 695.380548 198.818053 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #c9c9c9; opacity: 0.3"/>
+   </g>
+   <g id="line2d_1">
+    <path d="M 121.064319 55.292822 
+L 836.250566 55.292822 
+" clip-path="url(#p8ae464f651)" style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 121.064319 127.055438 
+L 836.250566 127.055438 
+" clip-path="url(#p8ae464f651)" style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 121.064319 198.818053 
+L 836.250566 198.818053 
+" clip-path="url(#p8ae464f651)" style="fill: none; stroke: #666666; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="g_example_synteny_A__0">
+    <path d="M 153.572785 75.386354 
+L 322.746841 75.386354 
+L 335.620193 55.292822 
+L 322.746841 35.199289 
+L 153.572785 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #aa0dfe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>RNA-dependent RNA polymerase · 复制与聚合 · example_synteny_A:151-990 (+) · 280 aa · 家族 GC00001 RNA-dependent RNA po（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_A__1">
+    <path d="M 261.934338 75.386354 
+L 431.108393 75.386354 
+L 443.981746 55.292822 
+L 431.108393 35.199289 
+L 261.934338 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #3283fe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 1 protein · 其他已知 · example_synteny_A:651-1490 (+) · 280 aa · 家族 GC00002 Triple gene block 1 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_A__2">
+    <path d="M 370.29589 75.386354 
+L 539.469946 75.386354 
+L 552.343298 55.292822 
+L 539.469946 35.199289 
+L 370.29589 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #85660d; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 2 protein · 其他已知 · example_synteny_A:1151-1990 (+) · 280 aa · 家族 GC00003 Triple gene block 2 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_A__3">
+    <path d="M 478.657443 75.386354 
+L 647.831498 75.386354 
+L 660.704851 55.292822 
+L 647.831498 35.199289 
+L 478.657443 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #782ab6; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 3 protein · 其他已知 · example_synteny_A:1651-2490 (+) · 280 aa · 家族 GC00004 Triple gene block 3 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_A__4">
+    <path d="M 587.018995 75.386354 
+L 756.193051 75.386354 
+L 769.066403 55.292822 
+L 756.193051 35.199289 
+L 587.018995 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #565656; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Coat protein · 外壳蛋白 · example_synteny_A:2151-2990 (+) · 280 aa · 家族 GC00005 Coat protein（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_A__5">
+    <path d="M 695.380548 75.386354 
+L 864.554603 75.386354 
+L 877.427956 55.292822 
+L 864.554603 35.199289 
+L 695.380548 35.199289 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #1c8356; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Nucleic acid-binding protein · 其他已知 · example_synteny_A:2651-3490 (+) · 280 aa · 家族 GC00006 Nucleic acid-binding（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__0">
+    <path d="M 153.572785 147.14897 
+L 322.746841 147.14897 
+L 335.620193 127.055438 
+L 322.746841 106.961905 
+L 153.572785 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #aa0dfe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>RNA-dependent RNA polymerase · 复制与聚合 · example_synteny_B:151-990 (+) · 280 aa · 家族 GC00001 RNA-dependent RNA po（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__1">
+    <path d="M 261.934338 147.14897 
+L 431.108393 147.14897 
+L 443.981746 127.055438 
+L 431.108393 106.961905 
+L 261.934338 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #3283fe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 1 protein · 其他已知 · example_synteny_B:651-1490 (+) · 280 aa · 家族 GC00002 Triple gene block 1 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__2">
+    <path d="M 370.29589 147.14897 
+L 539.469946 147.14897 
+L 552.343298 127.055438 
+L 539.469946 106.961905 
+L 370.29589 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #85660d; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 2 protein · 其他已知 · example_synteny_B:1151-1990 (+) · 280 aa · 家族 GC00003 Triple gene block 2 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__3">
+    <path d="M 478.657443 147.14897 
+L 647.831498 147.14897 
+L 660.704851 127.055438 
+L 647.831498 106.961905 
+L 478.657443 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #782ab6; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 3 protein · 其他已知 · example_synteny_B:1651-2490 (+) · 280 aa · 家族 GC00004 Triple gene block 3 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__4">
+    <path d="M 587.018995 147.14897 
+L 756.193051 147.14897 
+L 769.066403 127.055438 
+L 756.193051 106.961905 
+L 587.018995 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #565656; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Coat protein · 外壳蛋白 · example_synteny_B:2151-2990 (+) · 280 aa · 家族 GC00005 Coat protein（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_B__5">
+    <path d="M 695.380548 147.14897 
+L 864.554603 147.14897 
+L 877.427956 127.055438 
+L 864.554603 106.961905 
+L 695.380548 106.961905 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #1c8356; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Nucleic acid-binding protein · 其他已知 · example_synteny_B:2651-3490 (+) · 280 aa · 家族 GC00006 Nucleic acid-binding（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__0">
+    <path d="M 153.572785 218.911586 
+L 322.746841 218.911586 
+L 335.620193 198.818053 
+L 322.746841 178.724521 
+L 153.572785 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #aa0dfe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>RNA-dependent RNA polymerase · 复制与聚合 · example_synteny_C:151-990 (+) · 280 aa · 家族 GC00001 RNA-dependent RNA po（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__1">
+    <path d="M 261.934338 218.911586 
+L 431.108393 218.911586 
+L 443.981746 198.818053 
+L 431.108393 178.724521 
+L 261.934338 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #3283fe; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 1 protein · 其他已知 · example_synteny_C:651-1490 (+) · 280 aa · 家族 GC00002 Triple gene block 1 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__2">
+    <path d="M 370.29589 218.911586 
+L 539.469946 218.911586 
+L 552.343298 198.818053 
+L 539.469946 178.724521 
+L 370.29589 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #85660d; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 2 protein · 其他已知 · example_synteny_C:1151-1990 (+) · 280 aa · 家族 GC00003 Triple gene block 2 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__3">
+    <path d="M 478.657443 218.911586 
+L 647.831498 218.911586 
+L 660.704851 198.818053 
+L 647.831498 178.724521 
+L 478.657443 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #782ab6; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Triple gene block 3 protein · 其他已知 · example_synteny_C:1651-2490 (+) · 280 aa · 家族 GC00004 Triple gene block 3 （3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__4">
+    <path d="M 587.018995 218.911586 
+L 756.193051 218.911586 
+L 769.066403 198.818053 
+L 756.193051 178.724521 
+L 587.018995 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #565656; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Coat protein · 外壳蛋白 · example_synteny_C:2151-2990 (+) · 280 aa · 家族 GC00005 Coat protein（3 基因/3基因组）</title></path
+   </g>
+   <g id="g_example_synteny_C__5">
+    <path d="M 695.380548 218.911586 
+L 864.554603 218.911586 
+L 877.427956 198.818053 
+L 864.554603 178.724521 
+L 695.380548 178.724521 
+z
+" clip-path="url(#p8ae464f651)" style="fill: #1c8356; stroke: #303030; stroke-width: 0.7; stroke-linejoin: miter"><title>Nucleic acid-binding protein · 其他已知 · example_synteny_C:2651-3490 (+) · 280 aa · 家族 GC00006 Nucleic acid-binding（3 基因/3基因组）</title></path
+   </g>
+   <g id="text_1">
+    <text style="font-size: 7px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #8a8a8a" x="103.496484" y="37.154367" transform="rotate(-0 103.496484 37.154367)">1 - 3,300</text>
+   </g>
+   <g id="text_2">
+    <text style="font-style: italic; font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #1f1f1f" x="103.496484" y="54.630657" transform="rotate(-0 103.496484 54.630657)">Potexvirus example A</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #6b6b6b" x="103.496484" y="71.732967" transform="rotate(-0 103.496484 71.732967)">example_synteny_A</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 7px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #8a8a8a" x="103.496484" y="108.916983" transform="rotate(-0 103.496484 108.916983)">1 - 3,300</text>
+   </g>
+   <g id="text_5">
+    <text style="font-style: italic; font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #1f1f1f" x="103.496484" y="126.393273" transform="rotate(-0 103.496484 126.393273)">Potexvirus example B</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #6b6b6b" x="103.496484" y="143.495583" transform="rotate(-0 103.496484 143.495583)">example_synteny_B</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 7px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #8a8a8a" x="103.496484" y="180.679599" transform="rotate(-0 103.496484 180.679599)">1 - 3,300</text>
+   </g>
+   <g id="text_8">
+    <text style="font-style: italic; font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #1f1f1f" x="103.496484" y="198.155889" transform="rotate(-0 103.496484 198.155889)">Potexvirus example C</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #6b6b6b" x="103.496484" y="215.258199" transform="rotate(-0 103.496484 215.258199)">example_synteny_C</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="244.596489" y="27.550468" transform="rotate(-0 244.596489 27.550468)">RNA-dependent RNA polym…</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="352.958042" y="27.550468" transform="rotate(-0 352.958042 27.550468)">Triple gene block 1 pro…</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="461.319594" y="27.550468" transform="rotate(-0 461.319594 27.550468)">Triple gene block 2 pro…</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="569.681147" y="27.550468" transform="rotate(-0 569.681147 27.550468)">Triple gene block 3 pro…</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="678.042699" y="27.557645" transform="rotate(-0 678.042699 27.557645)">Coat protein</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="770.739506" y="27.550468" transform="rotate(-0 770.739506 27.550468)">Nucleic acid-binding pr…</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="244.596489" y="99.313083" transform="rotate(-0 244.596489 99.313083)">RNA-dependent RNA polym…</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="352.958042" y="99.313083" transform="rotate(-0 352.958042 99.313083)">Triple gene block 1 pro…</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="461.319594" y="99.313083" transform="rotate(-0 461.319594 99.313083)">Triple gene block 2 pro…</text>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="569.681147" y="99.313083" transform="rotate(-0 569.681147 99.313083)">Triple gene block 3 pro…</text>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="678.042699" y="99.320261" transform="rotate(-0 678.042699 99.320261)">Coat protein</text>
+   </g>
+   <g id="text_21">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="770.739506" y="99.313083" transform="rotate(-0 770.739506 99.313083)">Nucleic acid-binding pr…</text>
+   </g>
+   <g id="text_22">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="244.596489" y="171.075699" transform="rotate(-0 244.596489 171.075699)">RNA-dependent RNA polym…</text>
+   </g>
+   <g id="text_23">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="352.958042" y="171.075699" transform="rotate(-0 352.958042 171.075699)">Triple gene block 1 pro…</text>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="461.319594" y="171.075699" transform="rotate(-0 461.319594 171.075699)">Triple gene block 2 pro…</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="569.681147" y="171.075699" transform="rotate(-0 569.681147 171.075699)">Triple gene block 3 pro…</text>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="678.042699" y="171.082877" transform="rotate(-0 678.042699 171.082877)">Coat protein</text>
+   </g>
+   <g id="text_27">
+    <text style="font-size: 7.5px; font-family: 'Microsoft YaHei', 'SimHei', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #1f1f1f" x="770.739506" y="171.075699" transform="rotate(-0 770.739506 171.075699)">Nucleic acid-binding pr…</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p8ae464f651">
+   <rect x="112.482084" y="10.8" width="748.8" height="263.3688"/>
+  </clipPath>
+ </defs>
+</svg>
+
+</div>
+<h2>成对共享基因比例</h2>
+<p class="hint">A→B 列为 A 中落在两基因组共享家族里的基因占比（≥80% 提示可能为同种/亚种分化，
+40–80% 同属内近缘，明显更低则属内分化较远——经验参考，非 ICTV 划界标准）。</p>
+<table><tr><th>基因组 A</th><th>基因组 B</th><th>共享家族</th><th>A→B</th><th>B→A</th><th>平均一致性%</th></tr><tr><td>example_synteny_A</td><td>example_synteny_B</td><td>6</td><td>100%</td><td>100%</td><td>92.5</td></tr><tr><td>example_synteny_A</td><td>example_synteny_C</td><td>6</td><td>100%</td><td>100%</td><td>75.2</td></tr><tr><td>example_synteny_B</td><td>example_synteny_C</td><td>6</td><td>100%</td><td>100%</td><td>69.8</td></tr></table>
+<h2>基因家族明细</h2>
+<table><tr><th>家族</th><th>代表产物</th><th>基因数</th><th>基因组数</th><th>成员</th></tr><tr><td>GC00001</td><td>RNA-dependent RNA polymerase</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr><tr><td>GC00002</td><td>Triple gene block 1 protein</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr><tr><td>GC00003</td><td>Triple gene block 2 protein</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr><tr><td>GC00004</td><td>Triple gene block 3 protein</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr><tr><td>GC00005</td><td>Coat protein</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr><tr><td>GC00006</td><td>Nucleic acid-binding protein</td><td>3</td><td>3</td><td>example_synteny_A; example_synteny_B; example_synteny_C</td></tr></table>
+</body></html>

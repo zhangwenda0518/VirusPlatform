@@ -1,0 +1,7 @@
+cluster	representative	n_genes	n_genomes	members
+GC00001	RNA-dependent RNA polymerase	3	3	example_synteny_A|RNA-dependent RNA polymerase; example_synteny_B|RNA-dependent RNA polymerase; example_synteny_C|RNA-dependent RNA polymerase
+GC00002	Triple gene block 1 protein	3	3	example_synteny_A|Triple gene block 1 protein; example_synteny_B|Triple gene block 1 protein; example_synteny_C|Triple gene block 1 protein
+GC00003	Triple gene block 2 protein	3	3	example_synteny_A|Triple gene block 2 protein; example_synteny_B|Triple gene block 2 protein; example_synteny_C|Triple gene block 2 protein
+GC00004	Triple gene block 3 protein	3	3	example_synteny_A|Triple gene block 3 protein; example_synteny_B|Triple gene block 3 protein; example_synteny_C|Triple gene block 3 protein
+GC00005	Coat protein	3	3	example_synteny_A|Coat protein; example_synteny_B|Coat protein; example_synteny_C|Coat protein
+GC00006	Nucleic acid-binding protein	3	3	example_synteny_A|Nucleic acid-binding protein; example_synteny_B|Nucleic acid-binding protein; example_synteny_C|Nucleic acid-binding protein

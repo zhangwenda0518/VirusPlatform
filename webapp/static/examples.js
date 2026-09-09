@@ -281,7 +281,8 @@
     '/orf': 'orf', '/annotation': 'orfa', '/genome': 'genoplot',
     '/primer': 'primer', '/hostremoval': 'hostremoval',
     '/hostpredict': 'hostpredict',
-    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan'
+    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan',
+    't-synteny': 'synteny'
   };
 
   function resultModule(idOrPath) {
