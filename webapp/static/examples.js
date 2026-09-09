@@ -250,8 +250,11 @@
     't-convert': 'convert', 't-fastp': 'fastp', 't-identify': 'identify',
     't-assemble': 'assemble', 't-contigs': 'contigs', 't-verify': 'verify',
     't-align': 'align', 't-treebuild': 'quicktree', 't-sdt': 'sdt',
+    't-virchain': 'virchain', 't-kvchain': 'kvchain',
+    't-kvsuite': 'kvsuite', 't-consensus': 'consensus', 't-variant': 'variant',
     '/orf': 'orf', '/annotation': 'orfa', '/genome': 'genoplot',
-    '/primer': 'primer'
+    '/primer': 'primer', '/hostremoval': 'hostremoval',
+    '/hostpredict': 'hostpredict'
   };
 
   function resultModule(idOrPath) {
