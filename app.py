@@ -55,6 +55,7 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 from vp.web import (  # noqa: E402
     build as _bp_build,
     download as _bp_download,
+    examples_api as _bp_examples,
     io_api as _bp_io,
     logan as _bp_logan,
     meta as _bp_meta,
@@ -72,7 +73,8 @@ from vp.web import (  # noqa: E402
 # 顺序与拆分前的 app.py 区块顺序一致（便于对照回溯）
 for _bp in (_bp_pages, _bp_tool_results, _bp_refs, _bp_logan, _bp_io,
             _bp_samples, _bp_download, _bp_submit, _bp_meta,
-            _bp_settings, _bp_virome, _bp_tools, _bp_tasks, _bp_build):
+            _bp_settings, _bp_virome, _bp_tools, _bp_tasks, _bp_build,
+            _bp_examples):
     app.register_blueprint(_bp.bp)
 del _bp
 

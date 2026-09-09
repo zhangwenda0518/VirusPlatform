@@ -262,6 +262,17 @@ def main():
     check(_n_cmv == 3, f'CMV 示例含三分体（实际 {_n_cmv} 段）')
     check(_n_mix == 6, f'Mix All 示例含 6 条记录（实际 {_n_mix} 条）')
 
+    # 示例结果 API（只读 databases/examples/results/，与真实结果隔离）
+    _r = c.get('/api/examples')
+    _ex = _r.get_json() or []
+    check(_r.status_code == 200 and len(_ex) >= 10,
+          f'示例结果清单可用（{len(_ex)} 个模块）')
+    _r = c.get('/api/examples/orf')
+    _files = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
+    check(len(_files) > 0, f'示例结果详情可读（orf {len(_files)} 个产物）')
+    _r = c.get('/api/examples/orf/03_assembly/summary.json')
+    check(_r.status_code == 200, '示例结果单文件可取')
+
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')
     check(r.status_code == 200, 'app.js 静态资源 200')
