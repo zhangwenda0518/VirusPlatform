@@ -1,0 +1,30 @@
+Solemoviridae	NC_077216.1	6096	Polerovirus	Polerovirus PEVYV6	698400
+Geminiviridae	NC_075080.1	2678	Capulavirus	Capulavirus euphorbiae	1853865
+Tombusviridae	NC_075418.1	4991	Luteovirus	Luteovirus nucipersicae	2560614
+Alphaflexiviridae	NC_076132.1	5419	Potexvirus	Potexvirus colombiense	2843917
+Potyviridae	NC_076243.1	10071	Potyvirus	Potyvirus passifloramaculae	2490442
+Betaflexiviridae	NC_076603.1	8806	Foveavirus	Foveavirus betavii	2108357
+Secoviridae	NC_076635.1	11891	Waikavirus	Waikavirus trifolii	2315578
+Botourmiaviridae	NC_076731.1	2570	Penoulivirus	Penoulivirus malus	2709319
+Rhabdoviridae	NC_076978.1	9865	Gammacytorhabdovirus	Gammacytorhabdovirus gymnadeniae	3070916
+Tymoviridae	NC_077008.1	6245	Tymovirus	Tymovirus naranjillae	2073044
+Amesuviridae	NC_077014.1	2707	Yermavirus	Yermavirus ilicis	2219873
+Closteroviridae	NC_043106.1	10545	Closterovirus	Closterovirus nanobetae	35290
+Orthototiviridae	NC_040551.1	4993	Totivirus	Totivirus jyushi	2248770
+Amalgaviridae	NC_036580.1	3453	Amalgavirus	Amalgavirus allii	2058778
+Virgaviridae	NC_030229.1	6350	Tobamovirus	Tobamovirus tropici	327387
+Caulimoviridae	NC_026238.1	7836	Badnavirus	Badnavirus reterubi	198310
+Ourmiaviridae	BK067260.1	2822	Epsilonourmiavirus	Saffron associated botourmia-like virus	3135311
+Ambiguiviridae	MT317173.1	4392	Betambiguivirus	Rice Tombus-like virus 2	2735225
+Geplanaviridae	MN891803.1	2641	Riddikuvirus	Riddikuvirus forpesis	3432161
+Tospoviridae	NC_077825.1	8911	Orthotospovirus	Orthotospovirus callaflavi	309542
+Phenuiviridae	NC_078103.1	6691	Coguvirus	Coguvirus eburi	2484986
+Fimoviridae	NC_078366.1	7291	Emaravirus	Emaravirus perillae	2483037
+Kitaviridae	NC_078392.1	5811	Blunervirus	Blunervirus solani	2762435
+Bromoviridae	NC_078671.1	2529	Anulavirus	Anulavirus GLPV	2741672
+Mayoviridae	NC_055447.1	2713	Pteridovirus	Pteridovirus maydis	2497338
+Benyviridae	NC_038774.1	4657	Benyvirus	Benyvirus oryzae	373373
+Spinareoviridae	NC_037570.1	4501	Fijivirus	Fijivirus zeae	10989
+Aspiviridae	NC_036635.1	7963	Ophiovirus	Ophiovirus vaccinii	1520332
+Sedoreoviridae	NC_009243.1	3224	Phytoreovirus	Phytoreovirus betaoryzae	10986
+Konkoviridae	PQ490803.1	6339	Olpivirus	Freesia konkovirus 1	3378204
