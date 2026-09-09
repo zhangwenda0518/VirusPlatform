@@ -35,21 +35,19 @@ def _inject_lang():
     return {'lang': cfg.lang}
 
 
-_ASSET_V = None
-
-
 def _asset_version():
-    """静态资源版本号（取 app.js / i18n.js / app.css 的 mtime 最大值），模板引用带 ?v= 破缓存。"""
-    global _ASSET_V
-    if _ASSET_V is None:
-        mt = 0.0
-        for _f in ('app.js', 'i18n.js', 'app.css'):
-            try:
-                mt = max(mt, os.path.getmtime(os.path.join(_WWW, 'static', _f)))
-            except OSError:
-                pass
-        _ASSET_V = str(int(mt)) if mt else '1'
-    return _ASSET_V
+    """静态资源版本号（app.js / i18n.js / app.css 的 mtime 最大值），模板引用带 ?v= 破缓存。
+
+    每次请求都重算（3 次 getmtime，微秒级）：若缓存，运行中改了前端资源后
+    浏览器仍拿旧 ?v= 而命中自身缓存，必须重启服务才能生效。
+    """
+    mt = 0.0
+    for _f in ('app.js', 'i18n.js', 'app.css'):
+        try:
+            mt = max(mt, os.path.getmtime(os.path.join(_WWW, 'static', _f)))
+        except OSError:
+            pass
+    return str(int(mt)) if mt else '1'
 
 
 @bp.app_context_processor

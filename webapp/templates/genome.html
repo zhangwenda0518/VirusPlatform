@@ -150,6 +150,13 @@
         <div class="card" style="padding:14px;min-height:520px;position:sticky;top:14px">
           <div style="font-size:12.5px;font-weight:700;margin-bottom:8px;color:#1a5276" data-i18n="gn.secPreview">🔍 实时预览大屏</div>
           <div id="gp_preview" style="display:none">
+            <!-- linear 图原始宽可达 2000+px（gbdraw canvas.linear.width 固定 2000），
+                 侧栏直接显示必横向滚很长 → 默认「适应宽度」，需要看细节时切 100%/150%。 -->
+            <div id="gp_zoom" style="display:none;gap:4px;justify-content:flex-end;margin-bottom:6px">
+              <button class="btn small primary" data-zoom="fit" onclick="gpZoom('fit')" data-i18n="gn.zoomFit">适应宽度</button>
+              <button class="btn small" data-zoom="1" onclick="gpZoom(1)" data-i18n="gn.zoom100">100%</button>
+              <button class="btn small" data-zoom="1.5" onclick="gpZoom(1.5)" data-i18n="gn.zoom150">150%</button>
+            </div>
             <div id="gp_preview_body"><p class="hint" data-i18n="gn.previewHint">勾选「🪄 交互模式」并选择输入后，调参即在此实时预览。满意后点左栏「💾 保存结果」落盘。</p></div>
           </div>
           <div id="gp_preview_standby" style="color:#789;font-size:12.5px;padding:40px 10px;text-align:center">
@@ -251,6 +258,26 @@ function gpInteractiveToggle() {
 }
 
 let _gpPreviewTimer = null;
+let _gpSvg = null;            // 当前预览的内联 SVG
+let _gpZoomMode = 'fit';      // fit | 1 | 1.5
+function gpZoom(mode) {
+  /* 预览缩放：fit=按容器宽度缩放（不横向滚动）；1/1.5=按 viewBox 原始宽度放大。 */
+  _gpZoomMode = mode;
+  const zb = $('gp_zoom');
+  if (zb) zb.querySelectorAll('[data-zoom]').forEach(b =>
+    b.classList.toggle('primary', b.dataset.zoom === String(mode)));
+  if (!_gpSvg) return;
+  const vb = (_gpSvg.getAttribute('viewBox') || '').split(/\s+/);
+  const natW = vb.length === 4 ? parseFloat(vb[2]) : null;
+  _gpSvg.style.height = 'auto';
+  if (mode === 'fit' || !natW) {
+    _gpSvg.style.maxWidth = '100%';
+    _gpSvg.style.width = '100%';
+  } else {
+    _gpSvg.style.maxWidth = 'none';
+    _gpSvg.style.width = Math.round(natW * Number(mode)) + 'px';
+  }
+}
 function gpPreview() {
   if (!($('gp_interactive') && $('gp_interactive').checked)) return;
   if (!val('gp_fa') && !val('gp_ann')) { alert(t('gn.needInput', '请先选择 FASTA 或 GenBank 输入')); return; }
@@ -265,6 +292,14 @@ function gpPreview() {
       const d = await r.json();
       if (!r.ok) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + (d.error || r.status) + '</p>'; return; }
       body.innerHTML = '<div style="overflow:auto;background:#fff;border-radius:8px;padding:10px">' + d.svg + '</div>';
+      _gpSvg = body.querySelector('svg');
+      if (_gpSvg) {
+        _gpSvg.removeAttribute('width');       // 交给 gpZoom 控制宽度
+        _gpSvg.removeAttribute('height');
+        const zb = $('gp_zoom');
+        if (zb) zb.style.display = 'flex';
+        gpZoom(_gpZoomMode);
+      }
     } catch (e) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + e + '</p>'; }
   }, 500);
 }

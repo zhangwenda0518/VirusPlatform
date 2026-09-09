@@ -76,6 +76,11 @@ def main():
     check("fillExample('oa_fa')" in html, '注释页渲染含示例按钮')
     html = c.get('/genome').get_data(as_text=True)
     check('EXAMPLE_GENBANK_GB' in html, '图谱页渲染含示例 GenBank 按钮')
+    # 预览缩放：linear 图原始宽 2000+px（gbdraw canvas.linear.width 固定），
+    # 侧栏直接显示必横向滚很长，故默认「适应宽度」并给 100%/150% 切换。
+    check('id="gp_zoom"' in html and "gpZoom('fit')" in html
+          and 'data-zoom="1.5"' in html,
+          '图谱页预览含缩放控制（适应宽度 / 100% / 150%）')
     html = c.get('/primer').get_data(as_text=True)
     check('EXAMPLE_CONSERVED_FASTA' in html, '引物页渲染含模式感知示例按钮')
     js = open(os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
