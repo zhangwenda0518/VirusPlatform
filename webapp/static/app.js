@@ -3493,9 +3493,11 @@ async function sdtExactLoad() {
     const base = `/tool_runs/${encodeURIComponent(sdRun)}`;
     const names = sdData.names, m = sdData.matrix;
     const stype = (sdData.seqtype || 'nt').toUpperCase();
-    /* 交互热图：可切配色、悬浮看值、缩放（复用 examples.js 的 heatmap 渲染）。 */
-    const hasHM = !!(window.VPExamples && window.VPExamples.heatmap);
-    const csList = hasHM ? (window.VPExamples.colorscales || []) : [];
+    /* 交互热图：可切配色、悬浮看值、缩放（复用 examples.js 的 heatmap 渲染）。
+       只有 heatmap 渲染函数与配色表都就绪才走交互；否则回退静态 PNG。 */
+    const csList = (window.VPExamples && window.VPExamples.colorscales) || [];
+    const hasHM = !!(window.VPExamples && window.VPExamples.heatmap) &&
+                  csList.length > 0;
     const wantLbl = { sdt: 'RdYlBu', cividis: 'Cividis', viridis: 'Viridis',
                       'RdYlBu': 'RdYlBu', Spectral: 'Spectral', YlGnBu: 'YlGnBu',
                       coolwarm: 'coolwarm', magma: 'Magma' }[sdData.palette] || 'Viridis';
@@ -3518,7 +3520,15 @@ async function sdtExactLoad() {
         window.VPExamples.heatmap($('sdReadyHeat'), md, c[1], stype.toLowerCase());
       };
       if (sel) sel.addEventListener('change', sdDraw);
-      sdDraw();
+      try {
+        sdDraw();
+      } catch (e) {
+        /* 兜底：交互渲染失败时退回静态 PNG，绝不把错误抛给用户 */
+        $('sdExact').innerHTML = `
+          <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
+          <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
+             style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+      }
     } else {
       $('sdExact').innerHTML = `
         <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>

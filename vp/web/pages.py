@@ -42,7 +42,7 @@ def _asset_version():
     浏览器仍拿旧 ?v= 而命中自身缓存，必须重启服务才能生效。
     """
     mt = 0.0
-    for _f in ('app.js', 'i18n.js', 'app.css'):
+    for _f in ('app.js', 'i18n.js', 'app.css', 'examples.js'):
         try:
             mt = max(mt, os.path.getmtime(os.path.join(_WWW, 'static', _f)))
         except OSError:
