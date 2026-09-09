@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""真浏览器验证 t-cdd / t-hom 的「本地引擎」按钮链路（Playwright）。
+
+/tools 一次只显示一个二级模块，所以用 ?g=annotate#t-hom / #t-cdd 分别进入。
+覆盖：示例自动填入 → 引擎默认 local → 点 ▶ BLASTN / ▶ 运行 CDD →
+命中表出现且标注「本地库（离线）」。
+用法：python tests/_check_local_annot_ui.py
+"""
+import sys
+
+from playwright.sync_api import sync_playwright
+
+BASE = 'http://127.0.0.1:8765/tools?g=annotate'
+
+
+def _rows(pg, body_id):
+    pg.wait_for_selector(f'#{body_id} table tbody tr', timeout=300000)
+    return (pg.eval_on_selector_all(f'#{body_id} table tbody tr',
+                                    'els=>els.length'),
+            pg.inner_text(f'#{body_id}'))
+
+
+def main() -> int:
+    fails = []
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(headless=True)
+        pg = b.new_page(viewport={'width': 1600, 'height': 1000})
+        errs = []
+        pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
+        pg.on('pageerror', lambda e: errs.append(str(e)))
+
+        pg.goto(BASE, wait_until='domcontentloaded')
+        pg.evaluate("try{localStorage.setItem('vp_example_seen','1')}catch(e){}")
+
+        # ---------- t-hom（BLASTN 本地） ----------
+        pg.goto(BASE + '#t-hom', wait_until='domcontentloaded')
+        pg.wait_for_selector('#hom_engine', state='visible', timeout=30000)
+        v = pg.input_value('#hom_engine')
+        print(f'  hom_engine 默认 = {v}')
+        if v != 'local':
+            fails.append('hom_engine 默认不是 local')
+        pg.wait_for_function(
+            "() => { const t = document.getElementById('homSeqText');"
+            " return t && t.value.trim().length > 0; }", timeout=30000)
+        txt = pg.input_value('#homSeqText')
+        print(f'  homSeqText 自动填入 {len(txt)} 字符，首行 {txt.splitlines()[0][:40]!r}')
+        pg.click('#t-hom button:has-text("▶ BLASTN")')
+        rows, head = _rows(pg, 'homBody')
+        print(f'  BLASTN 命中 {rows} 行 · 表头含「本地库」: {"本地库" in head}')
+        if rows < 1 or '本地库' not in head:
+            fails.append('BLASTN 本地结果异常')
+        # 切到在线再切回（只验证选择器，不真跑在线）
+        pg.select_option('#hom_engine', 'online')
+        print(f'  切换在线后 = {pg.input_value("#hom_engine")}')
+        pg.select_option('#hom_engine', 'local')
+
+        # ---------- t-cdd（CDD 本地） ----------
+        # 注意：只改 hash 的 goto 是「同文档导航」，不会重新加载页面，
+        # 所以加一个变化的 query 参数强制真实导航。
+        pg.goto(BASE + '&_=2#t-cdd', wait_until='domcontentloaded')
+        pg.wait_for_selector('#cdd_engine', state='visible', timeout=30000)
+        print(f'  cdd_engine 默认 = {pg.input_value("#cdd_engine")}')
+        try:
+            pg.wait_for_function(
+                "() => { const t = document.getElementById('cddSeqText');"
+                " return t && t.value.trim().length > 0; }", timeout=15000)
+        except Exception:                          # noqa: BLE001
+            pg.click('#t-cdd .vp-ex-btn:has-text("✨ 示例")')
+            pg.wait_for_function(
+                "() => { const t = document.getElementById('cddSeqText');"
+                " return t && t.value.trim().length > 0; }", timeout=15000)
+        print(f'  cddSeqText 已填入 {len(pg.input_value("#cddSeqText"))} 字符')
+        pg.click('#t-cdd button:has-text("运行 CDD 域搜索")')
+        rows, head = _rows(pg, 'cddBody')
+        print(f'  CDD 命中 {rows} 行 · 表头含「本地库」: {"本地库" in head}')
+        print(f'  CDD 表头: {head.splitlines()[0][:120]}')
+        if rows < 1 or '本地库' not in head:
+            fails.append('CDD 本地结果异常')
+
+        if errs:
+            print('  控制台错误:')
+            for e in errs[:6]:
+                print('   ', e[:150])
+        b.close()
+    print('ALL OK' if not fails else 'FAILED: ' + ', '.join(fails))
+    return 0 if not fails else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,15 +1,17 @@
-"""为「在线」工具卡（t-cdd / t-hom）生成示例结果。
+# -*- coding: utf-8 -*-
+"""为「保守域注释（CDD）」与「同源比对（BLASTN · BLASTX）」生成示例结果。
 
-这两张卡走 NCBI 在线接口（Batch CD-Search / BLAST URL API），结果不落在
-tool_runs/<run>/ 里，而是缓存成 tool_runs/_seq_input/<contig>_<md5>/analysis/
-<contig>_<action>.json。本脚本用示例 contig 真跑一遍，把 JSON 固化到
-databases/examples/results/{cdd,hom}/，与真实数据隔离。
+默认走**本地引擎**（离线：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 /
+DIAMOND vs RefSeq 病毒蛋白库），秒级完成；`--engine online` 可改用 NCBI 在线
+（分钟级、需联网）。产物固化到 databases/examples/results/{cdd,hom}/，
+与真实运行结果隔离。
 
 用法（需平台已在 http://127.0.0.1:8765 运行）：
-    python tests/make_example_online.py
+    python tests/make_example_annot.py [--engine local|online]
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import io
 import json
@@ -24,7 +26,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('VP_BASE', 'http://127.0.0.1:8765')
 EX = os.path.join(ROOT, 'databases', 'examples')
 OUT = os.path.join(EX, 'results')
-CONTIGS = os.path.join(EX, 'example_viral_contigs.fasta')
+CONTIG_FA = os.path.join(EX, 'example_contig_1.fasta')
+
+TITLES = {
+    'cdd': '保守域与功能元件注释（CDD）',
+    'hom': '同源比对（BLASTN / BLASTX）',
+}
 
 
 def _post(path: str, payload: dict) -> dict:
@@ -40,7 +47,7 @@ def _get(path: str):
         return json.loads(r.read().decode('utf-8'))
 
 
-def first_record(path: str) -> tuple[str, str]:
+def first_record(path: str):
     name, buf = None, []
     for ln in io.open(path, encoding='utf-8'):
         ln = ln.strip()
@@ -53,11 +60,11 @@ def first_record(path: str) -> tuple[str, str]:
     return name, ''.join(buf)
 
 
-def run_one(contig: str, seq: str, action: str) -> str:
-    """提交在线分析并等待完成，返回缓存 JSON 的路径。"""
+def run_one(contig: str, seq: str, action: str, engine: str) -> str:
+    """提交分析并等待完成，返回缓存 JSON 路径。"""
     d = _post('/api/tool/analyze',
               {'run': '_seq_input', 'contig': contig, 'action': action,
-               'seq': seq})
+               'seq': seq, 'engine': engine})
     if d.get('error'):
         raise RuntimeError(f'{action}: 启动失败 {d["error"]}')
     tid = d.get('task')
@@ -72,46 +79,49 @@ def run_one(contig: str, seq: str, action: str) -> str:
                 break
             if st in ('failed', 'cancelled'):
                 raise RuntimeError(f'{action}: 任务 {st} {snap.get("error")}')
-            if time.time() - t0 > 900:
+            if time.time() - t0 > 3600:
                 raise RuntimeError(f'{action}: 超时')
             time.sleep(3)
         print(f'    {action}: 完成（{time.time() - t0:.0f}s）')
     key = hashlib.md5((contig + '|' + seq).encode('utf-8')).hexdigest()[:12]
     safe = re.sub(r'[^A-Za-z0-9_\-.]', '_', contig)[:30]
-    p = os.path.join(ROOT, 'tool_runs', '_seq_input', f'{safe}_{key}',
-                     'analysis', f'{safe}_{key}_{action}.json')
+    tag = '' if engine == 'online' else '_' + engine
+    stem = f'{safe}_{key}{tag}'
+    p = os.path.join(ROOT, 'tool_runs', '_seq_input', stem, 'analysis',
+                     f'{stem}_{action}.json')
     if not os.path.isfile(p):
         raise RuntimeError(f'{action}: 缓存文件不存在 {p}')
     return p
 
 
 def main() -> int:
-    if not os.path.isfile(CONTIGS):
-        print(f'缺少示例 contig 文件: {CONTIGS}')
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--engine', choices=('local', 'online'), default='local')
+    args = ap.parse_args()
+    if not os.path.isfile(CONTIG_FA):
+        print(f'缺少示例 contig 文件: {CONTIG_FA}')
         return 2
-    contig, seq = first_record(CONTIGS)
-    print(f'示例 contig: {contig} ({len(seq)} bp)')
+    contig, seq = first_record(CONTIG_FA)
+    print(f'示例 contig: {contig} ({len(seq)} bp) · 引擎: {args.engine}')
+
     jobs = [('cdd', 'cdd'), ('blastn', 'hom'), ('blastx', 'hom')]
-    made: dict[str, list[str]] = {}
+    made = {}
     for action, module in jobs:
         try:
-            src = run_one(contig, seq, action)
+            src = run_one(contig, seq, action, args.engine)
         except Exception as e:                       # noqa: BLE001
             print(f'  ! {action} 失败: {e}')
             continue
         dst_dir = os.path.join(OUT, module)
         os.makedirs(dst_dir, exist_ok=True)
-        dst = os.path.join(dst_dir, f'{contig}_{action}.json')
-        shutil.copy2(src, dst)
-        made.setdefault(module, []).append(os.path.basename(dst))
-        print(f'  → databases/examples/results/{module}/{os.path.basename(dst)}'
-              f'  ({os.path.getsize(dst) / 1024:.1f} KB)')
+        name = f'{contig}_{action}_{args.engine}.json'
+        shutil.copy2(src, os.path.join(dst_dir, name))
+        made.setdefault(module, []).append(name)
+        print(f'  → databases/examples/results/{module}/{name}'
+              f'  ({os.path.getsize(src) / 1024:.1f} KB)')
 
-    # 更新/写入 manifest 条目
     mp = os.path.join(OUT, 'manifest.json')
     man = json.load(io.open(mp, encoding='utf-8')) if os.path.isfile(mp) else {}
-    titles = {'cdd': '保守域与功能元件注释（CDD · NCBI 在线）',
-              'hom': '同源比对（BLASTN / BLASTX · NCBI 在线）'}
     for module, files in made.items():
         d = os.path.join(OUT, module)
         allf = []
@@ -120,11 +130,14 @@ def main() -> int:
                 allf.append(os.path.relpath(os.path.join(dirpath, n), d)
                             .replace('\\', '/'))
         man[module] = {
-            'title': titles.get(module, module),
+            'title': TITLES.get(module, module),
             'files': sorted(allf),
             'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'source': 'databases/examples/',
-            'note': 'NCBI 在线分析（示例 contig），结果已固化',
+            'source': 'databases/examples/example_contig_1.fasta',
+            'note': ('本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / '
+                     'DIAMOND vs RefSeq 病毒蛋白库'
+                     if args.engine == 'local' else
+                     'NCBI 在线（CD-Search / BLASTN / BLASTX）'),
         }
     with io.open(mp, 'w', encoding='utf-8') as f:
         json.dump(man, f, ensure_ascii=False, indent=1, sort_keys=True)

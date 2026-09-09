@@ -100,12 +100,12 @@
  },
  "cdd": {
   "files": [
-   "example_contig_1_cdd.json"
+   "example_contig_1_cdd_local.json"
   ],
-  "generated_at": "2026-09-09 23:55:38",
-  "note": "NCBI 在线分析（示例 contig），结果已固化",
-  "source": "databases/examples/",
-  "title": "保守域与功能元件注释（CDD · NCBI 在线）"
+  "generated_at": "2026-09-10 00:51:42",
+  "note": "本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / DIAMOND vs RefSeq 病毒蛋白库",
+  "source": "databases/examples/example_contig_1.fasta",
+  "title": "保守域与功能元件注释（CDD）"
  },
  "consensus": {
   "files": [
@@ -315,12 +315,13 @@
  },
  "hom": {
   "files": [
-   "example_contig_1_blastn.json"
+   "example_contig_1_blastn_local.json",
+   "example_contig_1_blastx_local.json"
   ],
-  "generated_at": "2026-09-09 23:55:38",
-  "note": "NCBI 在线分析（示例 contig），结果已固化",
-  "source": "databases/examples/",
-  "title": "同源比对（BLASTN / BLASTX · NCBI 在线）"
+  "generated_at": "2026-09-10 00:51:42",
+  "note": "本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / DIAMOND vs RefSeq 病毒蛋白库",
+  "source": "databases/examples/example_contig_1.fasta",
+  "title": "同源比对（BLASTN / BLASTX）"
  },
  "hostpredict": {
   "files": [

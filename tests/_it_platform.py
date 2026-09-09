@@ -300,6 +300,38 @@ def main():
     check(not _missing, f'示例结果清单与目录一致（{len(_man)} 个模块）')
     check(len(_man) >= 26, f'示例结果覆盖 ≥26 个模块（实际 {len(_man)}）')
 
+    # ---------- 3f. 本地比对引擎（离线：blastn / DIAMOND / mmseqs2） ----------
+    from vp.local_search import engine_status as _eng_status
+    _st = _eng_status()
+    check(bool(_st.get('ok')), '本地 blastn 就绪（病毒参考核酸库 + BLAST+）')
+    check(bool(_st.get('ok_blastx')), '本地 DIAMOND blastx 就绪（viral_prot.dmnd）')
+    check(bool(_st.get('ok_cdd')), '本地 CDD 就绪（mmseqs2 + cdd_db）')
+    check('cdd_engine' in hv and 'hom_engine' in hv and
+          'value="local" selected' in hv,
+          '前端可切换本地 / 在线引擎（cdd_engine / hom_engine）')
+    _seq1 = ''.join(
+        ln.strip() for ln in open(_os.path.join(EX, 'example_contig_1.fasta'),
+                                  encoding='utf-8')
+        if ln.strip() and not ln.startswith('>'))
+    _r = c.get('/api/tool/analysis',
+               query_string={'contig': 'example_contig_1', 'action': 'blastn',
+                             'engine': 'local', 'seq': _seq1})
+    _bl = _r.get_json() or {}
+    check(_r.status_code == 200 and _bl.get('engine') == 'local' and
+          len(_bl.get('hits') or []) > 0,
+          f"本地 blastn 结果可经 API 读取（{len(_bl.get('hits') or [])} 条命中）")
+    for _mod, _fn, _key in (('cdd', 'example_contig_1_cdd_local.json', 'coord'),
+                            ('hom', 'example_contig_1_blastx_local.json', None)):
+        _p = _os.path.join(EX, 'results', _mod, _fn)
+        check(_os.path.isfile(_p), f'本地示例产物存在: {_mod}/{_fn}')
+        _d = json.load(open(_p, encoding='utf-8'))
+        check(_d.get('engine') == 'local' and len(_d.get('hits') or []) > 0,
+              f"{_mod}/{_fn}: engine=local 且有命中"
+              f"（{len(_d.get('hits') or [])} 条）")
+        if _key:
+            check(_d.get(_key) == 'nt' and _d.get('query_len'),
+                  '本地 CDD 用核酸坐标（coord=nt + query_len）')
+
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')
     check(r.status_code == 200, 'app.js 静态资源 200')

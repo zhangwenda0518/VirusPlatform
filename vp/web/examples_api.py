@@ -20,6 +20,7 @@ from vp.utils import check_path
 bp = Blueprint('examples', __name__)
 
 EXR = os.path.join(PLATFORM_ROOT, 'databases', 'examples', 'results')
+EX_IN = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
 
 # 可内联预览的文本类扩展名（其余按下载/图片处理）
 _TEXT_EXT = {'.json', '.tsv', '.csv', '.txt', '.md', '.nwk', '.gff', '.gff3',
@@ -95,6 +96,20 @@ def api_example(module):
                     'run': man.get('run', ''),
                     'generated_at': man.get('generated_at', ''),
                     'files': files})
+
+
+@bp.route('/api/example_input/<path:name>')
+def api_example_input(name):
+    """取示例**输入**文件（databases/examples/ 下，只读）。
+
+    前端「✨ 示例」需要把示例 FASTA 正文填进 textarea（CDD / BLAST 走粘贴入口、
+    LOGAN 粘贴框），而 databases/ 不经 HTTP 暴露，故单开只读路由。
+    """
+    p = check_path(os.path.join(EX_IN, name), must_exist=True,
+                   in_platform=True)
+    if not os.path.isfile(p):
+        abort(404, '示例输入不存在')
+    return send_file(p)
 
 
 @bp.route('/api/examples/<module>/<path:filename>')

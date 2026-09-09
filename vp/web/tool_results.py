@@ -49,6 +49,20 @@ def _analysis_out(run_dir, contig, action):
     return check_path(p, must_exist=False, in_platform=True)
 
 
+# contig 分析引擎：本地（离线内置库，默认） / 在线（NCBI）
+_ENGINES = ('local', 'online')
+
+
+def _norm_engine(raw):
+    e = (raw or 'local').strip().lower()
+    return e if e in _ENGINES else 'local'
+
+
+def _engine_tag(engine):
+    """结果文件名后缀：在线沿用旧名（兼容历史缓存），本地加 _local。"""
+    return '' if engine == 'online' else '_' + engine
+
+
 @bp.route('/api/tool/viral_contigs')
 def api_tool_viral_contigs():
     """某次 contigs 运行的病毒 contig 分类表（metabuli 风格列）。"""
@@ -890,6 +904,8 @@ def api_tool_analysis():
     contig = request.args.get('contig') or ''
     action = request.args.get('action') or ''
     seq = (request.args.get('seq') or '').strip()
+    engine = _norm_engine(request.args.get('engine'))
+    tag = _engine_tag(engine)
     if not contig or action not in ('blastn', 'blastx', 'cdd', 'primer'):
         abort(400, '参数不完整')
     # 直接用字符串序列查询（seq 输入的伪 run 缓存）
@@ -897,15 +913,16 @@ def api_tool_analysis():
         import hashlib as _hl
         _key = _hl.md5((contig + '|' + seq).encode('utf-8')).hexdigest()[:12]
         _safe = re.sub(r'[^A-Za-z0-9_\-.]', '_', contig)[:30]
-        run_dir = os.path.join(_tool_runs_root(), '_seq_input', _safe + '_' + _key)
+        run_dir = os.path.join(_tool_runs_root(), '_seq_input',
+                               _safe + '_' + _key + tag)
         run_dir = check_path(run_dir, must_exist=True, in_platform=True)
-        p = _analysis_out(run_dir, _safe + '_' + _key, action)
+        p = _analysis_out(run_dir, _safe + '_' + _key + tag, action)
     else:
         if not run or not re.fullmatch(r'[A-Za-z0-9_\-]+', run):
             abort(400, '无效的运行名')
         run_dir = check_path(os.path.join(_tool_runs_root(), run),
                              must_exist=True, in_platform=True)
-        p = _analysis_out(run_dir, contig, action)
+        p = _analysis_out(run_dir, contig + tag, action)
     if not os.path.isfile(p):
         abort(404, '该分析尚未运行')
     with safe_open(p) as f:
@@ -916,9 +933,11 @@ def api_tool_analysis():
 def api_tool_analyze():
     """单 contig 深度分析四件套：blastn / blastx / cdd / primer。
 
-    body: {run, contig, action}
-    NCBI 在线分析走 vp.contig_annot（域名白名单 + IP 校验），
-    结果缓存为 run/analysis/<contig>_<action>.json。
+    body: {run, contig, action, seq?, engine?}
+      engine=local（默认）→ 本地内置库（vp.local_search：blastn 病毒参考库 /
+        DIAMOND vs viral_prot / mmseqs2 vs CDD），离线、秒级；
+      engine=online → NCBI 在线（vp.contig_annot，域名白名单 + IP 校验）。
+    结果缓存为 run/analysis/<contig>[_local]_<action>.json。
     """
     body = request.get_json(force=True) or {}
     run = body.get('run') or ''
@@ -926,6 +945,8 @@ def api_tool_analyze():
     action = body.get('action') or ''
     seq = (body.get('seq') or '').strip()
     in_seq = seq  # 供闭包安全读取（避免 UnboundLocalError）
+    engine = _norm_engine(body.get('engine'))
+    tag = _engine_tag(engine)
     if action not in ('blastn', 'blastx', 'cdd', 'primer'):
         abort(400, '无效的分析类型')
     if not run or not contig:
@@ -938,7 +959,7 @@ def api_tool_analyze():
         import hashlib as _hl
         _key = _hl.md5((contig + '|' + seq).encode('utf-8')).hexdigest()[:12]
         contig = re.sub(r'[^A-Za-z0-9_\-.]', '_', contig)[:30]
-        _used_for_cache = contig + '_' + _key
+        _used_for_cache = contig + '_' + _key + tag
         run_dir = os.path.join(run_dir, _used_for_cache)
         os.makedirs(run_dir, exist_ok=True)
         out_path = _analysis_out(run_dir, _used_for_cache, action)
@@ -947,7 +968,7 @@ def api_tool_analyze():
             abort(400, '无效的运行名')
         run_dir = check_path(os.path.join(_tool_runs_root(), run),
                              must_exist=True, in_platform=True)
-        out_path = _analysis_out(run_dir, contig, action)
+        out_path = _analysis_out(run_dir, contig + tag, action)
     if os.path.isfile(out_path):
         return jsonify({'task': None, 'cached': True})
 
@@ -973,6 +994,29 @@ def api_tool_analyze():
             result = {'action': 'primer', 'contig': contig,
                       'length': len(seq), 'primers': pairs}
 
+        elif engine == 'local':
+            from vp import local_search as ls
+            qfa = os.path.join(run_dir, f'query_{action}.fasta')
+            with safe_open(qfa, 'wt') as f:
+                f.write(f'>{contig}\n{seq}\n')
+            if action == 'cdd':
+                prog('cdd', 0.4, 'mmseqs2 搜索本地 CDD 库（离线，translated）')
+                res = ls.cdd_local(qfa, run_dir, threads=cfg.threads,
+                                   logger=logger)
+                result = {'action': 'cdd', 'contig': contig, 'engine': 'local',
+                          'coord': res.get('coord'),
+                          'query_len': res.get('query_len'),
+                          'orf_len_aa': res.get('orf_len_aa'),
+                          'db': res.get('db'), 'hits': res['hits']}
+            else:
+                prog(action, 0.4, ('本地 blastn vs 病毒参考核酸库（离线）'
+                                   if action == 'blastn' else
+                                   '本地 DIAMOND blastx vs RefSeq 病毒蛋白库（离线）'))
+                fn = ls.blastn_local if action == 'blastn' else ls.blastx_local
+                hits = fn(qfa, run_dir, threads=cfg.threads, logger=logger)
+                result = {'action': action, 'contig': contig, 'engine': 'local',
+                          'hits': hits}
+
         elif action == 'cdd':
             prog('orf', 0.3, '6-frame 翻译取最长 ORF')
             prot = ca.longest_orf_protein(seq)
@@ -981,7 +1025,7 @@ def api_tool_analyze():
             prog('cdd', 0.5, '提交 NCBI CDD（数分钟，耐心等待）')
             cdsid = ca.submit_cdd(f'>{contig}\n{prot}\n')
             hits = ca.poll_cdd(cdsid, cancel=cancel)
-            result = {'action': 'cdd', 'contig': contig,
+            result = {'action': 'cdd', 'contig': contig, 'engine': 'online',
                       'orf_len_aa': len(prot), 'hits': hits}
 
         else:  # blastn / blastx（NCBI URL API，virus-restricted）
@@ -991,8 +1035,8 @@ def api_tool_analyze():
                 f'>{contig}\n{seq}\n', entrez_query='viruses[Organism]')
             prog('poll', 0.5, f'NCBI 任务 {rid} 运行中')
             hits = ca.poll_blast(rid, cancel=cancel)
-            result = {'action': action, 'contig': contig, 'rid': rid,
-                      'hits': hits}
+            result = {'action': action, 'contig': contig, 'engine': 'online',
+                      'rid': rid, 'hits': hits}
 
         with safe_open(out_path, 'wt') as f:
             json.dump(result, f, ensure_ascii=False, indent=1)
@@ -1004,3 +1048,41 @@ def api_tool_analyze():
                          f'Contig {action} {contig[:30]}'), job,
                    log_file=os.path.join(run_dir, 'run.log'))
     return jsonify({'task': tid, 'cached': False})
+
+
+# ------------------------------------------------------------------
+# 引物库（只读浏览）：PCR / qPCR 引物在物种基因组上的位置与评分
+# 数据源为平台外只读 TSV，见 vp/primer_library.py
+# ------------------------------------------------------------------
+@bp.route('/api/tool/primer_species')
+def api_tool_primer_species():
+    """引物库物种聚合列表：?q= 关键词（物种名/科/属）&limit= 条数。"""
+    from vp import primer_library as _pl
+    q = (request.args.get('q') or '').strip()
+    try:
+        limit = int(request.args.get('limit') or 200)
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(1, min(limit, 2000))
+    try:
+        rows, total = _pl.search_species(q, limit=limit)
+        return jsonify({'rows': rows, 'total': total, 'q': q,
+                        'stats': _pl.stats()})
+    except FileNotFoundError:
+        abort(404, '引物库数据文件不存在，请检查配置路径')
+
+
+@bp.route('/api/tool/primer_library')
+def api_tool_primer_library():
+    """单物种引物明细：?species= 物种名（全名精确匹配）。"""
+    from vp import primer_library as _pl
+    sp = (request.args.get('species') or '').strip()
+    if not sp:
+        abort(400, '请提供物种名')
+    try:
+        d = _pl.get_species(sp)
+    except FileNotFoundError:
+        abort(404, '引物库数据文件不存在，请检查配置路径')
+    if not d:
+        abort(404, '该物种在引物库中无 PCR / qPCR 引物')
+    return jsonify(d)

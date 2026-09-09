@@ -1052,9 +1052,16 @@
           style="width:100%;min-height:220px;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin-top:6px;padding:10px 12px;resize:vertical;border-radius:6px"
           placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
         <div class="hint" style="margin:4px 0 0" data-i18n="tk.pasteBoxHint">可直接 Ctrl+V 粘贴多行 FASTA / 纯序列；文本框右下角可拖拽放大</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+          <span class="hint" style="margin:0" data-i18n="tk.engineLbl">引擎</span>
+          <select id="cdd_engine" style="min-width:270px">
+            <option value="local" selected data-i18n="tk.engLocalCdd">本地 mmseqs2 vs CDD 库（离线，秒级）</option>
+            <option value="online" data-i18n="tk.engOnlineCdd">在线 NCBI CD-Search（需联网，分钟级）</option>
+          </select>
+        </div>
         <div style="margin-top:8px">
           <button class="btn small primary" onclick="runCaSeqInput('cdd')" data-i18n="tk.runCdd">▶ 运行 CDD 域搜索</button>
-          <span class="hint" style="margin-left:8px">对输入序列做 CDD（6-frame 翻译取最长 ORF ≥50aa）</span>
+          <span class="hint" style="margin-left:8px" data-i18n="tk.cddRunHint">本地：mmseqs2 translated search vs CDD 库；在线：6-frame 翻译取最长 ORF ≥50aa 提交 NCBI</span>
         </div>
       </div>
     </details>
@@ -1096,10 +1103,17 @@
           style="width:100%;min-height:220px;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin-top:6px;padding:10px 12px;resize:vertical;border-radius:6px"
           placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="tk.phContigSeq"></textarea>
         <div class="hint" style="margin:4px 0 0" data-i18n="tk.pasteBoxHint">可直接 Ctrl+V 粘贴多行 FASTA / 纯序列；文本框右下角可拖拽放大</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+          <span class="hint" style="margin:0" data-i18n="tk.engineLbl">引擎</span>
+          <select id="hom_engine" style="min-width:270px">
+            <option value="local" selected data-i18n="tk.engLocalHom">本地 DIAMOND + 病毒参考库（离线，秒级）</option>
+            <option value="online" data-i18n="tk.engOnlineHom">在线 NCBI BLAST（需联网，分钟级）</option>
+          </select>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn small primary" onclick="runCaSeqInput('hom','blastn')">▶ BLASTN</button>
           <button class="btn small primary" onclick="runCaSeqInput('hom','blastx')">▶ BLASTX</button>
-          <span class="hint">对输入序列做 BLASTN/BLASTX 同源比对（限病毒）</span>
+          <span class="hint" data-i18n="tk.homRunHint">本地：BLASTN vs 病毒参考核酸库 / BLASTX 走 DIAMOND vs RefSeq 病毒蛋白库</span>
         </div>
       </div>
     </details>
@@ -1168,7 +1182,7 @@
       <button class="btn primary" onclick="ictvDownload(this)" data-i18n="tk.ictvDownloadBtn">⬇ 下载所选分类的全部序列</button>
       <span class="hint" id="spScope"></span>
     </div>
-    <p class="hint" data-i18n="tk.ictvCountHint">计数 = accession 条数（多分段已拆行）；预览列 Source：acvirus_db / gb_cache = 本地已有，ncbi = 需联网补齐。</p>
+    <p class="hint" data-i18n="tk.ictvCountHint">计数 = accession 条数（多分段已拆行）；预览列 Source：ictv_tree.db / plant_tree.db / gb_cache = 本地已有，ncbi = 需联网补齐。</p>
     <div class="scroll-md" id="spPreview" style="margin-top:10px"></div>
 
     <h3 style="margin-top:18px" data-i18n="tk.accStep2H3">② accession 列表 / Entrez 检索式（二选一）</h3>
@@ -2528,9 +2542,11 @@ function runCaSeqInput(scope, presetAction) {
   }
   if (!body) { alert('未解析到序列（需 >header 开头的 FASTA）'); return; }
   const action = presetAction || 'cdd';
-  runAnalyzeDirect(action, name, body, scope);
+  const engine = (scope === 'cdd' ? val('cdd_engine') : val('hom_engine')) || 'local';
+  runAnalyzeDirect(action, name, body, scope, engine);
 }
-function runAnalyzeDirect(action, contig, seq, scope) {
+function runAnalyzeDirect(action, contig, seq, scope, engine) {
+  engine = engine || 'local';
   const sc = ANA_SCOPES[scope];
   $(sc.wrap).style.display = '';
   $(sc.title).textContent = `⏳ 正在运行 ${action.toUpperCase()} 分析 · ${contig}`;
@@ -2538,10 +2554,10 @@ function runAnalyzeDirect(action, contig, seq, scope) {
   startPolling();
   fetch('/api/tool/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ run: '_seq_input', contig: contig, action: action, seq: seq })
+    body: JSON.stringify({ run: '_seq_input', contig: contig, action: action, seq: seq, engine: engine })
   }).then(r => r.json()).then(d => {
     if (d.error) { alert('启动失败: ' + d.error); return; }
-    if (d.cached) { laDirectCached(action, contig, seq, sc); return; }
+    if (d.cached) { laDirectCached(action, contig, seq, sc, engine); return; }
     const tid = d.task; taskLogOpen.add(tid);
     const timer = setInterval(async () => {
       try {
@@ -2550,7 +2566,7 @@ function runAnalyzeDirect(action, contig, seq, scope) {
         if (box) { box.textContent = (snap.msg ? `${Math.round((snap.pct||0)*100)}% ${snap.msg}\n` : '') + (snap.log || []).join('\n'); box.scrollTop = box.scrollHeight; }
         if (snap.status === 'done') {
           clearInterval(timer);
-          laDirectResult(action, contig, seq, sc);
+          laDirectResult(action, contig, seq, sc, engine);
         } else if (snap.status === 'failed' || snap.status === 'cancelled') {
           clearInterval(timer);
           if (box) box.textContent += '\n[失败] ' + (snap.error || snap.status);
@@ -2559,12 +2575,13 @@ function runAnalyzeDirect(action, contig, seq, scope) {
     }, 3000);
   }).catch(e => alert('无法连接平台服务: ' + e));
 }
-async function laDirectCached(action, contig, seq, sc) {
-  await laDirectResult(action, contig, seq, sc);
+async function laDirectCached(action, contig, seq, sc, engine) {
+  await laDirectResult(action, contig, seq, sc, engine);
 }
-async function laDirectResult(action, contig, seq, sc) {
+async function laDirectResult(action, contig, seq, sc, engine) {
+  engine = engine || 'local';
   try {
-    const r = await fetch(`/api/tool/analysis?contig=${encodeURIComponent(contig)}&action=${action}&seq=${encodeURIComponent(seq)}`);
+    const r = await fetch(`/api/tool/analysis?contig=${encodeURIComponent(contig)}&action=${action}&engine=${engine}&seq=${encodeURIComponent(seq)}`);
     if (!r.ok) { $(sc.body).innerHTML = '<p class="hint">' + t('tk.resultQueryFail', '结果查询失败（可能尚未完成）') + '</p>'; return; }
     const res = await r.json();
     $(sc.wrap).style.display = '';
@@ -2662,8 +2679,13 @@ function anaResultHtml(action, res) {
   }
   if (action === 'cdd') {
     const hs = res.hits || [];
-    if (!hs.length) return `<p class="hint">${t('tk.noDomainPre', '最长 ORF')} ${res.orf_len_aa} aa · ${t('tk.noDomainHit', '未命中保守域')}</p>`;
-    const L = res.orf_len_aa || 1;
+    const isNt = res.coord === 'nt';                  // 本地：query 核酸坐标；在线：ORF aa 坐标
+    const L = (isNt ? (res.query_len || 1) : (res.orf_len_aa || 1));
+    const spanTxt = isNt ? `序列长 ${res.query_len || '-'} bp` : `最长 ORF ${res.orf_len_aa} aa`;
+    const engTxt = res.engine === 'local'
+      ? t('tk.engLocalShort', '本地 mmseqs2 vs CDD 库')
+      : t('tk.engOnlineShort', 'NCBI 在线 CD-Search');
+    if (!hs.length) return `<p class="hint">${engTxt} · ${spanTxt} · ${t('tk.noDomainHit', '未命中保守域')}</p>`;
     const palette = ['#1a9850', '#66bd63', '#a6d96a', '#d9ef8b', '#fee08b',
                      '#fdae61', '#f46d43', '#d73027', '#762a83', '#4575b4'];
     const segs = hs.slice(0, 10).map((h, i) => {
@@ -2676,7 +2698,8 @@ function anaResultHtml(action, res) {
         background:${col};color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;
         justify-content:center;overflow:hidden;white-space:nowrap;cursor:default">${esc(h.short_name)}</div>`;
     }).join('');
-    return `<div class="ok" style="font-weight:600;margin-bottom:6px">Conserved Domains · 最长 ORF ${res.orf_len_aa} aa · ${hs.length} 个命中</div>` +
+    const nViral = hs.filter(h => h.viral).length;
+    return `<div class="ok" style="font-weight:600;margin-bottom:6px">Conserved Domains · ${spanTxt} · ${hs.length} 个命中${nViral ? `（病毒相关 ${nViral}）` : ''} <span class="hint" style="font-weight:400">· ${engTxt}</span></div>` +
       `<div style="position:relative;height:26px;border-radius:4px;overflow:hidden;background:#eee;margin:6px 0 10px;border:1px solid #ddd">${segs}</div>` +
       `<table style="${tblCss}"><thead><tr>
         <th style="${thCss}">#</th><th style="${thCss}">Accession</th><th style="${thCss}">Short Name</th>
@@ -2685,7 +2708,7 @@ function anaResultHtml(action, res) {
       hs.map((h, i) => `<tr ${trHover}>
         <td style="${tdCss}">${i + 1}</td>
         <td style="${tdCss}"><a href="${ncbiCdd(h.accession)}" target="_blank" rel="noopener" style="color:#1a5276">${esc(h.accession)}</a></td>
-        <td style="${tdCss};font-weight:600">${esc(h.short_name)}</td>
+        <td style="${tdCss};font-weight:600" title="${esc(h.description || '')}">${esc(h.short_name)}${h.viral ? ' <span class="hint" style="color:#1a9850">病毒</span>' : ''}</td>
         <td style="${tdCss};font-family:monospace">${esc(h.evalue)}</td>
         <td style="${tdCss};font-family:monospace">${esc(h.bit_score || '-')}</td>
         <td style="${tdCss};text-align:right">${esc(h.from)}</td>
@@ -2695,11 +2718,14 @@ function anaResultHtml(action, res) {
   }
   // blastn / blastx（metabuli 口径命中表）
   const hs = res.hits || [];
-  if (!hs.length) return `<p class="hint">NCBI ${action.toUpperCase()}${t('tk.noBlastHit', '（限病毒）无命中')}</p>`;
+  const engTxt = res.engine === 'local'
+    ? t('tk.engLocalShort', '本地库（离线）')
+    : t('tk.engOnlineShort', 'NCBI 在线（限病毒）');
+  if (!hs.length) return `<p class="hint">${action.toUpperCase()} · ${engTxt}${t('tk.noBlastHit', ' 无命中')}</p>`;
   const bestE = Math.min(...hs.map(h => parseFloat(h.evalue) || Infinity));
   const bestI = Math.max(...hs.map(h => parseFloat(h.identity) || 0));
   const link = action === 'blastn' ? ncbiNuc : ncbiProt;
-  return `<div class="ok" style="font-weight:600;margin-bottom:6px">NCBI ${action.toUpperCase()}（限病毒）· ${hs.length} hits</div>` +
+  return `<div class="ok" style="font-weight:600;margin-bottom:6px">${action.toUpperCase()} · ${engTxt} · ${hs.length} hits</div>` +
     `<p class="hint" style="margin:2px 0 8px">Best E-value <b>${bestE === Infinity ? '-' : bestE.toExponential(1)}</b> · Best identity <b>${bestI}%</b></p>` +
     `<table style="${tblCss}"><thead><tr>
       <th style="${thCss}">#</th><th style="${thCss}">Accession</th><th style="${thCss}">Description</th>

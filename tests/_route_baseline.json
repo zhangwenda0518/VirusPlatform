@@ -20,6 +20,7 @@
   "/api/dl/batches": "download.api_dl_batches",
   "/api/dl/create": "download.api_dl_create",
   "/api/dl/to_pipeline": "download.api_dl_to_pipeline",
+  "/api/example_input/<path:name>": "examples.api_example_input",
   "/api/examples": "examples.api_examples",
   "/api/examples/<module>": "examples.api_example",
   "/api/examples/<module>/<path:filename>": "examples.api_example_file",
@@ -243,6 +244,9 @@
   ],
   "/api/dl/to_pipeline": [
    "POST"
+  ],
+  "/api/example_input/<path:name>": [
+   "GET"
   ],
   "/api/examples": [
    "GET"

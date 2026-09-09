@@ -112,16 +112,24 @@
     return n;
   }
 
-  /* 取示例文件正文填入 textarea（FASTA 全文，含 >header） */
+  /* 取示例文件正文填入 textarea（FASTA 全文，含 >header）。
+     databases/ 不经 HTTP 暴露 → 走只读路由 /api/example_input/<文件名>。 */
   function fillTextFromFile(id, fileKey) {
     var ta = $(id);
     if (!ta) return false;
-    var path = '/' + ((fileKey in F) ? F[fileKey] : fileKey);
-    fetch(path).then(function (r) { return r.text(); }).then(function (t) {
+    var rel = (fileKey in F) ? F[fileKey] : fileKey;
+    var path = '/api/example_input/' + encodeURIComponent(
+      rel.indexOf(DIR) === 0 ? rel.slice(DIR.length) : rel.split('/').pop());
+    fetch(path).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function (t) {
       ta.value = t;
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       ta.dispatchEvent(new Event('change', { bubbles: true }));
-    }).catch(function () {});
+    }).catch(function (e) {
+      if (typeof toast === 'function') toast('示例加载失败: ' + e.message, '', { ttl: 3000 });
+    });
     return true;
   }
 
@@ -144,7 +152,8 @@
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       return 1;
     }
-    fetch('/' + F.TMV).then(function (r) { return r.text(); }).then(function (t) {
+    fetch('/api/example_input/' + encodeURIComponent(F.TMV.slice(DIR.length)))
+      .then(function (r) { return r.text(); }).then(function (t) {
       _tmvText = t;
       ta.value = t;
       ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -226,7 +235,7 @@
   /* ---------- 首次打开自动填充 + 自动展示示例结果（Phase C） ---------- */
   var SEEN_KEY = 'vp_example_seen';
 
-  function autoFill() {
+  function autoFill(tries) {
     var off = false;
     try { off = localStorage.getItem(AUTO_KEY) === '0'; } catch (e) {}
     if (off) return;
@@ -235,9 +244,14 @@
     if (sec) {
       applyFor(sec);
       mod = resultModule(sec.id);
-    } else {
+    } else if (PAGE_MAP[location.pathname]) {
       applyFor('page');
       mod = resultModule(location.pathname);
+    } else if ((tries || 0) < 8) {
+      /* /tools 的模块卡由 renderModuleTree() 按 ?g=#hash 异步渲染，
+         可能晚于本函数首次执行；重试几轮等卡片出现再填。 */
+      setTimeout(function () { autoFill((tries || 0) + 1); }, 400);
+      return;
     }
     /* 首次访问：直接把示例结果摊开给用户看（之后不再自动弹，可点按钮再看） */
     var seen = false;
