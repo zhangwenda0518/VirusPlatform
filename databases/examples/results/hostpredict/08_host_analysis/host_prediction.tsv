@@ -1,0 +1,3 @@
+contig	length	kunpeng_taxid	class_source	accession	species	genus	family	topology	molecule_type	nuc_completeness	host_ictv	confidence_level	integrated_confidence	determination	host_meta	host_meta_cat	known_hosts	final_host	host_check	decision_method
+example_contig_1	6096	698400	kunpeng		Polerovirus PEVYV6	Polerovirus	Solemoviridae				Plant	High	0.9945	Species(via Species)	Capsicum annuum	Plant		Plant		ICTV_Meta_Agree
+example_contig_2	6988	1471299	kunpeng		Badnavirus decoloratiovitis	Badnavirus	Caulimoviridae				Plant	High	1.0	Species(via Species)	Vitis vinifera	Plant		Plant		ICTV_Meta_Agree

@@ -66,14 +66,21 @@ JOBS = [
         'fasta': EX + 'example_viral_contigs.fasta'}),
     ('verify', 'verify', '候选序列验证', {
         'fasta': EX + 'example_viral_contigs.fasta'}),
+    ('hostpredict', 'hostpredict', '宿主预测（ICTV 级联）', {
+        'tsv': EX + 'example_contig_classification.tsv',
+        'fasta': EX + 'example_viral_contigs.fasta'}),
+    ('consensus', 'consensus', '共识序列与变异', {
+        'fasta': EX + 'example_viral_contigs.fasta',
+        'reads': EX + 'example_R1.fastq.gz'}),
 ]
 
 # 复制产物时排除的中间目录/大文件（体积大且对示例无价值）
 # mmseqs_tmp 里含 Windows 无法 stat 的 latest 符号链接（遍历会抛 WinError 1920）
 SKIP_DIRS = {'_chunk', 'spades', 'mmseqs_tmp', '__pycache__', '_fq2fa'}
 # kunpeng 原始输出（每 read 一行，几百 KB，仅中间产物；kreport/汇总表才是结果）
+# plotly.min.js 是报告内嵌的前端库副本（4.6MB），不进示例结果
 SKIP_NAMES = {'.done', 'run.log', 'output_1.txt', 'output_2.txt',
-              'output_1-2.txt'}
+              'output_1-2.txt', 'plotly.min.js'}
 SKIP_SUFFIX = ('.fastq.gz', '.fq.gz', '.fasta.gz', '.tmp', '.k2', '.bam',
                '.sam', '.sorted.bam', '.bai')
 

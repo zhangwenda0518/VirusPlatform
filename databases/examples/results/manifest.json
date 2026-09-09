@@ -98,6 +98,63 @@
   },
   "title": "提取序列组装（SPAdes）"
  },
+ "consensus": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "2.0KB"
+   },
+   {
+    "path": "consensus/summary.json",
+    "size": "1.2KB"
+   },
+   {
+    "path": "consensus/variants.tsv",
+    "size": "423.7KB"
+   },
+   {
+    "path": "consensus/coverage.tsv",
+    "size": "290.0B"
+   },
+   {
+    "path": "consensus/example_contig_2.poscounts.tsv",
+    "size": "128.6KB"
+   },
+   {
+    "path": "consensus/example_contig_2.inscounts.json",
+    "size": "2.0B"
+   },
+   {
+    "path": "consensus/example_contig_1.poscounts.tsv",
+    "size": "123.5KB"
+   },
+   {
+    "path": "consensus/example_contig_1.inscounts.json",
+    "size": "2.0B"
+   },
+   {
+    "path": "consensus/consensus.fa",
+    "size": "13.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:21:33",
+  "kind": "tool",
+  "module": "consensus",
+  "run": "consensus_20260909_232131",
+  "source": "databases/examples/",
+  "stats": {
+   "min_cov_pct": 10.0,
+   "n_isnv": 0,
+   "n_mapped_reads": 1200,
+   "n_refs": 2,
+   "n_snv": 0,
+   "n_variants": 7235,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\tool_runs\\consensus_20260909_232131\\consensus",
+   "run": "consensus_20260909_232131",
+   "total_len": 13084
+  },
+  "title": "共识序列与变异"
+ },
  "contigs": {
   "files": [
    {
@@ -246,6 +303,68 @@
    "standalone": true
   },
   "title": "基因组图谱"
+ },
+ "hostpredict": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "664.0B"
+   },
+   {
+    "path": "08_host_analysis/sunburst_host.html",
+    "size": "7.7KB"
+   },
+   {
+    "path": "08_host_analysis/sankey_host.html",
+    "size": "7.5KB"
+   },
+   {
+    "path": "08_host_analysis/plotly.min.js",
+    "size": "4.6MB"
+   },
+   {
+    "path": "08_host_analysis/.host_analysis.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "08_host_analysis/summary.json",
+    "size": "834.0B"
+   },
+   {
+    "path": "08_host_analysis/Plant.classified.fasta",
+    "size": "13.0KB"
+   },
+   {
+    "path": "08_host_analysis/host_summary.tsv",
+    "size": "30.0B"
+   },
+   {
+    "path": "08_host_analysis/host_prediction.tsv",
+    "size": "597.0B"
+   },
+   {
+    "path": "03_assembly/virus_contigs.tsv",
+    "size": "302.0B"
+   },
+   {
+    "path": "03_assembly/viral_contigs.fasta",
+    "size": "13.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:21:53",
+  "kind": "tool",
+  "module": "hostpredict",
+  "run": "hostpredict_20260909_232147",
+  "source": "databases/examples/",
+  "stats": {
+   "n_contigs": 2,
+   "n_host_warn": 0,
+   "run": "hostpredict_20260909_232147",
+   "stage": "host_analysis",
+   "summary_tsv": "host_summary.tsv",
+   "tsv": "host_prediction.tsv"
+  },
+  "title": "宿主预测（ICTV 级联）"
  },
  "hostremoval": {
   "files": [
