@@ -26,9 +26,11 @@ EX_IN = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
 _TEXT_EXT = {'.json', '.tsv', '.csv', '.txt', '.md', '.nwk', '.gff', '.gff3',
              '.fasta', '.fa', '.fna', '.faa', '.ffn', '.aln', '.newick',
              '.vcf', '.log', '.kreport2'}
-_IMG_EXT = {'.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.pdf'}
+_IMG_EXT = {'.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif'}
 # 可 iframe 内联渲染的报告类（LOGAN 溯源报告等）
 _HTML_EXT = {'.html', '.htm'}
+# PDF 不能当 <img> 渲染（浏览器把它当 0×0 → 显示裂图）；单列一类走内嵌查看器
+_PDF_EXT = {'.pdf'}
 
 
 def _manifest():
@@ -57,6 +59,8 @@ def _kind(name):
     e = os.path.splitext(name)[1].lower()
     if e in _IMG_EXT:
         return 'image'
+    if e in _PDF_EXT:
+        return 'pdf'
     if e in _HTML_EXT:
         return 'html'
     if e in _TEXT_EXT:
@@ -90,7 +94,7 @@ def api_example(module):
             rel = os.path.relpath(os.path.join(cur, fn), d).replace('\\', '/')
             size = os.path.getsize(os.path.join(cur, fn))
             files.append({'path': rel, 'size': size, 'kind': _kind(rel)})
-    _order = {'image': 0, 'html': 1, 'text': 2, 'other': 3}
+    _order = {'image': 0, 'pdf': 1, 'html': 2, 'text': 3, 'other': 4}
     files.sort(key=lambda x: (_order.get(x['kind'], 9), x['path']))
     return jsonify({'module': module, 'title': man.get('title', module),
                     'run': man.get('run', ''),

@@ -410,6 +410,7 @@
       mask.querySelector('#vpExTitle').textContent =
         '👁 示例结果 · ' + (d.title || module) + '（' + d.files.length + ' 个产物）';
       var imgs = d.files.filter(function (f) { return f.kind === 'image'; });
+      var pdfs = d.files.filter(function (f) { return f.kind === 'pdf'; });
       var htmls = d.files.filter(function (f) { return f.kind === 'html'; });
       var texts = d.files.filter(function (f) { return f.kind === 'text'; });
       var others = d.files.filter(function (f) { return f.kind === 'other'; });
@@ -422,15 +423,35 @@
           var url = '/api/examples/' + encodeURIComponent(module) + '/' + f.path;
           html += '<div style="border:1px solid var(--line-200,#e3e3e3);border-radius:8px;padding:6px;background:#fff">' +
             '<div class="hint" style="margin:0 0 4px">' + esc(f.path) + '</div>' +
-            (f.path.endsWith('.svg')
-              ? '<img src="' + url + '" style="max-width:460px;max-height:320px;display:block">'
-              : '<img src="' + url + '" style="max-width:460px;max-height:320px;display:block">') +
+            '<img src="' + url + '" style="max-width:460px;max-height:320px;display:block">' +
             '</div>';
         });
         html += '</div>';
       }
       body.innerHTML = html + '<div id="vpExTexts"></div>';
       var textsBox = body.querySelector('#vpExTexts');
+      /* PDF：不能当 <img>（会显示裂图），用同源 iframe 内嵌查看器预览 */
+      if (pdfs.length) {
+        var pd = document.createElement('div');
+        pd.style.marginTop = '10px';
+        pd.innerHTML = '<p class="hint">📄 PDF（内嵌预览）：</p>';
+        pdfs.forEach(function (f) {
+          var url = '/api/examples/' + encodeURIComponent(module) + '/' + f.path;
+          var bx = document.createElement('details');
+          bx.className = 'rpt-sec';
+          bx.open = pdfs.length === 1;
+          bx.style.marginTop = '6px';
+          bx.innerHTML = '<summary>' + esc(f.path) + ' <span class="hint">(' +
+            (f.size / 1024).toFixed(1) + ' KB · 内嵌预览)</span></summary>' +
+            '<div style="margin-top:6px"><iframe src="' + url +
+            '" type="application/pdf" style="width:100%;height:64vh;border:1px solid ' +
+            'var(--line-200,#e3e3e3);border-radius:8px;background:#fff"></iframe></div>' +
+            '<p class="hint" style="margin:4px 0 0"><a href="' + url +
+            '" target="_blank">在新标签页打开 ↗</a></p>';
+          pd.appendChild(bx);
+        });
+        textsBox.appendChild(pd);
+      }
       /* 报告类（.html）：同源 iframe 内联渲染（LOGAN 溯源报告等） */
       htmls.forEach(function (f) {
         var url = '/api/examples/' + encodeURIComponent(module) + '/' + f.path;

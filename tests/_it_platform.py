@@ -293,6 +293,12 @@ def main():
     check(any(f['path'].endswith('.png') for f in _syn) and
           any(f['path'].endswith('.html') for f in _syn),
           f'共线性比较示例含图与报告（{len(_syn)} 个产物）')
+    _r = c.get('/api/examples/sdt')
+    _sdt = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
+    check(any(f['path'].endswith('.pdf') and f['kind'] == 'pdf' for f in _sdt)
+          and any(f['path'].endswith('.png') and f['kind'] == 'image'
+                  for f in _sdt),
+          'PDF 单列 pdf（内嵌预览）且 PNG 仍为 image')
     _man = json.load(open(_os.path.join(EX, 'results', 'manifest.json'),
                           encoding='utf-8'))
     _missing = [m for m in _man
