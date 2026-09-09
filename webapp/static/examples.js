@@ -381,6 +381,113 @@
     return h;
   }
 
+  /* ---------- 交互热图（可切换配色 / 悬浮看值） ---------- */
+  /* 哪些模块有矩阵数据、数据在哪个文件、含哪些序列类型 */
+  var MATRIX_SOURCES = {
+    sdt:      { file: 'sdt_matrix.json',      seqtypes: ['nt'],  label: 'SDT 同一性（NT）' },
+    identity: { file: 'identity.json',        seqtypes: ['nt', 'aa'], label: '同一性（NT+AA）' }
+  };
+  var COLORSCALES = [
+    ['默认', 'YlGnBu'], ['Viridis', 'Viridis'], ['Plasma', 'Plasma'],
+    ['RdYlBu', 'RdYlBu'], ['Inferno', 'Inferno'], ['Cividis', 'Cividis'],
+    ['Blues', 'Blues'], ['Reds', 'Reds'], ['Greens', 'Greens'], ['PuOr', 'PuOr']
+  ];
+
+  function ensurePlotly() {
+    if (window.Plotly) return Promise.resolve();
+    if (window.__plotlyLoading) return window.__plotlyLoading;
+    window.__plotlyLoading = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = '/static/plotly.min.js';
+      s.onload = resolve;
+      s.onerror = function () {
+        delete window.__plotlyLoading;
+        reject(new Error('Plotly 加载失败'));
+      };
+      document.head.appendChild(s);
+    });
+    return window.__plotlyLoading;
+  }
+
+  /* 按 module/key 取矩阵数据并重排（sdt 的 order 字段） */
+  function loadMatrixData(module, src) {
+    var url = '/api/examples/' + encodeURIComponent(module) + '/' + src.file;
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      var mat = (d.matrix != null) ? d.matrix : (d.nt || null);
+      var aa = d.aa || null;
+      var names = d.names || [];
+      if (d.order && d.order.length) {
+        names = d.order.map(function (i) { return names[i]; });
+        mat = mat.map(function (_, r) {
+          return d.order.map(function (c) { return mat[d.order[r]][c]; });
+        });
+      }
+      return { names: names, nt: d.matrix != null ? mat : (d.nt || mat),
+               aa: aa, seqtype: d.seqtype || 'nt', n: d.n || names.length };
+    });
+  }
+
+  function renderHeatmap(el, data, colorscale, seqtype) {
+    var z = seqtype === 'aa' ? data.aa : data.nt;
+    if (!z || !z.length) return;
+    var m = data.names || [];
+    var unit = seqtype === 'aa' ? 'AA 同一性(%)' : 'NT 同一性(%)';
+    var trace = {
+      z: z, x: m, y: m, type: 'heatmap', colorscale: colorscale,
+      zmin: 0, zmax: 100,
+      hovertemplate: '<b>%{x}</b><br>%{y}<br>' + unit + ': %{z:.1f}<extra></extra>',
+      colorbar: { title: { text: unit, side: 'right' }, thickness: 14, len: 0.85 }
+    };
+    var layout = {
+      margin: { l: Math.max(150, (m[0] || '').length * 7.2), r: 16, t: 44, b: 120 },
+      xaxis: { tickangle: 45, automargin: true, showgrid: false },
+      yaxis: { automargin: true, showgrid: false, autorange: 'reversed' },
+      height: Math.max(380, m.length * 46 + 160),
+      paper_bgcolor: '#fff', plot_bgcolor: '#fff'
+    };
+    Plotly.newPlot(el, [trace], layout, { responsive: true, displayModeBar: true });
+  }
+
+  function renderMatrixHeatmapPanel(module, box) {
+    var src = MATRIX_SOURCES[module];
+    if (!src || !box) return;
+    loadMatrixData(module, src).then(function (mdata) {
+      if (!box.isConnected) return;
+      var stype = src.seqtypes[0];
+      box.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;' +
+        'margin:8px 0"><b style="font-size:12.5px;color:#1a5276">🗺 交互热图（' +
+        esc(src.label) + '）</b>' +
+        '<span style="margin-left:auto;display:flex;gap:6px;align-items:center">' +
+        (src.seqtypes.length > 1
+          ? '<span class="hint">类型</span><select id="vpMatrixSt" style="padding:2px 6px">' +
+            src.seqtypes.map(function (t) { return '<option value="' + t + '">' +
+              (t === 'aa' ? 'AA' : 'NT') + '</option>'; }).join('') + '</select>' : '') +
+        '<span class="hint">配色</span><select id="vpMatrixCs" style="padding:2px 6px">' +
+        COLORSCALES.map(function (c) { return '<option value="' + c[0] + '">' +
+          c[0] + '</option>'; }).join('') + '</select>' +
+        '<span class="hint">悬浮看值 · 可缩放 · 可下载</span></div></div>' +
+        '<div id="vpMatrixEl" style="width:100%;overflow:auto"><p class="hint">⏳ 渲染中…</p></div>';
+      function rendercs() {
+        var key = box.querySelector('#vpMatrixCs').value;
+        var cs = COLORSCALES.filter(function (c) { return c[0] === key; })[0] ||
+                 COLORSCALES[0];
+        var st = (box.querySelector('#vpMatrixSt') || {}).value || stype;
+        renderHeatmap(box.querySelector('#vpMatrixEl'), mdata, cs[1], st);
+      }
+      box.querySelector('#vpMatrixCs').addEventListener('change', rendercs);
+      var stsel = box.querySelector('#vpMatrixSt');
+      if (stsel) stsel.addEventListener('change', rendercs);
+      rendercs();
+    }).catch(function (e) {
+      if (box && box.isConnected) {
+        box.innerHTML = '<p class="hint">交互热图不可用: ' + esc(e.message || e) + '</p>';
+      }
+    });
+  }
+
   function showExampleResult(module) {
     if (!module) {
       if (typeof toast === 'function') toast('该模块暂无示例结果', '', { ttl: 2200 });
@@ -428,8 +535,18 @@
         });
         html += '</div>';
       }
-      body.innerHTML = html + '<div id="vpExTexts"></div>';
+      body.innerHTML = html + '<div id="vpExMatrix"></div><div id="vpExTexts"></div>';
       var textsBox = body.querySelector('#vpExTexts');
+      /* 有矩阵数据的模块：渲染交互热图（可切配色 / NT-AA），无矩阵则忽略 */
+      if (MATRIX_SOURCES[module]) {
+        ensurePlotly().then(function () {
+          renderMatrixHeatmapPanel(module, body.querySelector('#vpExMatrix'));
+        }).catch(function (e) {
+          var mb = body.querySelector('#vpExMatrix');
+          if (mb) mb.innerHTML = '<p class="hint">交互热图不可用: ' +
+            esc(e.message || e) + '</p>';
+        });
+      }
       /* PDF：不能当 <img>（会显示裂图），用同源 iframe 内嵌查看器预览 */
       if (pdfs.length) {
         var pd = document.createElement('div');
