@@ -1531,6 +1531,88 @@ document.addEventListener('click', ev => {
   if (holder) setOutTab(holder.id, btn.dataset.tab);
 });
 
+/* ============================================================
+ * 全局「上次运行结果」恢复（页面加载 / 模块切换时自动执行）
+ * ------------------------------------------------------------
+ * 工具卡的结果原本只在任务完成那一刻渲染进 DOM：跳到别的页面再回来，
+ * 结果区就空了，只能重跑。这里在页面加载/模块切换后，从磁盘上的
+ * tool_runs/（/api/tool/runs，按 mtime 倒序）找出每张**可见**卡片最近一次
+ * 运行并自动恢复：
+ *   - 通用卡：渲染「上次运行 · <run>」+ 产物下载块（outFilesHtml 复用）；
+ *   - 富结果卡（SDT / 同一性）：调用其专用加载函数，恢复交互热图与矩阵表。
+ * 有任务在跑、或卡片已有结果时不覆盖（交给轮询/用户操作）。
+ * ============================================================ */
+const CARD_RUN_PREFIX = {
+  convert: 'convert', fastp: 'fastp', identify: 'identify', assemble: 'assemble',
+  contigs: 'contigs', verify: 'verify', virchain: 'virchain',
+  consensus: 'consensus', kvsuite: 'kvsuite', kvchain: 'kvchain',
+  align: 'align', treebuild: 'quicktree', sdt: 'sdt',
+  orf: 'orf', orfa: 'orfa', genoplot: 'genoplot', primer: 'primer',
+  hostremoval: 'hostremoval', hostpredict: 'hostpredict'
+};
+/* 富结果卡的恢复函数（键 = 卡片 id 去掉 t- 前缀） */
+const TOOL_RESTORE = {
+  sdt: run => { sdRun = run; sdtExactLoad(); },
+  identity: run => { if (typeof identityLoad === 'function') identityLoad(run); }
+};
+/* 卡片「已有结果」探测：避免覆盖正在跑 / 刚跑完的结果 */
+function cardResultFilled(key) {
+  const probe = { sdt: 'sdExact', identity: 'idtResult' }[key];
+  if (probe) {
+    const el = $(probe);
+    return !!(el && el.innerHTML.trim() && el.offsetParent !== null);
+  }
+  const box = $('toolrun-' + key);
+  return !!(box && box.innerHTML.trim());
+}
+function runRestoreHtml(run) {
+  const fake = { status: 'done', result: { run: run.name, files: run.files || [] } };
+  return `<div style="margin:10px 0 2px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+        <span class="sbadge done">${t('c.restoredRun', '上次运行')} · ${esc(run.name)}</span>
+        <span class="hint">${t('c.restoredHint', '结果已从磁盘恢复，无需重跑')}</span>
+      </div>
+      <div style="font-size:12.5px;font-weight:700;margin:10px 0 4px">${t('c.downloads')}</div>
+      ${outFilesHtml(fake)}
+    </div>`;
+}
+let _restoreBusy = false;
+async function restoreLastResults() {
+  if (_restoreBusy) return;
+  const cards = [...document.querySelectorAll('section.card[id^="t-"]')]
+    .filter(c => c.offsetParent !== null);           // /tools 一次只显示一个二级模块
+  if (!cards.length) return;
+  _restoreBusy = true;
+  try {
+    const tasks = await (await fetch('/api/tasks?logs=0')).json();
+    if ((tasks || []).some(x => x.status === 'running')) return;   // 有任务在跑 → 交给轮询
+    const runs = await (await fetch('/api/tool/runs')).json();
+    const newest = {};
+    for (const r of (runs || [])) {
+      const m = String(r.name).match(/^(.+?)_\d{8}_\d{6}/);
+      const p = m ? m[1] : String(r.name);
+      if (!newest[p]) newest[p] = r;                 // 接口已按 mtime 倒序
+    }
+    for (const card of cards) {
+      const key = card.id.slice(2);
+      const prefix = CARD_RUN_PREFIX[key];
+      if (!prefix || cardResultFilled(key)) continue;
+      const run = newest[prefix];
+      if (!run) continue;
+      if (TOOL_RESTORE[key]) {
+        try { TOOL_RESTORE[key](run.name); } catch (e) { /* 恢复失败不打扰用户 */ }
+      } else {
+        const box = $('toolrun-' + key);
+        if (box) box.innerHTML = runRestoreHtml(run);
+      }
+    }
+  } catch (e) { /* 静默：恢复失败不影响正常使用 */ }
+  finally { _restoreBusy = false; }
+}
+/* 页面加载完成 & /tools 模块切换（hash 变化，不重载页面）后各触发一次 */
+window.addEventListener('load', () => setTimeout(restoreLastResults, 900));
+window.addEventListener('hashchange', () => setTimeout(restoreLastResults, 600));
+
 function stageLogHtml(task) {
   const stat = taskStatusText(task.status);
   const lines = esc((task.log || []).join('\n'));
