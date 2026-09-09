@@ -198,14 +198,29 @@
     }
   }
 
-  /* ---------- 首次打开自动填充（Phase C） ---------- */
+  /* ---------- 首次打开自动填充 + 自动展示示例结果（Phase C） ---------- */
+  var SEEN_KEY = 'vp_example_seen';
+
   function autoFill() {
     var off = false;
     try { off = localStorage.getItem(AUTO_KEY) === '0'; } catch (e) {}
     if (off) return;
     var sec = document.querySelector('section.card[id^="t-"]:not([style*="display: none"])');
-    if (sec) { applyFor(sec); return; }
-    applyFor('page');
+    var mod = null;
+    if (sec) {
+      applyFor(sec);
+      mod = resultModule(sec.id);
+    } else {
+      applyFor('page');
+      mod = resultModule(location.pathname);
+    }
+    /* 首次访问：直接把示例结果摊开给用户看（之后不再自动弹，可点按钮再看） */
+    var seen = false;
+    try { seen = localStorage.getItem(SEEN_KEY) === '1'; } catch (e) {}
+    if (mod && !seen) {
+      try { localStorage.setItem(SEEN_KEY, '1'); } catch (e) {}
+      setTimeout(function () { showExampleResult(mod); }, 600);
+    }
   }
 
   function boot() {
