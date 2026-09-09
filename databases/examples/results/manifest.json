@@ -98,6 +98,15 @@
   },
   "title": "提取序列组装（SPAdes）"
  },
+ "cdd": {
+  "files": [
+   "example_contig_1_cdd.json"
+  ],
+  "generated_at": "2026-09-09 23:55:38",
+  "note": "NCBI 在线分析（示例 contig），结果已固化",
+  "source": "databases/examples/",
+  "title": "保守域与功能元件注释（CDD · NCBI 在线）"
+ },
  "consensus": {
   "files": [
    {
@@ -303,6 +312,15 @@
    "standalone": true
   },
   "title": "基因组图谱"
+ },
+ "hom": {
+  "files": [
+   "example_contig_1_blastn.json"
+  ],
+  "generated_at": "2026-09-09 23:55:38",
+  "note": "NCBI 在线分析（示例 contig），结果已固化",
+  "source": "databases/examples/",
+  "title": "同源比对（BLASTN / BLASTX · NCBI 在线）"
  },
  "hostpredict": {
   "files": [
@@ -626,6 +644,19 @@
    "stage": "all"
   },
   "title": "已知病毒识别与定量"
+ },
+ "logan": {
+  "files": [
+   "result_s1.tsv",
+   "result_s1_parsed.json",
+   "result_s2.tsv",
+   "result_s2_parsed.json",
+   "trace_report.html"
+  ],
+  "generated_at": "2026-09-09 23:41:55",
+  "note": "示例任务已建在 logan/EXAMPLE_TMV/，可直接在 /logan 页面查看；结果表为演示数据，列名与 Logan-Search 导出表一致",
+  "source": "databases/examples/",
+  "title": "LOGAN 序列溯源查询（示例任务 EXAMPLE_TMV）"
  },
  "orf": {
   "files": [

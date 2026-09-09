@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """平台级自测：所有页面 200 + 关键 API 结构 + 页面渲染含示例按钮/示例文件
 + 既有样品报告与结果中心数据。只读，不启动分析任务。"""
+import json
 import os
 import sys
 
@@ -272,6 +273,27 @@ def main():
     check(len(_files) > 0, f'示例结果详情可读（orf {len(_files)} 个产物）')
     _r = c.get('/api/examples/orf/03_assembly/summary.json')
     check(_r.status_code == 200, '示例结果单文件可取')
+
+    # 在线工具（CDD / BLASTN·BLASTX）与 LOGAN 的示例也要有输入与产物
+    check(_os.path.isfile(_os.path.join(EX, 'example_contig_1.fasta')),
+          '单 contig 示例文件存在（CDD/BLAST 粘贴用）')
+    check("cddSeqText: 'CONTIGS_TEXT'" in _exjs and
+          "homSeqText: 'CONTIGS_TEXT'" in _exjs,
+          't-cdd / t-hom 示例填入序列正文（textarea）')
+    check("'t-cdd': 'cdd'" in _exjs and "'t-hom': 'hom'" in _exjs and
+          "'/logan': 'logan'" in _exjs,
+          'RESULT_MAP 覆盖 cdd / hom / logan')
+    _r = c.get('/api/examples/logan')
+    _lgan = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
+    check(any(f['path'].endswith('.html') and f['kind'] == 'html'
+              for f in _lgan),
+          f'LOGAN 示例报告可按 html 内联预览（{len(_lgan)} 个产物）')
+    _man = json.load(open(_os.path.join(EX, 'results', 'manifest.json'),
+                          encoding='utf-8'))
+    _missing = [m for m in _man
+                if not _os.path.isdir(_os.path.join(EX, 'results', m))]
+    check(not _missing, f'示例结果清单与目录一致（{len(_man)} 个模块）')
+    check(len(_man) >= 23, f'示例结果覆盖 ≥23 个模块（实际 {len(_man)}）')
 
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')

@@ -25,6 +25,7 @@
     R1: DIR + 'example_R1.fastq.gz',
     R2: DIR + 'example_R2.fastq.gz',
     CONTIGS: DIR + 'example_viral_contigs.fasta',
+    CONTIG1: DIR + 'example_contig_1.fasta',
     SET: DIR + 'example_virus_set.fasta',
     CONSERVED: DIR + 'example_conserved_set.fasta',
     GENOME: DIR + 'example_genome.gb',
@@ -45,8 +46,8 @@
     't-contigs':   { c_fa: 'CONTIGS' },
     't-verify':    { vf_fa: 'CONTIGS' },
     't-virchain':  { vc_input: 'R1', vc_input2: 'R2' },
-    't-cdd':       { cddSeqIn: 'CONTIGS' },
-    't-hom':       { homSeqIn: 'CONTIGS' },
+    't-cdd':       { cddSeqText: 'CONTIGS_TEXT' },
+    't-hom':       { homSeqText: 'CONTIGS_TEXT' },
     't-consensus': { cs_fa: 'CONTIGS', cs_reads: 'R1' },
     't-variant':   { vr_ref: 'CONTIGS' },
     't-seqprep':   null,      /* 已有自带示例按钮，保持原样 */
@@ -70,6 +71,10 @@
 
   var AUTO_KEY = 'vp_example_autofill';
   var _tmvText = null;
+
+  /* 文本域示例：字段值写成 '<KEY>_TEXT' → 取该示例文件的内容填进 textarea。
+     CDD / BLASTN·BLASTX 两张卡走「粘贴序列」入口，需要的是序列正文而非路径。 */
+  var TEXT_SRC = { CONTIGS_TEXT: 'CONTIG1', TMV_TEXT: 'TMV' };
 
   function $(id) { return document.getElementById(id); }
 
@@ -95,9 +100,27 @@
   function fillMap(map) {
     var n = 0;
     for (var id in map) {
-      if (setField(id, map[id])) n++;
+      var v = map[id];
+      if (typeof v === 'string' && TEXT_SRC[v]) {
+        if (fillTextFromFile(id, TEXT_SRC[v])) n++;
+        continue;
+      }
+      if (setField(id, v)) n++;
     }
     return n;
+  }
+
+  /* 取示例文件正文填入 textarea（FASTA 全文，含 >header） */
+  function fillTextFromFile(id, fileKey) {
+    var ta = $(id);
+    if (!ta) return false;
+    var path = '/' + ((fileKey in F) ? F[fileKey] : fileKey);
+    fetch(path).then(function (r) { return r.text(); }).then(function (t) {
+      ta.value = t;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.dispatchEvent(new Event('change', { bubbles: true }));
+    }).catch(function () {});
+    return true;
   }
 
   /* kvsuite / kvchain 要的是样品名而不是文件路径：用示例 reads 建一个样品 */
@@ -225,6 +248,7 @@
 
   function boot() {
     injectButtons();
+    injectIndexButton();
     setTimeout(autoFill, 400);
   }
 
@@ -254,7 +278,8 @@
     't-kvsuite': 'kvsuite', 't-consensus': 'consensus', 't-variant': 'variant',
     '/orf': 'orf', '/annotation': 'orfa', '/genome': 'genoplot',
     '/primer': 'primer', '/hostremoval': 'hostremoval',
-    '/hostpredict': 'hostpredict'
+    '/hostpredict': 'hostpredict',
+    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan'
   };
 
   function resultModule(idOrPath) {
@@ -299,6 +324,46 @@
     catch (e) { return '<pre style="font-size:11.5px">' + esc(text) + '</pre>'; }
   }
 
+  /* CDD / BLAST 的在线结果 JSON → 命中表（比裸 JSON 好看得多） */
+  var HIT_COLS = {
+    cdd: ['query', 'hit_type', 'accession', 'short_name', 'evalue',
+          'from', 'to', 'superfamily'],
+    hom: ['accession', 'title', 'sciname', 'identity', 'align_len',
+          'evalue', 'bit_score']
+  };
+  var HIT_LABEL = {
+    query: '查询', hit_type: '类型', accession: '登录号', short_name: '结构域',
+    evalue: 'E-value', from: '起始', to: '终止', superfamily: '超家族',
+    title: '描述', sciname: '物种', identity: '同一性(%)',
+    align_len: '比对长度', bit_score: 'bit score'
+  };
+
+  function hitsHtml(text, module) {
+    var d;
+    try { d = JSON.parse(text); } catch (e) { return prettyJson(text); }
+    if (!d || !d.hits || !d.hits.length) {
+      return '<p class="hint">该示例未命中任何条目。</p>' + prettyJson(text);
+    }
+    var cols = HIT_COLS[module] || HIT_COLS.hom;
+    var h = '<p class="hint">contig ' + esc(d.contig || '-') +
+      (d.orf_len_aa ? ' · 最长 ORF ' + esc(d.orf_len_aa) + ' aa' : '') +
+      (d.rid ? ' · NCBI RID ' + esc(d.rid) : '') +
+      ' · 命中 ' + d.hits.length + ' 条</p>' +
+      '<div class="scroll-lg"><table class="tbl" style="font-size:11.5px"><tr>';
+    cols.forEach(function (c) { h += '<th>' + esc(HIT_LABEL[c] || c) + '</th>'; });
+    h += '</tr>';
+    d.hits.slice(0, 50).forEach(function (hit) {
+      h += '<tr>' + cols.map(function (c) {
+        return '<td>' + esc(hit[c]) + '</td>';
+      }).join('') + '</tr>';
+    });
+    h += '</table></div>';
+    if (d.hits.length > 50) {
+      h += '<p class="hint">仅显示前 50 条，共 ' + d.hits.length + ' 条</p>';
+    }
+    return h;
+  }
+
   function showExampleResult(module) {
     if (!module) {
       if (typeof toast === 'function') toast('该模块暂无示例结果', '', { ttl: 2200 });
@@ -328,6 +393,7 @@
       mask.querySelector('#vpExTitle').textContent =
         '👁 示例结果 · ' + (d.title || module) + '（' + d.files.length + ' 个产物）';
       var imgs = d.files.filter(function (f) { return f.kind === 'image'; });
+      var htmls = d.files.filter(function (f) { return f.kind === 'html'; });
       var texts = d.files.filter(function (f) { return f.kind === 'text'; });
       var others = d.files.filter(function (f) { return f.kind === 'other'; });
       var html = '<p class="hint">生成于 ' + esc(d.generated_at || '-') +
@@ -348,6 +414,22 @@
       }
       body.innerHTML = html + '<div id="vpExTexts"></div>';
       var textsBox = body.querySelector('#vpExTexts');
+      /* 报告类（.html）：同源 iframe 内联渲染（LOGAN 溯源报告等） */
+      htmls.forEach(function (f) {
+        var url = '/api/examples/' + encodeURIComponent(module) + '/' + f.path;
+        var box = document.createElement('details');
+        box.className = 'rpt-sec';
+        box.open = htmls.length === 1;
+        box.style.marginTop = '8px';
+        box.innerHTML = '<summary>' + esc(f.path) + ' <span class="hint">(' +
+          (f.size / 1024).toFixed(1) + ' KB · 在线预览)</span></summary>' +
+          '<div style="margin-top:6px"><iframe src="' + url +
+          '" style="width:100%;height:70vh;border:1px solid var(--line-200,#e3e3e3);' +
+          'border-radius:8px;background:#fff"></iframe></div>' +
+          '<p class="hint" style="margin:4px 0 0"><a href="' + url +
+          '" target="_blank">在新标签页打开 ↗</a></p>';
+        textsBox.appendChild(box);
+      });
       texts.forEach(function (f) {
         var url = '/api/examples/' + encodeURIComponent(module) + '/' + f.path;
         var card = document.createElement('details');
@@ -362,7 +444,8 @@
           var box = card.querySelector('.rpt-sec-body');
           fetch(url).then(function (r) { return r.text(); }).then(function (t) {
             var ext = f.path.split('.').pop().toLowerCase();
-            if (ext === 'json') box.innerHTML = prettyJson(t);
+            if (ext === 'json' && HIT_COLS[module]) box.innerHTML = hitsHtml(t, module);
+            else if (ext === 'json') box.innerHTML = prettyJson(t);
             else if (ext === 'tsv' || ext === 'csv') box.innerHTML = tableHtml(t);
             else box.innerHTML = '<pre style="font-size:11.5px;max-height:300px;overflow:auto">' +
               esc(t.slice(0, 20000)) + (t.length > 20000 ? '\n…（已截断）' : '') + '</pre>';
@@ -383,5 +466,58 @@
     }).catch(function (e) {
       body.innerHTML = '<p class="hint">示例结果加载失败: ' + esc(e.message || e) + '</p>';
     });
+  }
+
+  /* ---------- 全局「示例结果总览」：一次看全部模块（含无卡片的 API 工具） ---------- */
+  function showExamplesIndex() {
+    var mask = document.createElement('div');
+    mask.className = 'dlgmask';
+    mask.style.zIndex = 330;
+    mask.innerHTML = '<div class="dlg" style="width:min(900px,95vw);max-height:85vh;' +
+      'display:flex;flex-direction:column">' +
+      '<div class="dlghead"><b>👁 内置示例结果总览</b>' +
+      '<button class="btn small" id="vpIdxClose">✕</button></div>' +
+      '<div id="vpIdxBody" style="overflow:auto;padding:12px 16px;flex:1 1 auto">' +
+      '<p class="hint">⏳ 加载中…</p></div></div>';
+    document.body.appendChild(mask);
+    mask.querySelector('#vpIdxClose').addEventListener('click', function () {
+      mask.remove();
+    });
+    mask.addEventListener('click', function (e) {
+      if (e.target === mask) mask.remove();
+    });
+    var box = mask.querySelector('#vpIdxBody');
+    fetch('/api/examples').then(function (r) { return r.json(); }).then(function (list) {
+      var h = '<p class="hint">全部产物固化在 <code>databases/examples/results/</code>' +
+        '（只读，与真实运行结果隔离），共 ' + list.length + ' 个模块。</p>' +
+        '<table class="tbl" style="font-size:12px"><tr><th>模块</th><th>说明</th>' +
+        '<th>产物</th><th>生成时间</th><th></th></tr>';
+      list.forEach(function (m) {
+        h += '<tr><td><code>' + esc(m.module) + '</code></td><td>' + esc(m.title) +
+          '</td><td>' + m.n_files + '</td><td>' + esc(m.generated_at) + '</td>' +
+          '<td><button class="btn small" data-mod="' + esc(m.module) +
+          '">👁 查看</button></td></tr>';
+      });
+      box.innerHTML = h + '</table>';
+      box.querySelectorAll('button[data-mod]').forEach(function (b) {
+        b.addEventListener('click', function () { showExampleResult(b.dataset.mod); });
+      });
+    }).catch(function (e) {
+      box.innerHTML = '<p class="hint">加载失败: ' + esc(e.message || e) + '</p>';
+    });
+  }
+
+  function injectIndexButton() {
+    if (document.getElementById('vpExIdxBtn')) return;
+    var b = document.createElement('button');
+    b.id = 'vpExIdxBtn';
+    b.type = 'button';
+    b.className = 'btn small';
+    b.textContent = '👁 示例结果';
+    b.title = '查看全部内置示例结果（只读，与真实结果隔离）';
+    b.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:300;opacity:.92;' +
+      'box-shadow:0 4px 14px rgba(0,0,0,.18)';
+    b.addEventListener('click', showExamplesIndex);
+    document.body.appendChild(b);
   }
 })();

@@ -23,8 +23,11 @@ EXR = os.path.join(PLATFORM_ROOT, 'databases', 'examples', 'results')
 
 # 可内联预览的文本类扩展名（其余按下载/图片处理）
 _TEXT_EXT = {'.json', '.tsv', '.csv', '.txt', '.md', '.nwk', '.gff', '.gff3',
-             '.fasta', '.fa', '.fna', '.faa', '.ffn', '.aln', '.newick'}
+             '.fasta', '.fa', '.fna', '.faa', '.ffn', '.aln', '.newick',
+             '.vcf', '.log', '.kreport2'}
 _IMG_EXT = {'.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.pdf'}
+# 可 iframe 内联渲染的报告类（LOGAN 溯源报告等）
+_HTML_EXT = {'.html', '.htm'}
 
 
 def _manifest():
@@ -53,6 +56,8 @@ def _kind(name):
     e = os.path.splitext(name)[1].lower()
     if e in _IMG_EXT:
         return 'image'
+    if e in _HTML_EXT:
+        return 'html'
     if e in _TEXT_EXT:
         return 'text'
     return 'other'
@@ -79,12 +84,13 @@ def api_example(module):
     files = []
     for cur, _dirs, fs in os.walk(d):
         for fn in sorted(fs):
-            if fn == 'manifest.json':
+            if fn == 'manifest.json' or fn.startswith('.'):
                 continue
             rel = os.path.relpath(os.path.join(cur, fn), d).replace('\\', '/')
             size = os.path.getsize(os.path.join(cur, fn))
             files.append({'path': rel, 'size': size, 'kind': _kind(rel)})
-    files.sort(key=lambda x: (x['kind'] != 'image', x['path']))
+    _order = {'image': 0, 'html': 1, 'text': 2, 'other': 3}
+    files.sort(key=lambda x: (_order.get(x['kind'], 9), x['path']))
     return jsonify({'module': module, 'title': man.get('title', module),
                     'run': man.get('run', ''),
                     'generated_at': man.get('generated_at', ''),

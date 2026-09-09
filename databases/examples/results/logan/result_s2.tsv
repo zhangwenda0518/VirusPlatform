@@ -1,0 +1,14 @@
+Run	Organism	BioSample	BioProject	SRA Study	Sample Name	k-mer Coverage	ANI Estimation	P-value	E-value	Assay Type	Instrument	Platform	Location	Lat	Lon	DO Label	BTO Label
+SRR24947662	Tobacco mosaic virus	SAMN35897231	PRJNA958572	SRP434576	TMV_isolate_1	0.0584	98.8	0	0	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	China	35.86	104.20	tobacco mosaic	leaf
+SRR19520015	Nicotiana tabacum	SAMN31084553	PRJNA887517	SRP413604	Ntab_leaf_A	0.0351	97.8	0	0	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	China	27.85	112.90	healthy	leaf
+ERR10500877	Solanum lycopersicum	SAMEA111459328	PRJEB49615	ERP139872	tom_leaf_07	0.0246	96.7	1e-312	0	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	Spain	36.72	-4.42	tomato mosaic disease	leaf
+SRR17216915	Capsicum annuum	SAMN22384632	PRJNA773144	SRP346895	pepper_leaf_12	0.0170	96.6	1e-286	0	RNA-Seq	Illumina HiSeq 4000	ILLUMINA	China	32.06	118.80	pepper mild mottle	leaf
+DRR386427	soil metagenome	SAMD00542816	PRJDB13027	DRP009034	paddy_soil_3	0.0114	95.2	1e-204	2e-180	WGS	Illumina NovaSeq 6000	ILLUMINA	Japan	36.02	140.10	agricultural soil	soil
+SRR24774104	rhizosphere metagenome	SAMN35115048	PRJNA941031	SRP427713	rhizo_maize_5	0.0077	94.2	1e-188	5e-165	WGS	Illumina NovaSeq 6000	ILLUMINA	United States	41.88	-87.63	rhizosphere	root
+ERR11362904	freshwater metagenome	SAMEA115559044	PRJEB53386	ERP143510	river_water_11	0.0060	94.3	1e-172	3e-150	WGS	Illumina NovaSeq 6000	ILLUMINA	Germany	52.52	13.40	river water	water
+SRR19880442	wastewater metagenome	SAMN31572118	PRJNA895880	SRP420044	ww_influent_2	0.0050	93.5	1e-161	8e-140	WGS	Illumina NextSeq 550	ILLUMINA	United States	40.71	-74.01	wastewater	wastewater
+SRR23490871	activated sludge metagenome	SAMN33504412	PRJNA919327	SRP436192	sludge_reactor_9	0.0038	92.8	1e-149	2e-128	WGS	Illumina NovaSeq 6000	ILLUMINA	Netherlands	52.09	4.31	activated sludge	sludge
+SRR16187237	air metagenome	SAMN20415822	PRJNA744561	SRP331986	pm25_filter_4	0.0028	92.9	1e-131	6e-112	WGS	Illumina NovaSeq 6000	ILLUMINA	China	39.90	116.40	airborne particulate	air
+SRR12394772	Homo sapiens	SAMN15896442	PRJNA658723	SRP278192	oral_swab_23	0.0020	92.2	1e-118	4e-99	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	United States	42.36	-71.06	healthy	oral cavity
+SRR20801633	Mus musculus	SAMN32958471	PRJNA906011	SRP424455	lung_tissue_6	0.0014	91.5	1e-104	2e-86	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	China	31.23	121.47	healthy	lung
+ERR10403919	Nicotiana benthamiana	SAMEA110982277	PRJEB49118	ERP138820	Nb_infiltrated_2	0.0009	91.7	1e-91	3e-74	RNA-Seq	Illumina NovaSeq 6000	ILLUMINA	United Kingdom	52.20	0.12	agroinfiltration	leaf
