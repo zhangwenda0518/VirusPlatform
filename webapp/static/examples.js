@@ -66,7 +66,9 @@
     '/annotation':  { oa_fa: 'CONTIGS' },
     '/genome':      { gp_ann: 'GENOME' },
     '/primer':      { pr_fa: 'CONSERVED' },
-    '/logan':       { pasteSeq: 'TMV_TEXT' }   /* 文本域：填序列内容 */
+    '/logan':       { pasteSeq: 'TMV_TEXT' },  /* 文本域：填序列内容 */
+    '/samples':     { sample: 'example_reads', r1: 'R1', r2: 'R2' },
+    '/meta':        { mtSpecies: 'Tobacco mosaic virus', mtSource: 'All' }
   };
 
   var AUTO_KEY = 'vp_example_autofill';
