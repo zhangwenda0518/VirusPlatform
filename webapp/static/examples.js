@@ -278,7 +278,9 @@
   window.VPExamples = {
     files: F, map: MAP, pageMap: PAGE_MAP,
     apply: applyFor, inject: injectButtons, autofillKey: AUTO_KEY,
-    showResult: showExampleResult
+    showResult: showExampleResult,
+    /* 交互热图（供 live 运行结果复用）：colorscales=可选配色，heatmap=渲染函数 */
+    colorscales: COLORSCALES, heatmap: renderHeatmap
   };
 
   /* ============================================================
@@ -390,8 +392,13 @@
   var COLORSCALES = [
     ['默认', 'YlGnBu'], ['Viridis', 'Viridis'], ['Plasma', 'Plasma'],
     ['RdYlBu', 'RdYlBu'], ['Inferno', 'Inferno'], ['Cividis', 'Cividis'],
-    ['Blues', 'Blues'], ['Reds', 'Reds'], ['Greens', 'Greens'], ['PuOr', 'PuOr']
+    ['Blues', 'Blues'], ['Reds', 'Reds'], ['Greens', 'Greens'], ['PuOr', 'PuOr'],
+    ['YlGnBu', 'YlGnBu'], ['Spectral', 'Spectral'], ['coolwarm', 'RdBu'],
+    ['Magma', 'Magma']
   ];
+  /* window.VPExamples 在文件前部创建时 COLORSCALES 尚未赋值（var 提升只提升
+     声明），此处补一次，供 live 运行结果（app.js）读取同一份配色表。 */
+  window.VPExamples.colorscales = COLORSCALES;
 
   function ensurePlotly() {
     if (window.Plotly) return Promise.resolve();

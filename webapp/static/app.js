@@ -308,14 +308,30 @@ function seqPrepExample() {
 const ICTV_RANK_MAIN = ['Realm', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species'];
 let ictvRankMeta = [];      // [{col, zh}]（含 Subfamily 等附加级）
 
+/* 参考库切换（plant = 植物口径 / ictv = 全病毒界，库本身决定宿主范围）
+   切换后清空已选深层级并重拉选项——两库可见的分类范围不同，
+   旧选择可能在新库下不存在。 */
+function ictvDbChanged() {
+  ICTV_RANK_MAIN.forEach(c => { delete document.body.dataset['ictv_' + c]; });
+  const pv = $('spPreview');
+  if (pv) pv.innerHTML = '';
+  ictvCascadeRefetch();
+}
+
+/* 当前选中的参考库（缺省 plant） */
+function ictvDb() {
+  return _v('sp_db') || 'plant';
+}
+
 /* 级联选参：任意一级变更 → 清空更深等级 → 重新拉取各级选项 */
 async function ictvCascadeRefetch() {
   const box = $('spCascade');
   if (!box) return;
   const qs = ICTV_RANK_MAIN.filter(c => _v('sp_c_' + c))
     .map(c => `${c}=${encodeURIComponent(_v('sp_c_' + c))}`).join('&');
+  const qsAll = 'db=' + encodeURIComponent(ictvDb()) + (qs ? '&' + qs : '');
   try {
-    const r = await fetch('/api/ictv/cascade' + (qs ? '?' + qs : ''));
+    const r = await fetch('/api/ictv/cascade?' + qsAll);
     if (!r.ok) { box.innerHTML = '<p class="hint" style="color:#b91c1c">' + esc((await r.json()).error || '加载失败') + '</p>'; return; }
     const d = await r.json();
     ictvRankMeta = d.ranks.map(x => ({ col: x.col, zh: x.zh }));
@@ -369,6 +385,7 @@ async function ictvPreview() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(Object.assign({}, levels, {
         genome: _v('sp_genome') || 'complete',
+        db: ictvDb(),
         limit: +_v('sp_limit') || 200,
         per_genus: +(_v('sp_per_genus') || 0),
         per_species: +(_v('sp_per_species') || 0) }))});
@@ -386,16 +403,45 @@ async function ictvPreview() {
   } catch (e) { box.innerHTML = '<p class="hint" style="color:#b91c1c">无法连接: ' + esc(e) + '</p>'; }
 }
 
+/* 集合名：留空时自动生成。
+   前缀取最深已选分类级（属 > 科 > 目 …）的清洗后小写名，
+   后缀 YYYYMMDD_HHMM 保证多次下载不撞名。 */
+function defaultCollName() {
+  let base = '';
+  for (let i = ICTV_RANK_MAIN.length - 1; i >= 0; i--) {
+    const v = _v('sp_c_' + ICTV_RANK_MAIN[i]);
+    if (v) { base = v; break; }
+  }
+  if (!base) base = (_v('s_term') || '').trim().split(/\s+/)[0] || 'collection';
+  base = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+    || 'collection';
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return base + '_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+    + '_' + p(d.getHours()) + p(d.getMinutes());
+}
+
+/* 取集合名：用户填了就用，留空自动生成并回填输入框（可见可改） */
+function collName() {
+  const el = $('s_name');
+  let v = el ? String(el.value || '').trim() : '';
+  if (!v) {
+    v = defaultCollName();
+    if (el) el.value = v;
+  }
+  return v;
+}
+
 async function ictvDownload(btn) {
   const levels = ictvSelectedLevels();
-  const coll = _v('s_name');
+  const coll = collName();
   if (!Object.keys(levels).length) { alert('请至少选择一个分类等级'); return; }
-  if (!coll) { alert('请填集合名'); return; }
   try {
     const r = await fetch('/api/ictv/download', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(Object.assign({}, levels, {
         coll, genome: _v('sp_genome') || 'complete',
+        db: ictvDb(),
         limit: +_v('sp_limit') || 200,
         per_genus: +(_v('sp_per_genus') || 0),
         per_species: +(_v('sp_per_species') || 0) }))});
@@ -2761,9 +2807,9 @@ async function loadNcbiCollections() {
 }
 
 async function gbDownload(btn) {
-  const name = _v('s_name'), term = _v('s_term'), accs = _v('s_acc');
-  if (!name || (!term && !accs) || (term && accs)) {
-    alert('集合名必填；检索式与 accession 二选一'); return;
+  const name = collName(), term = _v('s_term'), accs = _v('s_acc');
+  if ((!term && !accs) || (term && accs)) {
+    alert('检索式与 accession 二选一'); return;
   }
   try {
     const r = await fetch('/api/gb/download', {
@@ -2777,8 +2823,9 @@ async function gbDownload(btn) {
 }
 
 async function gbImport(btn) {
-  const name = _v('s_name'), files = _v('s_files');
-  if (!name || !files) { alert('集合名与本机 .gb 路径必填'); return; }
+  const files = _v('s_files');
+  if (!files) { alert('本机 .gb 路径必填'); return; }
+  const name = collName();
   try {
     const r = await fetch('/api/gb/import', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3444,20 +3491,50 @@ async function sdtExactLoad() {
     if (!r.ok) { $('sdMeta').textContent = '加载失败: ' + (await r.json()).error; return; }
     sdData = await r.json();
     const base = `/tool_runs/${encodeURIComponent(sdRun)}`;
-    $('sdExact').innerHTML = `
-      <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
-      <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
-         style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>
-      <h4 style="font-size:14px;color:#1a5276;margin:16px 0 8px">Identity 分布</h4>
-      <a href="${base}/sdt_distribution.png" target="_blank"><img src="${base}/sdt_distribution.png"
-         style="max-width:520px;width:100%;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+    const names = sdData.names, m = sdData.matrix;
+    const stype = (sdData.seqtype || 'nt').toUpperCase();
+    /* 交互热图：可切配色、悬浮看值、缩放（复用 examples.js 的 heatmap 渲染）。 */
+    const hasHM = !!(window.VPExamples && window.VPExamples.heatmap);
+    const csList = hasHM ? (window.VPExamples.colorscales || []) : [];
+    const wantLbl = { sdt: 'RdYlBu', cividis: 'Cividis', viridis: 'Viridis',
+                      'RdYlBu': 'RdYlBu', Spectral: 'Spectral', YlGnBu: 'YlGnBu',
+                      coolwarm: 'coolwarm', magma: 'Magma' }[sdData.palette] || 'Viridis';
+    const want = csList.some(c => c[0] === wantLbl) ? wantLbl : (csList[0]?.[0] || '');
+    if (hasHM) {
+      $('sdExact').innerHTML = `
+        <h4 style="font-size:14px;color:#1a5276;margin:8px 0 6px">SDT 热图（交互 · 聚类排序 · 三角）</h4>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 6px">
+          <span class="hint">配色</span>
+          <select id="sdReadyCs">${csList.map(c =>
+            `<option value="${c[0]}" ${c[0] === want ? 'selected' : ''}>${c[0]}</option>`).join('')}</select>
+          <span class="hint">悬浮看值 · 可缩放 · 下载见下方</span>
+        </div>
+        <div id="sdReadyHeat" style="width:100%;overflow:auto;background:#fff;border-radius:8px"></div>`;
+      const md = { names: names, nt: m, aa: sdData.aa || null, seqtype: stype.toLowerCase(), n: names.length };
+      const sel = $('sdReadyCs');
+      const sdDraw = () => {
+        const k = sel.value;
+        const c = csList.filter(x => x[0] === k)[0] || csList[0] || ['', 'YlGnBu'];
+        window.VPExamples.heatmap($('sdReadyHeat'), md, c[1], stype.toLowerCase());
+      };
+      if (sel) sel.addEventListener('change', sdDraw);
+      sdDraw();
+    } else {
+      $('sdExact').innerHTML = `
+        <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
+        <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
+           style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+    }
+    $('sdExact').innerHTML += `
+      <h4 style="font-size:14px;color:#1a5276;margin:14px 0 4px">Identity 分布</h4>
+      <a href="${base}/sdt_distribution.png" target="_blank" style="display:inline-block;max-width:520px">
+        <img src="${base}/sdt_distribution.png" style="max-width:520px;width:100%;border:1px solid #dfe5ec;border-radius:8px"></a>`;
     $('sdDl').innerHTML =
       `<a class="btn small" href="${base}/sdt_matrix.csv?dl=1">⬇ 矩阵 CSV</a>` +
       ` <a class="btn small" href="${base}/sdt_heatmap.png?dl=1">⬇ 热图 PNG</a>` +
       ` <a class="btn small" href="${base}/sdt_heatmap.pdf?dl=1">⬇ 热图 PDF（矢量）</a>` +
       ` <a class="btn small" href="${base}/sdt_distribution.png?dl=1">⬇ 分布图 PNG</a>` +
       ` <a class="btn small" href="${base}/sdt_distribution.pdf?dl=1">⬇ 分布图 PDF（矢量）</a>`;
-    const names = sdData.names, m = sdData.matrix;
     $('sdTable').innerHTML = identityMatrixTable(names, m);
     const st = (sdData.seqtype || 'nt').toUpperCase();
     $('sdMeta').textContent =
