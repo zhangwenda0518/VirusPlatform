@@ -255,7 +255,12 @@ function pasteSeq(inputId, ext) {
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.path) {
         var inp = $(inputId);
-        if (inp) inp.value = d.path;
+        if (inp) {
+          inp.value = d.path;
+          /* 通知页面「值已变」：如 /genome 的实时预览需要立刻重绘 */
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         mask.remove();
       } else { alert(d.error || '写入失败'); btn.disabled = false; btn.textContent = '✓ 确认粘贴'; }
     }).catch(function(e) { alert('无法连接: ' + e); btn.disabled = false; btn.textContent = '✓ 确认粘贴'; });

@@ -40,14 +40,14 @@
             <input id="gp_fa" type="text" placeholder=".fasta / .fna[.gz]；填了 GenBank 时可空" data-i18n-ph="gn.phFastaHint">
             <button class="btn small" onclick="browse('gp_fa')">📁</button>
             <button class="btn small" onclick="pasteSeq('gp_fa', '.fasta')" title="粘贴 FASTA">📋</button>
-            <button class="btn small" onclick="fillExample('gp_fa')" title="填入内置示例" data-i18n="c.example" data-i18n-title="gn.fillExampleTitle">✨ 示例</button>
+            <button class="btn small" onclick="fillExample('gp_fa'); gpPreview()" title="填入内置示例" data-i18n="c.example" data-i18n-title="gn.fillExampleTitle">✨ 示例</button>
           </div>
           <label style="margin-top:8px" data-i18n="gn.annLbl">注释 GFF3 或 GenBank（可选）</label>
           <div class="filerow">
             <input id="gp_ann" type="text" placeholder="可选；.gb/.gbk/.gff[.gz]" data-i18n-ph="gn.phAnnHint">
             <button class="btn small" onclick="browse('gp_ann')">📁</button>
             <button class="btn small" onclick="pasteSeq('gp_ann', '.txt')" title="粘贴文本">📋</button>
-            <button class="btn small" onclick="fillExample('gp_ann', EXAMPLE_GENBANK_GB); var f=$('gp_fa'); if(f) f.value='';" title="填入内置示例 GenBank（自带注释）" data-i18n="gn.exampleGb" data-i18n-title="gn.fillExampleGbTitle">✨ 示例 .gb</button>
+            <button class="btn small" onclick="fillExample('gp_ann', EXAMPLE_GENBANK_GB); var f=$('gp_fa'); if(f) f.value=''; gpPreview();" title="填入内置示例 GenBank（自带注释）" data-i18n="gn.exampleGb" data-i18n-title="gn.fillExampleGbTitle">✨ 示例 .gb</button>
           </div>
 
           <!-- Basic -->
@@ -63,7 +63,7 @@
             </div>
           </div>
           <div style="margin-top:10px">
-            <label class="chk"><input type="checkbox" id="gp_interactive" onchange="gpInteractiveToggle()" data-i18n="gn.chkInteractive"> 🪄 交互模式（调参实时预览，手动保存）</label>
+            <label class="chk"><input type="checkbox" id="gp_interactive" checked onchange="gpInteractiveToggle()" data-i18n="gn.chkInteractive"> 🪄 交互模式（调参实时预览，手动保存）</label>
             <div class="hint" id="gp_inter_hint" style="display:none;margin-top:2px" data-i18n="gn.interHint">调参即预览（不落盘）；满意后点「💾 保存结果」才真正保存</div>
           </div>
 
@@ -157,8 +157,7 @@
               <button class="btn small" data-zoom="1" onclick="gpZoom(1)" data-i18n="gn.zoom100">100%</button>
               <button class="btn small" data-zoom="1.5" onclick="gpZoom(1.5)" data-i18n="gn.zoom150">150%</button>
             </div>
-            <div id="gp_preview_body"><p class="hint" data-i18n="gn.previewHint">勾选「🪄 交互模式」并选择输入后，调参即在此实时预览。满意后点左栏「💾 保存结果」落盘。</p></div>
-          </div>
+            <div id="gp_preview_body"><p class="hint" data-i18n="gn.previewHint">勾选「🪄 交互模式」并选择输入后，调参即在此实时预览。满意后点左栏「💾 保存结果」落盘。</p></div>          </div>
           <div id="gp_preview_standby" style="color:#789;font-size:12.5px;padding:40px 10px;text-align:center">
             <span data-i18n="gn.previewStandby">🪄 勾选交互模式 → 选输入 → 调参实时预览</span><br><span style="font-size:11px" data-i18n="gn.previewStandbySub">（未落盘，满意后保存）</span>
           </div>
@@ -247,15 +246,16 @@ function gpCollectOpts() {
   return o;
 }
 
-/* 交互模式切换：显示/隐藏预览区、切换按钮 */
-function gpInteractiveToggle() {
+/* 交互模式切换：显示/隐藏预览区、切换按钮。
+   默认勾选（页面加载即出图）；skipRender=true 用于初始化时只同步 UI 状态。 */
+function gpInteractiveToggle(skipRender) {
   const on = $('gp_interactive') && $('gp_interactive').checked;
   $('gp_preview').style.display = on ? '' : 'none';
   $('gp_preview_standby').style.display = on ? 'none' : '';
   $('gp_inter_hint').style.display = on ? '' : 'none';
   $('gp_save_btn').style.display = on ? '' : 'none';
   $('gp_run_btn').style.display = on ? 'none' : '';
-  if (on) gpPreview();
+  if (on && !skipRender) gpPreview();
 }
 
 let _gpPreviewTimer = null;
@@ -281,10 +281,19 @@ function gpZoom(mode) {
 }
 function gpPreview() {
   if (!($('gp_interactive') && $('gp_interactive').checked)) return;
-  if (!val('gp_fa') && !val('gp_ann')) { alert(t('gn.needInput', '请先选择 FASTA 或 GenBank 输入')); return; }
+  const body = document.getElementById('gp_preview_body');
+  /* 未选输入：在预览区给提示（不弹 alert，避免页面加载/调参时打扰） */
+  if (!val('gp_fa') && !val('gp_ann')) {
+    clearTimeout(_gpPreviewTimer);
+    _gpSvg = null;
+    const zb0 = $('gp_zoom');
+    if (zb0) zb0.style.display = 'none';
+    body.innerHTML = '<p class="hint">' + t('gn.needInput',
+      '请先选择 FASTA 或 GenBank 输入') + '</p>';
+    return;
+  }
   clearTimeout(_gpPreviewTimer);
   _gpPreviewTimer = setTimeout(async () => {
-    const body = document.getElementById('gp_preview_body');
     body.innerHTML = '<p class="hint">' + t('gn.rendering', '⏳ 正在渲染预览…') + '</p>';
     try {
       const r = await fetch('/api/tool/genoplot_preview', {
@@ -319,6 +328,11 @@ document.querySelectorAll('[id^="gp_"]').forEach(el => {
     if ($('gp_interactive') && $('gp_interactive').checked) gpPreview();
   });
 });
+
+/* 初始化：交互模式默认开启 → 同步 UI（预览区立即可见）。
+   输入由用户选择 / examples.js 示例自动填充 / 📋粘贴写入时，
+   其 change 事件会触发 gpPreview() 自动出图。 */
+gpInteractiveToggle(true);
 
 startPolling();
 </script>
