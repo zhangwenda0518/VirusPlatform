@@ -85,8 +85,6 @@ NAV_GROUPS = [
         {'id': 't-assemble', 'title': '提取序列组装', 'desc': 'SPAdes metaviral / contigs 过滤'},
         {'id': 't-contigs', 'title': '组装结果再鉴定', 'desc': 'contig 二次分类 + 谱系注释'},
         {'id': 't-verify', 'title': '候选序列验证', 'desc': '宿主筛选 → 长度分流 → blastx/CDD 过滤 + 类病毒 blastn'},
-        {'href': '/hostpredict', 'title': '宿主预测',
-         'desc': 'ICTV 宿主概率级联 + NCBI 元数据交叉（独立模块）'},
     ]},
     {'id': 'annotate', 'label': '病毒注释分析', 'path': '病毒注释分析', 'items': [
         {'href': '/orf', 'title': 'ORF 预测',
@@ -104,6 +102,8 @@ NAV_GROUPS = [
     ]},
     {'id': 'compare', 'label': '比较基因组分析', 'path': '比较基因组分析', 'items': [
         {'id': 't-seqprep', 'title': '参考序列获取', 'desc': 'ICTV 科/属选择 或 accession / 检索式 → 下载整科整属序列（GenBank 集合 + FASTA 参考集）'},
+        {'href': '/cds-export', 'title': 'CDS / PEP 提取产物',
+         'desc': '集合内 CDS 明细 → 人工挑选 / 改名 → 按基因名归组导出 CDS + PEP（独立模块）'},
         {'id': 't-align', 'title': '序列比对（MAFFT + trimAl）', 'desc': 'MAFFT 比对 + trimAl 清剪；彩色比对查看器支持查看与编辑，结果直接送建树 / SDT'},
         {'id': 't-treebuild', 'title': '进化树构建（科/属级）', 'desc': 'GenBank 集合（全基因组 / CDS / PEP）或 FASTA → MAFFT 比对 + NJ / FastTree / IQ-TREE 建树；页内树查看'},
         {'id': 't-sdt', 'title': 'SDT 同一性分析（属级）', 'desc': '逐对 MAFFT 精确比对 → identity 矩阵 / 热图 / 分布图；NT+AA 模式同一性表 + 复合热图'},
@@ -126,6 +126,7 @@ _PATH_TO_GROUP = {'/meta': 'resource', '/virome': 'resource',
                   '/hostpredict': 'virus', '/orf': 'annotate',
                   '/annotation': 'annotate',
                   '/genome': 'annotate', '/primer': 'annotate',
+                  '/cds-export': 'compare',
                   '/logan': 'trace', '/submit': 'trace'}
 
 
@@ -202,6 +203,11 @@ def page_genome():
 @bp.route('/primer')
 def page_primer():
     return render_template('primer.html')
+
+
+@bp.route('/cds-export')
+def page_cds_export():
+    return render_template('cds_export.html')
 
 
 @bp.route('/build')
