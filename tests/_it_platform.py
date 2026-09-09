@@ -216,6 +216,31 @@ def main():
     check(not _missing,
           f'导航项均有 <main> 直接子卡片（缺失: {_missing or "无"}）')
 
+    # ---------- 3d. 基因组图谱：gbdraw 两子命令参数差异 ----------
+    # gbdraw 0.14 的 circular / linear 参数集与取值集都不同，而前端 gb_opts
+    # 是面向圈图语义的一套键（labels / track_type / species / label_placement…），
+    # _run_gbdraw 必须按子命令翻译，否则 linear 报 unrecognized arguments
+    # （退出码 2）→ 预览 / 出图 500。2026-09-09 用户实测踩到。
+    try:
+        import tempfile as _tf
+        from vp.gbdraw_plot import _run_gbdraw as _rg
+        _gopts = {'labels': 'out', 'track_type': 'tuckin', 'species': 'T',
+                  'strain': 'S', 'feature_width': 20,
+                  'multi_record_canvas': True, 'gc_content_width': 300,
+                  'gc_skew_radius': 300, 'no_gc': True, 'no_skew': True,
+                  'label_placement': 'horizontal'}
+        _gp = _os.path.join(_tf.gettempdir(), 'vp_it_gbdraw', 'g')
+        _made = _rg(gbk=_os.path.join(EX, 'example_genome.gb'),
+                    out_prefix=_gp, mode='both', opts=_gopts)
+        check(len(_made) == 2,
+              f'gbdraw 圈图+线图双模式出图（前端全量参数），实际 {len(_made)} 张')
+        with open(_made[0], encoding='utf-8', errors='replace') as _f:
+            _svg = _f.read()
+        check('hypothetical protein' in _svg,
+              'gbdraw 出图含基因名（labels 翻译生效）')
+    except Exception as _e:
+        check(False, f'gbdraw 双模式出图失败: {_e}')
+
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')
     check(r.status_code == 200, 'app.js 静态资源 200')

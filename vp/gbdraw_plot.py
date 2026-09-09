@@ -22,6 +22,23 @@ from .utils import (check_path, safe_open, iter_fasta, write_fasta_record,
 _FA_EXT = ('.fasta', '.fa', '.fna', '.fas')
 _ANN_EXT = ('.gff', '.gff3', '.gb', '.gbk', '.gbff', '.genbank')
 
+# gbdraw 0.14 仅 circular 子命令支持的选项（传给 linear 会 unrecognized arguments）。
+# 实测：gbdraw linear --<key> → 退出码 2；--labels 另有语义映射，见 _sub_opts。
+_CIRCULAR_ONLY = {
+    'labels', 'track_type', 'species', 'strain', 'feature_width',
+    'multi_record_canvas', 'gc_content_width', 'gc_content_radius',
+    'gc_skew_width', 'gc_skew_radius',
+}
+
+# 前端参数名 → gbdraw 实际开关名（连字符；argparse 不做下划线/连字符互换）
+_FLAG_ALIAS = {'no_gc': 'no-gc', 'no_skew': 'no-skew'}
+
+# 同名但取值集不同的选项：linear 侧做值映射（circular 的取值传过去会 invalid choice）
+_LINEAR_VALUE_MAP = {
+    # circular: horizontal / radial ；linear: auto / above_feature
+    'label_placement': {'horizontal': 'auto', 'radial': 'auto'},
+}
+
 
 def gbdraw_available():
     try:
@@ -71,24 +88,51 @@ def _run_gbdraw(fasta=None, gff=None, gbk=None, out_prefix=None, logger=None,
         if not gff:
             gff = _write_skeleton_gff(fasta, out_dir=out_dir)
         tail += ['--gff', gff, '--fasta', fasta]
-    # 透传绘图定制参数（调色板/布局/形态/标签/GC 等）
-    if opts:
-        for key, val in opts.items():
+
+    def _sub_opts(sub):
+        """把通用 opts 翻译成该子命令真正支持的参数。
+
+        gbdraw 0.14 的两个子命令参数集并不相同（CLI 各自独立），透传前必须
+        按子命令过滤，否则 gbdraw 报 `unrecognized arguments`（退出码 2），
+        平台表现为「预览失败 / 出图 500」。实测（2026-09-09）：
+
+          circular --labels {none,out,both}   标签放哪（外/内）
+          linear   --show_labels {all,first,orthogroup_top,none}  哪些记录出标签
+
+        三类差异：
+          1) 仅 circular 有的选项（下表），linear 必须剔除；
+          2) 标签参数语义不同，linear 走 show_labels 映射；
+          3) 前端用下划线，gbdraw 的开关是连字符（--no-gc / --no-skew）。
+        """
+        out = list(tail)
+        for key, val in (opts or {}).items():
             if val is None or val == '':
                 continue
+            if sub == 'linear' and key in _CIRCULAR_ONLY:
+                if key == 'labels':
+                    mapped = {'out': 'all', 'both': 'all'}.get(
+                        str(val).lower())
+                    if mapped:
+                        out += ['--show_labels', mapped]
+                continue
+            if sub == 'linear' and key in _LINEAR_VALUE_MAP:
+                val = _LINEAR_VALUE_MAP[key].get(str(val).lower(), val)
             if val is True:
-                tail.append('--' + key)
+                out.append('--' + _FLAG_ALIAS.get(key, key))
             else:
-                tail += ['--' + key, str(val)]
+                out += ['--' + _FLAG_ALIAS.get(key, key), str(val)]
+        return out
+
     bundled = (gbdraw == 'bundled:gbdraw')
     for sub in ([mode] if mode in ('circular', 'linear')
                 else ['circular', 'linear']):
         sub_prefix = f'{out_prefix}.{sub}'
+        argv = [sub, '-o', sub_prefix] + _sub_opts(sub)
         if bundled:
-            _gbdraw_inproc([sub, '-o', sub_prefix] + tail)
+            _gbdraw_inproc(argv)
         else:
             from .utils import run_cmd
-            run_cmd([gbdraw, sub, '-o', sub_prefix] + tail, logger=logger)
+            run_cmd([gbdraw] + argv, logger=logger)
         # 产物扩展名随 -f format 变化（svg/png/pdf/ps/eps），用 glob 收集任意格式
         for _ext in ('.svg', '.png', '.pdf', '.ps', '.eps'):
             _f = sub_prefix + _ext
