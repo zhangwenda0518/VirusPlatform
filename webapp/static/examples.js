@@ -40,7 +40,7 @@
   var MAP = {
     't-convert':   { cv_input: 'R1', cv_target: 'fasta' },
     't-fastp':     { f_r1: 'R1', f_r2: 'R2' },
-    't-identify':  { i_type: 'fastq', i_input: 'R1', i_input2: 'R2' },
+    't-identify':  { i_type: 'pe', i_input: 'R1', i_input2: 'R2' },
     't-assemble':  { a_r1: 'R1', a_r2: 'R2' },
     't-contigs':   { c_fa: 'CONTIGS' },
     't-verify':    { vf_fa: 'CONTIGS' },

@@ -261,8 +261,12 @@ def _ensure_search_db(faa, engine, exe, logger=None, force=False):
             meta = json.load(f)
     except (OSError, ValueError):
         pass
+    # 缓存必须校验路径仍然存在：数据库从 databases/viral_prot 迁到
+    # databases/annot/prot 后，db_info.json 里的旧绝对路径会让 DIAMOND
+    # 直接报「无法打开 -d」，且不重建（2026-09-09 实测踩到）。
     if (not force and meta.get('engine') == engine
-            and meta.get('db_ready')):
+            and meta.get('db_ready') and meta.get('db_path')
+            and os.path.exists(meta['db_path'])):
         return meta.get('db_path')
 
     if engine == 'diamond':
