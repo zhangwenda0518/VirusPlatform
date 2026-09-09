@@ -389,12 +389,30 @@
     sdt:      { file: 'sdt_matrix.json',      seqtypes: ['nt'],  label: 'SDT 同一性（NT）' },
     identity: { file: 'identity.json',        seqtypes: ['nt', 'aa'], label: '同一性（NT+AA）' }
   };
+  /* 配色表：Plotly 有同名内置色标的直接用名字（YlGnBu/Viridis/Cividis/Blues/
+     Reds/Greens）；matplotlib 系（Plasma/Inferno/Magma/RdYlBu/Spectral/PuOr/
+     coolwarm）Plotly **没有**同名内置——写成显式色标数组，否则会被 Plotly
+     静默回退成同一个默认渐变，表现就是「换配色没反应」。 */
   var COLORSCALES = [
-    ['默认', 'YlGnBu'], ['Viridis', 'Viridis'], ['Plasma', 'Plasma'],
-    ['RdYlBu', 'RdYlBu'], ['Inferno', 'Inferno'], ['Cividis', 'Cividis'],
-    ['Blues', 'Blues'], ['Reds', 'Reds'], ['Greens', 'Greens'], ['PuOr', 'PuOr'],
-    ['YlGnBu', 'YlGnBu'], ['Spectral', 'Spectral'], ['coolwarm', 'RdBu'],
-    ['Magma', 'Magma']
+    ['默认', 'YlOrRd'],
+    ['Viridis', 'Viridis'],
+    ['Plasma', [[0, '#0d0887'], [0.25, '#7e03a8'], [0.5, '#cc4778'],
+                [0.75, '#f89540'], [1, '#f0f921']]],
+    ['RdYlBu', [[0, '#313695'], [0.25, '#74add1'], [0.5, '#ffffbf'],
+                [0.75, '#fdae61'], [1, '#a50026']]],
+    ['Inferno', [[0, '#000004'], [0.25, '#420a68'], [0.5, '#932667'],
+                 [0.75, '#dd513a'], [1, '#fca50a']]],
+    ['Cividis', 'Cividis'],
+    ['Blues', 'Blues'],
+    ['Reds', 'Reds'],
+    ['Greens', 'Greens'],
+    ['PuOr', [[0, '#2d004b'], [0.5, '#f7f7f7'], [1, '#7f3b08']]],
+    ['YlGnBu', 'YlGnBu'],
+    ['Spectral', [[0, '#9e0142'], [0.25, '#f46d43'], [0.5, '#ffffbf'],
+                  [0.75, '#66c2a5'], [1, '#5e4fa2']]],
+    ['coolwarm', [[0, '#3b4cc0'], [0.5, '#f7f7f7'], [1, '#b40426']]],
+    ['Magma', [[0, '#000004'], [0.25, '#3b0f70'], [0.5, '#8c2981'],
+               [0.75, '#de4968'], [1, '#fcfdbf']]]
   ];
   /* window.VPExamples 在文件前部创建时 COLORSCALES 尚未赋值（var 提升只提升
      声明），此处补一次，供 live 运行结果（app.js）读取同一份配色表。 */

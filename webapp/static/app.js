@@ -3005,6 +3005,215 @@ function exSend(path, target) {
   if (typeof renderModuleTree === 'function') renderModuleTree();
 }
 
+/* ================= CDS 人工挑选界面 ================= */
+let _cpData = null;                 // /api/gb/cds_table 返回值
+let _cpSel = new Map();             // rid -> 基因名（人工确认后）
+
+async function cdsPickOpen() {
+  const name = ($('cpColl') && $('cpColl').value) || '';
+  const msg = $('cpMsg');
+  if (!name) { if (msg) msg.textContent = '先选择集合'; return; }
+  const panel = $('cdsPickPanel');
+  const tbl = $('cpTable');
+  if (panel) panel.style.display = '';
+  if (tbl) tbl.innerHTML = '<p class="hint">解析中…</p>';
+  try {
+    const r = await fetch('/api/gb/cds_table?name=' + encodeURIComponent(name));
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      if (tbl) tbl.innerHTML = '<p class="hint">' + esc(e.error || '解析失败') + '</p>';
+      return;
+    }
+    _cpData = await r.json();
+    _cpSel = new Map();
+    const saved = (_cpData.selection && _cpData.selection.items) || [];
+    saved.forEach(x => { if (x && x.rid) _cpSel.set(x.rid, x.gene || 'gene'); });
+    const fill = (id, vals) => {
+      const el = $(id); if (!el) return;
+      const cur = el.value;
+      el.innerHTML = '<option value="">（全部）</option>' +
+        vals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+      el.value = cur;
+    };
+    fill('cpFam', _cpData.families || []);
+    fill('cpGen', _cpData.genera || []);
+    cdsPickRender();
+    if (msg) msg.textContent = `已解析 ${_cpData.n_cds} 条 CDS / ${_cpData.n_virus} 个病毒` +
+      (saved.length ? `，恢复上次选择 ${saved.length} 条` : '');
+  } catch (e) {
+    if (tbl) tbl.innerHTML = '<p class="hint">无法连接: ' + esc(e) + '</p>';
+  }
+}
+
+function cdsPickRows() {
+  if (!_cpData) return [];
+  const fam = ($('cpFam') && $('cpFam').value) || '';
+  const gen = ($('cpGen') && $('cpGen').value) || '';
+  const showHyp = $('cpShowHyp') && $('cpShowHyp').checked;
+  return _cpData.rows.filter(r => {
+    if (fam && r.family !== fam) return false;
+    if (gen && r.genus !== gen) return false;
+    if (!showHyp && isHypothetical(r)) return false;
+    return true;
+  });
+}
+
+function isHypothetical(r) {
+  const s = ((r.product || '') + ' ' + (r.gene || '')).toLowerCase();
+  return s.includes('hypothetical') || s.includes('unknown') ||
+         s.includes('putative uncharacterized') ||
+         /^(hp|orf\d+)$/.test((r.gene || '').toLowerCase());
+}
+
+function cdsPickRender() {
+  const box = $('cpTable');
+  if (!box || !_cpData) return;
+  const rows = cdsPickRows();
+  const cnt = $('cpCount');
+  if (cnt) cnt.textContent = `显示 ${rows.length} / ${_cpData.n_cds} 条，已选 ${_cpSel.size} 条`;
+  if (!rows.length) { box.innerHTML = '<p class="hint">无匹配记录</p>'; cdsPickSelRender(); return; }
+
+  const groups = new Map();
+  rows.forEach(r => {
+    if (!groups.has(r.virus)) groups.set(r.virus, []);
+    groups.get(r.virus).push(r);
+  });
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    '<thead><tr><th style="width:34px"></th>' +
+    '<th style="text-align:left">基因名</th><th style="text-align:left">产物</th>' +
+    '<th style="width:78px">起始</th><th style="width:78px">终止</th>' +
+    '<th style="width:74px">长度</th><th style="width:44px">链</th></tr></thead><tbody>';
+  for (const [virus, list] of groups) {
+    const nsel = list.filter(r => _cpSel.has(r.rid)).length;
+    const g0 = list[0];
+    html += `<tr><td colspan="7" style="padding:6px 8px;background:var(--line-100,#f2f2f2);` +
+      `font-weight:600">🦠 ${esc(virus)} <span class="hint" style="font-weight:400">` +
+      `${esc(g0.family || '')}${g0.genus ? ' / ' + esc(g0.genus) : ''} · ${list.length} 条` +
+      `${nsel ? ` · 已选 ${nsel}` : ''}</span></td></tr>`;
+    list.forEach(r => {
+      const on = _cpSel.has(r.rid);
+      const showGene = on ? _cpSel.get(r.rid) : r.gene;
+      html += '<tr style="border-bottom:1px solid var(--line-100,#eee)">' +
+        `<td style="text-align:center"><input type="checkbox" ${on ? 'checked' : ''} ` +
+        `onchange="cdsPickToggle('${esc(r.rid)}', this.checked)"></td>` +
+        `<td class="cp-gene" data-rid="${esc(r.rid)}" ondblclick="cdsPickEdit(this)" ` +
+        `title="双击可改名" style="cursor:text">${esc(showGene)}</td>` +
+        `<td class="hint">${esc(r.product || '')}</td>` +
+        `<td style="text-align:right">${r.start}</td>` +
+        `<td style="text-align:right">${r.end}</td>` +
+        `<td style="text-align:right">${r.length}</td>` +
+        `<td style="text-align:center">${esc(r.strand)}</td></tr>`;
+    });
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  cdsPickSelRender();
+}
+
+function cdsPickToggle(rid, on) {
+  if (on) {
+    const row = (_cpData.rows || []).find(r => r.rid === rid);
+    _cpSel.set(rid, (row && row.gene) || 'gene');
+  } else {
+    _cpSel.delete(rid);
+  }
+  cdsPickRender();
+}
+
+function cdsPickEdit(td) {
+  const rid = td.dataset.rid;
+  const cur = _cpSel.has(rid) ? _cpSel.get(rid) : td.textContent.trim();
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = cur;
+  inp.style.cssText = 'width:96%;font:inherit;padding:1px 3px';
+  let done = false;
+  const commit = (ok) => {
+    if (done) return;
+    done = true;
+    const v = (inp.value || '').trim();
+    // 改名即纳入选择：否则改动只留在 DOM 上，导出取不到
+    if (ok && v) _cpSel.set(rid, v);
+    cdsPickRender();
+  };
+  inp.onblur = () => commit(true);
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+    if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  };
+  td.innerHTML = '';
+  td.appendChild(inp);
+  inp.focus();
+  inp.select();
+}
+
+function cdsPickSelRender() {
+  const box = $('cpSel');
+  if (!box) return;
+  if (!_cpSel.size) { box.innerHTML = '<p class="hint">（未选择）</p>'; return; }
+  const byGene = new Map();
+  for (const [rid, gene] of _cpSel) {
+    const r = (_cpData.rows || []).find(x => x.rid === rid) || {};
+    if (!byGene.has(gene)) byGene.set(gene, []);
+    byGene.get(gene).push({ rid, r });
+  }
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  for (const [gene, list] of [...byGene.entries()].sort()) {
+    html += `<tr><td colspan="3" style="padding:4px 6px;background:var(--line-100,#f2f2f2);` +
+      `font-weight:600">📕 ${esc(gene)} <span class="hint" style="font-weight:400">` +
+      `${list.length} 条</span></td></tr>`;
+    list.forEach(({ rid, r }) => {
+      html += '<tr style="border-bottom:1px solid var(--line-100,#eee)">' +
+        `<td style="padding:3px 6px" title="${esc(r.virus || '')}">${esc((r.virus || '').slice(0, 22))}</td>` +
+        `<td style="text-align:right;white-space:nowrap">${r.length || 0}nt</td>` +
+        `<td style="width:22px"><button class="btn small" style="padding:0 5px" ` +
+        `onclick="cdsPickToggle('${esc(rid)}', false)">×</button></td></tr>`;
+    });
+  }
+  html += '</table>';
+  box.innerHTML = html;
+}
+
+function cdsPickClear() { _cpSel.clear(); cdsPickRender(); }
+
+function cdsPickItems() {
+  return [..._cpSel.entries()].map(([rid, gene]) => ({ rid, gene }));
+}
+
+async function cdsPickSave() {
+  const name = ($('cpColl') && $('cpColl').value) || '';
+  const msg = $('cpMsg');
+  if (!name) return;
+  try {
+    const r = await fetch('/api/gb/selection/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, items: cdsPickItems() })
+    });
+    const j = await r.json();
+    if (msg) msg.textContent = r.ok ? `✔ 已保存 ${j.n} 条` : ('保存失败: ' + (j.error || ''));
+  } catch (e) { if (msg) msg.textContent = '保存失败: ' + e; }
+}
+
+async function cdsPickExport() {
+  const name = ($('cpColl') && $('cpColl').value) || '';
+  const msg = $('cpMsg');
+  if (!name) return;
+  if (!_cpSel.size) { if (msg) msg.textContent = '请先勾选 CDS'; return; }
+  if (msg) msg.textContent = '导出中…';
+  try {
+    const r = await fetch('/api/gb/export_selected', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, items: cdsPickItems() })
+    });
+    const j = await r.json();
+    if (!r.ok) { if (msg) msg.textContent = '导出失败: ' + (j.error || ''); return; }
+    if (msg) msg.innerHTML = `✔ 导出 ${j.n_cds} 条 CDS / ${j.n_pep} 条蛋白，` +
+      `${(j.genes || []).length} 个基因 → <span title="${esc(j.dir || '')}">extract/selected/</span>` +
+      ((j.missing || []).length ? `（${j.missing.length} 条未找到）` : '');
+    if (typeof gbExtractFilesLoad === 'function') gbExtractFilesLoad();
+  } catch (e) { if (msg) msg.textContent = '导出失败: ' + e; }
+}
+
 /* 集合列表「🌳 建树」按钮：切换到进化树构建卡并选中该集合 */
 async function tbBuildFor(name, btn) {
   const sel = $('tbColl');
@@ -3102,6 +3311,15 @@ async function loadGbCollections() {
       exSel.innerHTML = '<option value="">（选择集合查看提取产物）</option>' +
         cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}${c.has_extract ? '（已提取）' : ''}</option>`).join('');
       if (cur && cols.some(c => c.name === cur)) exSel.value = cur;
+    }
+    // CDS 人工挑选卡的集合选择下拉（#cpColl）
+    const cpSel = $('cpColl');
+    if (cpSel) {
+      const curCp = cpSel.value;
+      cpSel.innerHTML = '<option value="">（选择集合）</option>' +
+        cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}（${c.n_records} 条）</option>`).join('');
+      if (curCp && cols.some(c => c.name === curCp)) cpSel.value = curCp;
+      else if (cols.length === 1) cpSel.value = cols[0].name;
     }
     // 共线性比较卡的集合选择下拉（#synColl）
     const synSel = $('synColl');
@@ -3584,7 +3802,18 @@ async function sdtExactLoad() {
                       'RdYlBu': 'RdYlBu', Spectral: 'Spectral', YlGnBu: 'YlGnBu',
                       coolwarm: 'coolwarm', magma: 'Magma' }[sdData.palette] || 'Viridis';
     const want = csList.some(c => c[0] === wantLbl) ? wantLbl : (csList[0]?.[0] || '');
+    const distHtml = `
+      <h4 style="font-size:14px;color:#1a5276;margin:14px 0 4px">Identity 分布</h4>
+      <a href="${base}/sdt_distribution.png" target="_blank" style="display:inline-block;max-width:520px">
+        <img src="${base}/sdt_distribution.png" style="max-width:520px;width:100%;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+    const staticHtml = `
+      <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
+      <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
+         style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>`;
     if (hasHM) {
+      /* 一次性写完整块：之后**不能**再 `innerHTML +=`——那会把 <select> 与
+         Plotly 图整段重建，挂在旧节点上的 change 监听随之失效，
+         表现为「改配色没反应」（曾出现的 bug）。 */
       $('sdExact').innerHTML = `
         <h4 style="font-size:14px;color:#1a5276;margin:8px 0 6px">SDT 热图（交互 · 聚类排序 · 三角）</h4>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 6px">
@@ -3593,7 +3822,8 @@ async function sdtExactLoad() {
             `<option value="${c[0]}" ${c[0] === want ? 'selected' : ''}>${c[0]}</option>`).join('')}</select>
           <span class="hint">悬浮看值 · 可缩放 · 下载见下方</span>
         </div>
-        <div id="sdReadyHeat" style="width:100%;overflow:auto;background:#fff;border-radius:8px"></div>`;
+        <div id="sdReadyHeat" style="width:100%;overflow:auto;background:#fff;border-radius:8px"></div>` +
+        distHtml;
       const md = { names: names, nt: m, aa: sdData.aa || null, seqtype: stype.toLowerCase(), n: names.length };
       const sel = $('sdReadyCs');
       const sdDraw = () => {
@@ -3606,21 +3836,11 @@ async function sdtExactLoad() {
         sdDraw();
       } catch (e) {
         /* 兜底：交互渲染失败时退回静态 PNG，绝不把错误抛给用户 */
-        $('sdExact').innerHTML = `
-          <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
-          <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
-             style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+        $('sdExact').innerHTML = staticHtml + distHtml;
       }
     } else {
-      $('sdExact').innerHTML = `
-        <h4 style="font-size:14px;color:#1a5276;margin:8px 0 8px">SDT 热图（聚类排序 · 三角）</h4>
-        <a href="${base}/sdt_heatmap.png" target="_blank"><img src="${base}/sdt_heatmap.png"
-           style="max-width:100%;max-height:720px;border:1px solid #dfe5ec;border-radius:8px"></a>`;
+      $('sdExact').innerHTML = staticHtml + distHtml;
     }
-    $('sdExact').innerHTML += `
-      <h4 style="font-size:14px;color:#1a5276;margin:14px 0 4px">Identity 分布</h4>
-      <a href="${base}/sdt_distribution.png" target="_blank" style="display:inline-block;max-width:520px">
-        <img src="${base}/sdt_distribution.png" style="max-width:520px;width:100%;border:1px solid #dfe5ec;border-radius:8px"></a>`;
     $('sdDl').innerHTML =
       `<a class="btn small" href="${base}/sdt_matrix.csv?dl=1">⬇ 矩阵 CSV</a>` +
       ` <a class="btn small" href="${base}/sdt_heatmap.png?dl=1">⬇ 热图 PNG</a>` +
