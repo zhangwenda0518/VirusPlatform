@@ -1,0 +1,751 @@
+{
+ "align": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "812.0B"
+   },
+   {
+    "path": "aln.trim.fasta",
+    "size": "38.1KB"
+   },
+   {
+    "path": "input.fasta",
+    "size": "38.5KB"
+   },
+   {
+    "path": "aln.fasta",
+    "size": "40.6KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:03:05",
+  "kind": "tool",
+  "module": "align",
+  "run": "align_20260909_230255",
+  "source": "databases/examples/",
+  "stats": {
+   "aln": "aln.fasta",
+   "aln_used": "aln.trim.fasta",
+   "n_seqs": 6,
+   "run": "align_20260909_230255",
+   "seqtype": "nt",
+   "strategy": "auto",
+   "trimal": "automated1"
+  },
+  "title": "序列比对（MAFFT + trimAl）"
+ },
+ "assemble": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "469.2KB"
+   },
+   {
+    "path": "contigs.filtered.fasta",
+    "size": "17.7KB"
+   },
+   {
+    "path": "assembly/spades/run_spades.yaml",
+    "size": "4.5KB"
+   },
+   {
+    "path": "assembly/spades/run_spades.sh",
+    "size": "2.7KB"
+   },
+   {
+    "path": "assembly/spades/dataset.info",
+    "size": "88.0B"
+   },
+   {
+    "path": "assembly/spades/before_rr.fasta",
+    "size": "18.0KB"
+   },
+   {
+    "path": "assembly/spades/input_dataset.yaml",
+    "size": "268.0B"
+   },
+   {
+    "path": "assembly/spades/params.txt",
+    "size": "1.3KB"
+   },
+   {
+    "path": "assembly/spades/spades.log",
+    "size": "92.3KB"
+   },
+   {
+    "path": "assembly/spades/assembly_graph_after_simplification.gfa",
+    "size": "17.5KB"
+   },
+   {
+    "path": "assembly/spades/assembly_graph_with_scaffolds.gfa",
+    "size": "17.6KB"
+   },
+   {
+    "path": "assembly/spades/soft_filtered_transcripts.fasta",
+    "size": "18.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:18:37",
+  "kind": "tool",
+  "module": "assemble",
+  "run": "assemble_20260909_231825",
+  "source": "databases/examples/",
+  "stats": {
+   "contigs": "D:\\桌面\\植物病毒分析平台\\tool_runs\\assemble_20260909_231825\\contigs.filtered.fasta",
+   "n_contigs": 3,
+   "run": "assemble_20260909_231825",
+   "total_bp": 17738
+  },
+  "title": "提取序列组装（SPAdes）"
+ },
+ "contigs": {
+  "files": [
+   {
+    "path": "viral_contigs.fasta",
+    "size": "13.4KB"
+   },
+   {
+    "path": "virus_classification.tsv",
+    "size": "580.0B"
+   },
+   {
+    "path": "run.log",
+    "size": "1.8KB"
+   },
+   {
+    "path": "classify/output_1.txt",
+    "size": "2.8KB"
+   },
+   {
+    "path": "classify/output_1.kreport2",
+    "size": "899.0B"
+   },
+   {
+    "path": "classify/sample_file.txt",
+    "size": "94.0B"
+   },
+   {
+    "path": "contigs.filtered.fasta",
+    "size": "13.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:19:08",
+  "kind": "tool",
+  "module": "contigs",
+  "run": "contigs_20260909_231853",
+  "source": "databases/examples/",
+  "stats": {
+   "classification": "D:\\桌面\\植物病毒分析平台\\tool_runs\\contigs_20260909_231853\\virus_classification.tsv",
+   "kreport": "D:\\桌面\\植物病毒分析平台\\tool_runs\\contigs_20260909_231853\\classify\\output_1.kreport2",
+   "n_contigs": 2,
+   "n_viral": 2,
+   "run": "contigs_20260909_231853",
+   "viral_fasta": "D:\\桌面\\植物病毒分析平台\\tool_runs\\contigs_20260909_231853\\viral_contigs.fasta"
+  },
+  "title": "contig 分类（组装结果再鉴定）"
+ },
+ "convert": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "313.0B"
+   },
+   {
+    "path": "example_R1.fa.gz",
+    "size": "46.4KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:49",
+  "kind": "tool",
+  "module": "convert",
+  "run": "convert_20260909_230247",
+  "source": "databases/examples/",
+  "stats": {
+   "n_files": 1,
+   "run": "convert_20260909_230247"
+  },
+  "title": "格式转换（FASTQ→FASTA）"
+ },
+ "fastp": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "3.8KB"
+   },
+   {
+    "path": "00_prep/.fastp.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "00_prep/fastp_report.html",
+    "size": "457.6KB"
+   },
+   {
+    "path": "00_prep/fastp_report.json",
+    "size": "114.6KB"
+   },
+   {
+    "path": "00_prep/fastp_R2.fastq.gz",
+    "size": "404.9KB"
+   },
+   {
+    "path": "00_prep/fastp_R1.fastq.gz",
+    "size": "406.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:47",
+  "kind": "tool",
+  "module": "fastp",
+  "run": "fastp_20260909_230245",
+  "source": "databases/examples/",
+  "stats": {
+   "fastp_r1": "fastp_R1.fastq.gz",
+   "fastp_r2": "fastp_R2.fastq.gz",
+   "lowq_removed": 0,
+   "q30_rate": 55.57,
+   "reads_after": 7200,
+   "reads_before": 7200,
+   "report_html": "fastp_report.html",
+   "run": "fastp_20260909_230245"
+  },
+  "title": "序列质控（fastp）"
+ },
+ "genoplot": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "2.2KB"
+   },
+   {
+    "path": "09_genome_plots/.gbdraw.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "09_genome_plots/summary.json",
+    "size": "335.0B"
+   },
+   {
+    "path": "09_genome_plots/genome.linear.svg",
+    "size": "7.2KB"
+   },
+   {
+    "path": "09_genome_plots/genome.circular.svg",
+    "size": "24.5KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:21",
+  "kind": "tool",
+  "module": "genoplot",
+  "run": "genoplot_20260909_230217",
+  "source": "databases/examples/",
+  "stats": {
+   "input": "example_genome.gb",
+   "n_seqs": 0,
+   "run": "genoplot_20260909_230217",
+   "stage": "gbdraw",
+   "standalone": true
+  },
+  "title": "基因组图谱"
+ },
+ "hostremoval": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "4.6KB"
+   },
+   {
+    "path": "01_host_removal/.host_removal.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "01_host_removal/stats.json",
+    "size": "374.0B"
+   },
+   {
+    "path": "01_host_removal/kept_R2.fastq.gz",
+    "size": "374.8KB"
+   },
+   {
+    "path": "01_host_removal/kept_R1.fastq.gz",
+    "size": "374.3KB"
+   },
+   {
+    "path": "01_host_removal/output_1.kreport2",
+    "size": "1.2KB"
+   },
+   {
+    "path": "01_host_removal/output_1.txt",
+    "size": "2.7KB"
+   },
+   {
+    "path": "01_host_removal/sample_file.txt",
+    "size": "250.0B"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:45",
+  "kind": "tool",
+  "module": "hostremoval",
+  "run": "hostremoval_20260909_230239",
+  "source": "databases/examples/",
+  "stats": {
+   "dropped_pairs": 44,
+   "host_ratio": 0.012222,
+   "input_r1": "example_R1.fastq.gz",
+   "input_r2": "example_R2.fastq.gz",
+   "kept_mate2": 3556,
+   "kept_pairs": 3556,
+   "kept_r1": "kept_R1.fastq.gz",
+   "kept_r2": "kept_R2.fastq.gz",
+   "kraken_out": "output_1.txt",
+   "kreport": "output_1.kreport2",
+   "run": "hostremoval_20260909_230239",
+   "single_end": false,
+   "stage": "host_removal",
+   "total_pairs": 3600
+  },
+  "title": "宿主去除与序列提取"
+ },
+ "identify": {
+  "files": [
+   {
+    "path": "viral_ids.tsv",
+    "size": "112.0KB"
+   },
+   {
+    "path": "run.log",
+    "size": "3.0KB"
+   },
+   {
+    "path": "viral_sequences_2.fasta",
+    "size": "608.5KB"
+   },
+   {
+    "path": "viral_sequences_1.fasta",
+    "size": "608.5KB"
+   },
+   {
+    "path": "classify/output_1.kreport2",
+    "size": "1.1KB"
+   },
+   {
+    "path": "classify/output_1.txt",
+    "size": "392.0KB"
+   },
+   {
+    "path": "classify/sample_file.txt",
+    "size": "230.0B"
+   }
+  ],
+  "generated_at": "2026-09-09 23:18:53",
+  "kind": "tool",
+  "module": "identify",
+  "run": "identify_20260909_231851",
+  "source": "databases/examples/",
+  "stats": {
+   "kreport": "D:\\桌面\\植物病毒分析平台\\tool_runs\\identify_20260909_231851\\classify\\output_1.kreport2",
+   "n_classified": 3600,
+   "n_extracted": 7200,
+   "run": "identify_20260909_231851"
+  },
+  "title": "病毒识别分类与提取"
+ },
+ "identity": {
+  "files": [
+   {
+    "path": "identity.json",
+    "size": "2.7KB"
+   },
+   {
+    "path": "nt_heatmap.pdf",
+    "size": "45.0KB"
+   },
+   {
+    "path": "nt_heatmap.png",
+    "size": "347.9KB"
+   },
+   {
+    "path": "identity_composite.pdf",
+    "size": "46.9KB"
+   },
+   {
+    "path": "identity_composite.png",
+    "size": "368.2KB"
+   },
+   {
+    "path": "identity_table.csv",
+    "size": "1.4KB"
+   },
+   {
+    "path": "aa_matrix.csv",
+    "size": "645.0B"
+   },
+   {
+    "path": "nt_matrix.csv",
+    "size": "645.0B"
+   },
+   {
+    "path": ".resume_cache/idaa_6_da3025754616.npy",
+    "size": "416.0B"
+   },
+   {
+    "path": "run.log",
+    "size": "352.0B"
+   },
+   {
+    "path": ".resume_cache/idnt_6_dec67048ade5.npy",
+    "size": "416.0B"
+   }
+  ],
+  "generated_at": "2026-09-09 23:04:44",
+  "kind": "tool",
+  "module": "identity",
+  "run": "identity_20260909_230408",
+  "source": "databases/examples/",
+  "stats": {
+   "aa_csv": "aa_matrix.csv",
+   "composite": "identity_composite.png",
+   "composite_pdf": "identity_composite.pdf",
+   "json": "identity.json",
+   "n": 6,
+   "n_aa": 6,
+   "nt_csv": "nt_matrix.csv",
+   "nt_heatmap": "nt_heatmap.png",
+   "pairs": 15,
+   "run": "identity_20260909_230408",
+   "table": "identity_table.csv"
+  },
+  "title": "NT+AA 同一性表"
+ },
+ "orf": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "369.0B"
+   },
+   {
+    "path": "04_orf/.orf.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "04_orf/summary.json",
+    "size": "326.0B"
+   },
+   {
+    "path": "04_orf/pyrodigal_rv.gff",
+    "size": "660.0B"
+   },
+   {
+    "path": "04_orf/pyrodigal_rv.ffn",
+    "size": "11.7KB"
+   },
+   {
+    "path": "04_orf/pyrodigal_rv.faa",
+    "size": "4.1KB"
+   },
+   {
+    "path": "04_orf/pyrodigal.gff",
+    "size": "564.0B"
+   },
+   {
+    "path": "04_orf/pyrodigal.ffn",
+    "size": "11.7KB"
+   },
+   {
+    "path": "04_orf/pyrodigal.faa",
+    "size": "4.1KB"
+   },
+   {
+    "path": "03_assembly/viral_contigs.fasta",
+    "size": "13.0KB"
+   },
+   {
+    "path": "03_assembly/summary.json",
+    "size": "79.0B"
+   },
+   {
+    "path": "03_assembly/contigs.filtered.fasta",
+    "size": "13.0KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:17",
+  "kind": "tool",
+  "module": "orf",
+  "run": "orf_20260909_230215",
+  "source": "databases/examples/",
+  "stats": {
+   "input": "viral_contigs.fasta",
+   "n_contigs": 2,
+   "run": "orf_20260909_230215",
+   "stage": "orf"
+  },
+  "title": "ORF 预测"
+ },
+ "orfa": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "23.2KB"
+   },
+   {
+    "path": "04b_orf_annot/.orfa.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "04b_orf_annot/summary.json",
+    "size": "2.5KB"
+   },
+   {
+    "path": "04b_orf_annot/genome_diagrams/example_contig_2.svg",
+    "size": "3.9KB"
+   },
+   {
+    "path": "04b_orf_annot/genome_diagrams/example_contig_1.svg",
+    "size": "4.2KB"
+   },
+   {
+    "path": "04b_orf_annot/orf_annotation.gff3",
+    "size": "2.4KB"
+   },
+   {
+    "path": "04b_orf_annot/contig_function_profile.tsv",
+    "size": "266.0B"
+   },
+   {
+    "path": "04b_orf_annot/orf_function_summary.tsv",
+    "size": "68.0B"
+   },
+   {
+    "path": "04b_orf_annot/orf_family_summary.tsv",
+    "size": "114.0B"
+   },
+   {
+    "path": "04b_orf_annot/orf_annotation.tsv",
+    "size": "2.5KB"
+   },
+   {
+    "path": "04b_orf_annot/cdd_hits.raw.tsv",
+    "size": "672.0B"
+   },
+   {
+    "path": "04_orf/.orf.done",
+    "size": "19.0B"
+   }
+  ],
+  "generated_at": "2026-09-09 23:16:20",
+  "kind": "tool",
+  "module": "orfa",
+  "run": "orfa_20260909_231215",
+  "source": "databases/examples/",
+  "stats": {
+   "input": "viral_contigs.fasta",
+   "n_contigs": 2,
+   "run": "orfa_20260909_231215",
+   "stage": "orf"
+  },
+  "title": "ORF 功能注释"
+ },
+ "primer": {
+  "files": [
+   {
+    "path": "06_primer/summary.json",
+    "size": "111.0B"
+   },
+   {
+    "path": "06_primer/.primer.done",
+    "size": "19.0B"
+   },
+   {
+    "path": "run.log",
+    "size": "137.0B"
+   },
+   {
+    "path": "05_phylo/summary.json",
+    "size": "42.0B"
+   },
+   {
+    "path": "05_phylo/G1/aln.fasta",
+    "size": "33.1KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:02:55",
+  "kind": "tool",
+  "module": "primer",
+  "run": "primer_20260909_230253",
+  "source": "databases/examples/",
+  "stats": {
+   "n_primers": 0,
+   "reason": "未设计出引物（保守区不足或序列问题）",
+   "run": "primer_20260909_230253",
+   "stage": "primer"
+  },
+  "title": "引物设计（保守区）"
+ },
+ "quicktree": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "3.0KB"
+   },
+   {
+    "path": "tree.nwk",
+    "size": "169.0B"
+   },
+   {
+    "path": "input.fasta",
+    "size": "38.4KB"
+   },
+   {
+    "path": "aln.fasta",
+    "size": "40.6KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:03:13",
+  "kind": "tool",
+  "module": "quicktree",
+  "run": "quicktree_20260909_230305",
+  "source": "databases/examples/",
+  "stats": {
+   "method": "fasttree",
+   "n_seqs": 6,
+   "run": "quicktree_20260909_230305",
+   "tree": "tree.nwk"
+  },
+  "title": "进化树构建（快速）"
+ },
+ "sdt": {
+  "files": [
+   {
+    "path": "sdt_matrix.json",
+    "size": "648.0B"
+   },
+   {
+    "path": "sdt_distribution.pdf",
+    "size": "34.2KB"
+   },
+   {
+    "path": "sdt_distribution.png",
+    "size": "149.6KB"
+   },
+   {
+    "path": "sdt_heatmap.pdf",
+    "size": "46.1KB"
+   },
+   {
+    "path": "sdt_heatmap.png",
+    "size": "352.7KB"
+   },
+   {
+    "path": "sdt_matrix.csv",
+    "size": "645.0B"
+   },
+   {
+    "path": ".resume_cache/sdt_6_dec67048ade5.npy",
+    "size": "416.0B"
+   },
+   {
+    "path": "run.log",
+    "size": "272.0B"
+   }
+  ],
+  "generated_at": "2026-09-09 23:03:41",
+  "kind": "tool",
+  "module": "sdt",
+  "run": "sdt_20260909_230313",
+  "source": "databases/examples/",
+  "stats": {
+   "csv": "sdt_matrix.csv",
+   "distribution": "sdt_distribution.png",
+   "distribution_pdf": "sdt_distribution.pdf",
+   "heatmap": "sdt_heatmap.png",
+   "heatmap_pdf": "sdt_heatmap.pdf",
+   "json": "sdt_matrix.json",
+   "n": 6,
+   "pairs": 15,
+   "run": "sdt_20260909_230313",
+   "seqtype": "nt"
+  },
+  "title": "SDT 同一性分析"
+ },
+ "structcmp": {
+  "files": [
+   {
+    "path": "identity_matrix.json",
+    "size": "399.0B"
+   },
+   {
+    "path": "identity_matrix.tsv",
+    "size": "367.0B"
+   },
+   {
+    "path": "input.fasta",
+    "size": "38.4KB"
+   },
+   {
+    "path": "run.log",
+    "size": "330.0B"
+   },
+   {
+    "path": "aln.fasta",
+    "size": "40.6KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:03:49",
+  "kind": "tool",
+  "module": "structcmp",
+  "run": "structcmp_20260909_230341",
+  "source": "databases/examples/",
+  "stats": {
+   "aln": "D:\\桌面\\植物病毒分析平台\\tool_runs\\structcmp_20260909_230341\\aln.fasta",
+   "aln_cols": 6694,
+   "matrix_json": "D:\\桌面\\植物病毒分析平台\\tool_runs\\structcmp_20260909_230341\\identity_matrix.json",
+   "matrix_tsv": "D:\\桌面\\植物病毒分析平台\\tool_runs\\structcmp_20260909_230341\\identity_matrix.tsv",
+   "n_seqs": 6,
+   "run": "structcmp_20260909_230341"
+  },
+  "title": "结构比较"
+ },
+ "verify": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "32.4KB"
+   },
+   {
+    "path": "verify/summary.json",
+    "size": "280.0B"
+   },
+   {
+    "path": "verify/calls.tsv",
+    "size": "810.0B"
+   },
+   {
+    "path": "verify/cdd_hits.tsv",
+    "size": "801.0B"
+   },
+   {
+    "path": "verify/blastx.tsv",
+    "size": "2.3KB"
+   },
+   {
+    "path": "verify/virus_input.fasta",
+    "size": "13.2KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:18:20",
+  "kind": "tool",
+  "module": "verify",
+  "run": "verify_20260909_231620",
+  "source": "databases/examples/",
+  "stats": {
+   "combine": "union",
+   "host_filter": "all",
+   "n_calls": 2,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\tool_runs\\verify_20260909_231620\\verify",
+   "run": "verify_20260909_231620",
+   "skipped": 0,
+   "viroid": 0,
+   "virus": 2
+  },
+  "title": "候选序列验证"
+ }
+}

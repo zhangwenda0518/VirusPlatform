@@ -1,0 +1,16 @@
+{
+ "virus": 2,
+ "viroid": 0,
+ "skipped": 0,
+ "calls": {
+  "known": 2
+ },
+ "combine": "union",
+ "methods": [
+  "blastx",
+  "cdd"
+ ],
+ "host_filter": "all",
+ "n_calls": 2,
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\tool_runs\\verify_20260909_231620\\verify"
+}

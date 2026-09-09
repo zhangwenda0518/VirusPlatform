@@ -1,0 +1,100 @@
+{
+  "stage": "orfa",
+  "model": "pyrodigal_rv",
+  "engine": "diamond",
+  "n_orfs": 7,
+  "n_annotated": 7,
+  "n_families": 2,
+  "gff_annotated": 7,
+  "n_hmm_only": 2,
+  "n_cdd_only": 0,
+  "evidence": {
+    "hmm": 2,
+    "seq": 5
+  },
+  "categories": {
+    "其他功能蛋白": 6,
+    "假想蛋白（功能未定）": 1
+  },
+  "families": {
+    "Solemoviridae": 4,
+    "Caulimoviridae": 3
+  },
+  "tsv": "orf_annotation.tsv",
+  "diagrams": [
+    "genome_diagrams\\example_contig_1.svg",
+    "genome_diagrams\\example_contig_2.svg"
+  ],
+  "rows_preview": [
+    {
+      "orf_id": "example_contig_2_9",
+      "product": "polyprotein",
+      "organism": "Grapevine Roditis leaf discoloration-associated virus",
+      "family": "Caulimoviridae",
+      "category": "其他功能蛋白",
+      "pident": 100.0,
+      "qcov": 100.0,
+      "bitscore": 3585.0
+    },
+    {
+      "orf_id": "example_contig_1_1",
+      "product": "P1",
+      "organism": "Pepper yellows virus",
+      "family": "Solemoviridae",
+      "category": "其他功能蛋白",
+      "pident": 100.0,
+      "qcov": 100.0,
+      "bitscore": 1261.0
+    },
+    {
+      "orf_id": "example_contig_1_5",
+      "product": "putative read through protein P5",
+      "organism": "Pepper vein yellows virus 5",
+      "family": "Solemoviridae",
+      "category": "其他功能蛋白",
+      "pident": 79.7,
+      "qcov": 99.8,
+      "bitscore": 739.0
+    },
+    {
+      "orf_id": "example_contig_1_2",
+      "product": "P2",
+      "organism": "Pepper vein yellows virus 2",
+      "family": "Solemoviridae",
+      "category": "其他功能蛋白",
+      "pident": 98.7,
+      "qcov": 100.0,
+      "bitscore": 630.0
+    },
+    {
+      "orf_id": "example_contig_1_4",
+      "product": "P3-CP",
+      "organism": "Pepper yellows virus",
+      "family": "Solemoviridae",
+      "category": "其他功能蛋白",
+      "pident": 100.0,
+      "qcov": 100.0,
+      "bitscore": 309.0
+    },
+    {
+      "orf_id": "example_contig_2_7",
+      "product": "sp|P19200|YOR1_COYMV Uncharacterized 23 kDa protein",
+      "organism": "Grapevine Roditis leaf discoloration-associated virus",
+      "family": "Caulimoviridae",
+      "category": "假想蛋白（功能未定）",
+      "pident": 100.0,
+      "qcov": 100.0,
+      "bitscore": 265.0
+    },
+    {
+      "orf_id": "example_contig_2_8",
+      "product": "ORF2 protein",
+      "organism": "Grapevine Roditis leaf discoloration-associated virus",
+      "family": "Caulimoviridae",
+      "category": "其他功能蛋白",
+      "pident": 100.0,
+      "qcov": 100.0,
+      "bitscore": 246.0
+    }
+  ]
+}

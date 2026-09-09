@@ -1,0 +1,1 @@
+1	D:\桌面\植物病毒分析平台\tool_runs\identify_20260909_231851\classify\_fq2fa_1788967131973\input_1.fa.gz,D:\桌面\植物病毒分析平台\tool_runs\identify_20260909_231851\classify\_fq2fa_1788967131973\input_2.fa.gz

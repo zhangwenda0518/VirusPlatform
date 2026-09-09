@@ -1,0 +1,10 @@
+{
+ "stage": "gbdraw",
+ "standalone": true,
+ "input": "example_genome.gb",
+ "plots": [
+  "D:\\桌面\\植物病毒分析平台\\tool_runs\\genoplot_20260909_230217\\09_genome_plots\\genome.circular.svg",
+  "D:\\桌面\\植物病毒分析平台\\tool_runs\\genoplot_20260909_230217\\09_genome_plots\\genome.linear.svg"
+ ],
+ "n_seqs": 0
+}

@@ -25,6 +25,9 @@ logs/
 tasks/
 host-db/
 virus-db/
+# 上面的 `results/` 规则会连带忽略 databases/examples/results/（同名目录），
+# 但示例结果是「内置资产」，需纳管 —— 必须写在这些规则之后才能生效。
+!databases/examples/results/
 
 # ---------- 2. 归档 / 备份 / 审计快照（不参与日常开发） ----------
 _archive/
