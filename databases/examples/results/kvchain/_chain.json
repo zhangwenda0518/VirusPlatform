@@ -1,0 +1,22 @@
+{
+  "chain": "kvchain",
+  "run": "kvchain_20260909_232729",
+  "label": "病毒定量与共识 一键流程",
+  "created": "2026-09-09 23:27:29",
+  "steps": [
+    {
+      "key": "kvsuite",
+      "run": "kvsuite_20260909_232729",
+      "title": "已知病毒识别与定量（全流程）",
+      "summary": {
+        "stage": "all",
+        "engine": "minibwa",
+        "out": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232729\\kvsuite",
+        "reference": "D:\\桌面\\植物病毒分析平台\\virus-db\\final.cluster.ref.fasta",
+        "filtered_tsv": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232729\\kvsuite\\filter\\filtered.tsv",
+        "n_confirmed": 3
+      }
+    }
+  ],
+  "done": true
+}

@@ -535,6 +535,98 @@
   },
   "title": "NT+AA 同一性表"
  },
+ "kvchain": {
+  "files": [
+   {
+    "path": "_chain.json",
+    "size": "748.0B"
+   },
+   {
+    "path": "run.log",
+    "size": "8.6KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:28:11",
+  "kind": "tool",
+  "module": "kvchain",
+  "run": "kvchain_20260909_232729",
+  "source": "databases/examples/",
+  "stats": {
+   "chain": "kvchain_20260909_232729",
+   "chain_json": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvchain_20260909_232729\\_chain.json",
+   "kvsuite_run": "kvsuite_20260909_232729",
+   "n_steps": 1,
+   "run": "kvchain_20260909_232729"
+  },
+  "title": "病毒定量与共识·一键（全流程）"
+ },
+ "kvsuite": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "7.2KB"
+   },
+   {
+    "path": "kvsuite/logs/known_virus_suite_20260909_232325.log",
+    "size": "4.7KB"
+   },
+   {
+    "path": "kvsuite/logs/bcftools.log",
+    "size": "2.0KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.vcf.filtered",
+    "size": "4.3KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.soft.vcf",
+    "size": "4.1KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.vcf",
+    "size": "3.5KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.raw.vcf",
+    "size": "3.5KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.call.bcf",
+    "size": "1.2KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.pileup.bcf",
+    "size": "364.3KB"
+   },
+   {
+    "path": "kvsuite/plots/EXAMPLE/EXAMPLE_Pepper_yellows_virus_NC_077216.1_depth.png",
+    "size": "350.2KB"
+   },
+   {
+    "path": "kvsuite/plots/EXAMPLE/EXAMPLE_Pepper_yellows_virus_NC_077216.1_depth.pdf",
+    "size": "148.6KB"
+   },
+   {
+    "path": "kvsuite/plots/EXAMPLE/EXAMPLE_Cassava_Colombian_symptomless_virus_NC_076132.1_depth.png",
+    "size": "333.4KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:24:06",
+  "kind": "tool",
+  "module": "kvsuite",
+  "run": "kvsuite_20260909_232324",
+  "source": "databases/examples/",
+  "stats": {
+   "engine": "minibwa",
+   "filtered_tsv": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232324\\kvsuite\\filter\\filtered.tsv",
+   "n_confirmed": 3,
+   "out": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232324\\kvsuite",
+   "reference": "D:\\桌面\\植物病毒分析平台\\virus-db\\final.cluster.ref.fasta",
+   "run": "kvsuite_20260909_232324",
+   "stage": "all"
+  },
+  "title": "已知病毒识别与定量"
+ },
  "orf": {
   "files": [
    {
@@ -823,6 +915,59 @@
   },
   "title": "结构比较"
  },
+ "variant": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "3.5KB"
+   },
+   {
+    "path": "kvsuite/logs/known_virus_suite_20260909_232425.log",
+    "size": "982.0B"
+   },
+   {
+    "path": "kvsuite/logs/bcftools.log",
+    "size": "2.0KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.vcf.filtered",
+    "size": "4.3KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.soft.vcf",
+    "size": "4.1KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.vcf",
+    "size": "3.5KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.raw.vcf",
+    "size": "3.5KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.call.bcf",
+    "size": "1.2KB"
+   },
+   {
+    "path": "kvsuite/vcf/all.variants.pileup.bcf",
+    "size": "364.3KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:24:27",
+  "kind": "tool",
+  "module": "variant",
+  "run": "kvsuite_20260909_232425",
+  "source": "databases/examples/",
+  "stats": {
+   "engine": "minibwa",
+   "out": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232425\\kvsuite",
+   "reference": "D:\\桌面\\植物病毒分析平台\\virus-db\\final.cluster.ref.fasta",
+   "run": "kvsuite_20260909_232425",
+   "stage": "variant"
+  },
+  "title": "病毒变异分析"
+ },
  "verify": {
   "files": [
    {
@@ -866,5 +1011,53 @@
    "virus": 2
   },
   "title": "候选序列验证"
+ },
+ "virchain": {
+  "files": [
+   {
+    "path": "_chain.json",
+    "size": "1.9KB"
+   },
+   {
+    "path": "run.log",
+    "size": "552.2KB"
+   },
+   {
+    "path": "contigs__viral_contigs.fasta",
+    "size": "18.2KB"
+   },
+   {
+    "path": "contigs__virus_classification.tsv",
+    "size": "832.0B"
+   },
+   {
+    "path": "assembly__contigs.filtered.fasta",
+    "size": "17.7KB"
+   },
+   {
+    "path": "identify__viral_ids.tsv",
+    "size": "112.0KB"
+   },
+   {
+    "path": "identify__viral_sequences_2.fasta",
+    "size": "608.5KB"
+   },
+   {
+    "path": "identify__viral_sequences_1.fasta",
+    "size": "608.5KB"
+   }
+  ],
+  "generated_at": "2026-09-09 23:27:29",
+  "kind": "tool",
+  "module": "virchain",
+  "run": "virchain_20260909_232453",
+  "source": "databases/examples/",
+  "stats": {
+   "chain": "virchain_20260909_232453",
+   "chain_json": "D:\\桌面\\植物病毒分析平台\\tool_runs\\virchain_20260909_232453\\_chain.json",
+   "n_steps": 4,
+   "run": "virchain_20260909_232453"
+  },
+  "title": "病毒识别分类·一键（②→③→④）"
  }
 }

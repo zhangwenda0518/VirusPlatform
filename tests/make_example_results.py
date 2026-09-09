@@ -72,6 +72,14 @@ JOBS = [
     ('consensus', 'consensus', '共识序列与变异', {
         'fasta': EX + 'example_viral_contigs.fasta',
         'reads': EX + 'example_R1.fastq.gz'}),
+    ('kvsuite', 'kvsuite', '已知病毒识别与定量', 'KVSUITE'),
+    ('variant', 'kvsuite', '病毒变异分析', 'VARIANT'),
+    ('virchain', 'virchain', '病毒识别分类·一键（②→③→④）', {
+        'input': EX + 'example_R1.fastq.gz',
+        'input2': EX + 'example_R2.fastq.gz',
+        'run_identify': True, 'do_verify': True,
+        'mode': 'metaviral', 'memory': 32}),
+    ('kvchain', 'kvchain', '病毒定量与共识·一键（全流程）', 'KVCHAIN'),
 ]
 
 # 复制产物时排除的中间目录/大文件（体积大且对示例无价值）
@@ -83,6 +91,32 @@ SKIP_NAMES = {'.done', 'run.log', 'output_1.txt', 'output_2.txt',
               'output_1-2.txt', 'plotly.min.js'}
 SKIP_SUFFIX = ('.fastq.gz', '.fq.gz', '.fasta.gz', '.tmp', '.k2', '.bam',
                '.sam', '.sorted.bam', '.bai')
+
+
+def _kvsuite_params():
+    """kvsuite 需要样品表：临时生成一份指向示例 reads 的 TSV（不建真样品，
+    避免示例数据混进用户的样品列表）。"""
+    d = os.path.join(ROOT, 'tool_runs', '_example_inputs')
+    os.makedirs(d, exist_ok=True)
+    sheet = os.path.join(d, 'example_sample_sheet.tsv')
+    r1 = os.path.join(ROOT, 'databases', 'examples', 'example_R1.fastq.gz')
+    r2 = os.path.join(ROOT, 'databases', 'examples', 'example_R2.fastq.gz')
+    with io.open(sheet, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('name\tr1\tr2\nEXAMPLE\t' + r1 + '\t' + r2 + '\n')
+    return {'sample_sheet': sheet, 'stage': 'all'}
+
+
+def _variant_params():
+    """变异段（kvsuite stage=variant）不跑 reads，只吃上游 BAM/VCF。
+    取最近一次 kvsuite 示例运行的 bam 目录。"""
+    import glob
+    cands = sorted(glob.glob(os.path.join(ROOT, 'tool_runs', 'kvsuite_*',
+                                          'kvsuite', 'bam')),
+                   key=os.path.getmtime, reverse=True)
+    for d in cands:
+        if glob.glob(os.path.join(d, '*.bam')):
+            return {'stage': 'variant', 'bam_dir': d}
+    raise RuntimeError('未找到上游 BAM（先跑 kvsuite 示例）')
 
 
 def run_one(client, tool, params, timeout=3600):
@@ -166,6 +200,10 @@ def main():
             continue
         print(f'  [运行] {module} <- {tool} …', flush=True)
         try:
+            if params in ('KVSUITE', 'KVCHAIN'):
+                params = _kvsuite_params()
+            elif params == 'VARIANT':
+                params = _variant_params()
             run, result, dt = run_one(client, tool, params)
             meta = result if isinstance(result, dict) else {}
             manifest[module] = collect(run, module, title, meta)
