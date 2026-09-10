@@ -332,7 +332,7 @@ def _platform_feat_miuvig(run_dir, out_path):
     n_evidenced = len([c for c in evidence_count.values() if c > 0])
     feat_pred = f'{model};3.7.1;single mode'
     sim_search_meth = f'{engine};2.1.8;default'
-    viral_fams_pred = 'HMMER;3.4;VOGdb/RVDB/vFam'
+    viral_fams_pred = 'HMMER;3.4;Pfam-A-Viruses'
     cdd_pred = 'MMseqs2;14.7e284;CDD+Pfam'
     ref_db = 'RefSeq viral'
     ref_db_version = '2024-06'

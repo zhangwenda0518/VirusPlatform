@@ -275,7 +275,7 @@ const I18N_DICT = {
     'bd.virusLibs': '🦠 病毒分类库（自备预构建）',
     'bd.virusLibsHint': '病毒 kunpeng 分类库由使用者预构建提供：把库目录放入 databases/ 下即被自动识别（下方实时列出）；平台外的库用「登记外部病毒库」挂载。分析时在「分析工具 → ②病毒鉴定 / ④contig 分类」的病毒库下拉中选择。',
     'bd.advBuild': '🛠 高级：在线构建 / 转换（一般不用）',
-    'bd.advBuildHint': '仅当需要从原始参考数据重建库时使用：NCBI RefSeq Viral（~1.9 万条，快）· RVDB C-RVDB（~132 万条，耗时与内存显著更高）· Kraken2 官方库包（.tar.gz）转换。',
+    'bd.advBuildHint': '仅当需要从原始参考数据重建库时使用：NCBI RefSeq Viral（~1.9 万条，快）· Kraken2 官方库包（.tar.gz）转换。',
     'bd.advSeqName': '自备 FASTA 的规范序列名',
     'bd.advSeqNameHint': '手工提供参考序列时，按 <code>&gt;taxid|12345|seqid 描述</code> 命名即可，无需提供映射表。平台内建的 RefSeq/RVDB 流程已自动注入 taxid。',
     'bd.toolDetect': '工具探测',

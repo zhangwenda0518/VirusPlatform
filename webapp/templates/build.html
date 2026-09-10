@@ -38,7 +38,7 @@
       <div class="card">
         <h2 id="m-host" data-i18n="bd.host">1️⃣ 宿主数据库（kunpeng）</h2>
         <div id="hostStat" class="dbbadge"></div>
-        <p class="hint" style="margin:4px 0">📁 <span data-i18n="bd.loc">位置</span>: <span id="hostPath">databases/host/classify/</span></p>
+        <p class="hint" style="margin:4px 0">📁 <span data-i18n="bd.loc">位置</span>: <span id="hostPath">host-db/host/classify/</span></p>
         <label data-i18n="bd.hostGenome">宿主基因组 FASTA</label>
         <div class="filerow">
           <input id="hostGenome" type="text" class="file-input" value="host-db/112863_Lycium_barbarum/genome.fa">
@@ -62,7 +62,7 @@
         <div style="margin-top:12px;border-top:1px dashed var(--line-100);padding-top:10px">
           <label data-i18n="bd.hostDirLbl">已构建宿主库目录（kunpeng，含 hash_*.k2d）</label>
           <div class="filerow">
-            <input id="hostDbDir" type="text" data-i18n-ph="bd.hostDbDirPh" placeholder="databases/host/classify 或本机目录">
+            <input id="hostDbDir" type="text" data-i18n-ph="bd.hostDbDirPh" placeholder="host-db/host/classify 或本机目录">
             <button class="btn small" onclick="browseDir('hostDbDir')">📁</button>
           </div>
           <button class="btn" onclick="loadHostDb(this)" data-i18n="bd.hostLoadBtn">📂 加载已构建宿主库</button>
@@ -88,22 +88,18 @@
         <details style="margin-top:12px">
           <summary data-i18n="bd.advBuild">🛠 高级：在线构建 / 转换（一般不用）</summary>
           <p class="hint" style="margin-top:8px" data-i18n="bd.advBuildHint">仅当需要从原始参考数据重建库时使用：
-             NCBI RefSeq Viral（~1.9 万条，快）· RVDB C-RVDB（~132 万条，耗时与内存显著更高）·
-             Kraken2 官方库包（.tar.gz）转换。</p>
+             NCBI RefSeq Viral（~1.9 万条，快）· Kraken2 官方库包（.tar.gz）转换。</p>
           <div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--line-100);background:var(--bg-soft,rgba(127,127,127,.06));border-radius:4px">
             <b data-i18n="bd.advSeqName">自备 FASTA 的规范序列名</b>
-            <p class="hint" style="margin:4px 0 0" data-i18n="bd.advSeqNameHint">手工提供参考序列时，按 <code>&gt;taxid|12345|seqid 描述</code> 命名即可，无需提供映射表。平台内建的 RefSeq/RVDB 流程已自动注入 taxid。</p>
+            <p class="hint" style="margin:4px 0 0" data-i18n="bd.advSeqNameHint">手工提供参考序列时，按 <code>&gt;taxid|12345|seqid 描述</code> 命名即可，无需提供映射表。平台内建的 RefSeq 流程已自动注入 taxid。</p>
           </div>
           <p class="hint" style="margin:4px 0">📁 <span data-i18n="bd.loc">位置</span>:
-             RefSeq → databases/virus/ref/ · RVDB → databases/virus/rvdb/ ·
+             RefSeq → databases/virus/ref/ ·
              Kraken2 转换 → databases/&lt;库名&gt;/（原始参考数据 virus_ref 已移除）</p>
           <div style="display:flex;gap:10px;margin:8px 0;flex-wrap:wrap">
             <button class="btn" onclick="buildUniversalDb('refvirus', this)"
                     title="NCBI RefSeq Viral（速度快）" data-i18n-title="bd.refseqTitle">
               🧬 构建 RefSeq 病毒库</button>
-            <button class="btn" onclick="buildUniversalDb('rvdb', this)"
-                    title="RVDB C-RVDB（大库，耗时长）" data-i18n-title="bd.rvdbTitle">
-              🧬 构建 RVDB 库</button>
           </div>
           <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:end">
             <div class="gp-item">
@@ -216,8 +212,6 @@ async function convertKraken2(btn) {
 
 /* 通用病毒库构建 */
 async function buildUniversalDb(source, btn) {
-  if (source === 'rvdb' && !confirm(
-      t('bd.rvdbConfirm','RVDB 库约 132 万条序列，构建耗时长、内存占用高，确定继续？'))) return;
   try {
     const r = await fetch('/api/build_universal_db', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

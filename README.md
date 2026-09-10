@@ -332,7 +332,8 @@ examples/     内置各工具示例数据（✨示例按钮共用：2 条病毒�
               近缘集、保守区近缘集、示例树、示例 GenBank 与共线性 .gb）；
               results/ 固化各模块示例运行结果（与真实结果隔离）。2026-09-10
               由 databases/examples/ 迁到平台根目录，整体纳管 git。
-databases/    kunpeng 病毒库（virus/plant·ref·rvdb）与注释库（annot/）、
+databases/    kunpeng 病毒库（virus/plant · virus/ref）与注释库（annot/cdd ·
+              annot/prot · annot/hmm/pfam）、
               taxonomy、建树库（tree_db/）
 host-db/      宿主数据：建库源基因组（<taxid>_<物种>/genome.fa）与宿主
               **分类库**（host/classify/，kunpeng hash）。宿主库按物种而
@@ -473,26 +474,30 @@ CLI/卡片可用 `--plot-engine auto|gbdraw|dfv` 强制指定引擎。
 
 ### 层2 HMM / 结构域（序列法兜底，远缘 ORF 补注释）
 
-pyhmmer（Windows 原生 wheel，内存恒定 ~50MB 流式扫描）扫三库，命中过滤用
-viral_fams 口径**双门槛**：域级 i-Evalue ≤ 1e-3 **且** HMM 模型覆盖率 ≥ 0.5：
+pyhmmer（Windows 原生 wheel，内存恒定 ~50MB 流式扫描）扫 **Pfam 病毒库**，
+命中过滤用 viral_fams 口径**双门槛**：域级 i-Evalue ≤ 1e-3 **且** HMM 模型
+覆盖率 ≥ 0.5：
 
 | 库 | profiles | 功能/分类归属 |
 |---|---|---|
-| VOGDB r236 `vog.hmm` | 49,116 | annotations 共识描述 + 功能类别码 + lca 谱系尾（科/亚科） |
-| RVDB v32.0 FAM | 13,679 | 预计算 `rvdb_annotations.tsv.gz`（VOG 同构：LCA 谱系→科/属 + 关键词共识描述 + 类别） |
-| vFam-B 2014 | 5,585 | 注释文件 FAMILIES/GENERA 主科/主属 + 代表产物名 |
+| `Pfam-A-Viruses.hmm`（virsorter2 病毒 Pfam 子集） | 1,074 | HMM 文件内嵌 NAME/ACC/**DESC**，自描述，直接得到可读产物名（如 RNA-dependent RNA polymerase） |
+
+> 早期版本另支持 VOGDB(r236, 49,116 profiles) 与 RVDB(v32.0, 13,679 profiles)
+> 两路，因两者均不随平台分发、缺失时会产生无谓的检查提示，已于 2026-09-10
+> 移除，**只保留 Pfam 病毒库**（`databases/annot/hmm/pfam/`，2026-09-10 目录由
+> hmm/vfam/ 更名为 hmm/pfam/）。库缺失时 HMM
+> 层整体跳过（`available_libs()` 返回空即不进入），不报错。
 
 序列层已注释的 ORF（evidence=seq）保留层1 结果、HMM 命中记入 hmm_hits 列；
-序列层未命中的 ORF 由 HMM 兜底（evidence=hmm，产物/类别/科来自 VOG/RVDB
-元数据）。另含 **CDD 结构域层**：mmseqs2 搜索 NCBI Cdd（替代 RPS-BLAST，
-同 Cenote-Taker3 思路）——把 mmseqs 格式 CDD 库放 `databases/cdd/cdd_db`
-（或 platform.json databases.cdd 指定前缀）即自动启用，命中经
-viral_cdds_and_pfams_191028.txt（1,580 条精选病毒域列表）标记病毒相关性，
-evidence=cdd。首次扫描前平台自动 hmmpress 预压（VOG 约 25-40 分钟，一次性，
-期间该库显示"预压进行中"自动跳过）。
+序列层未命中的 ORF 由 HMM 兜底（evidence=hmm，产物/类别来自 Pfam DESC，
+科来自注释目录元数据，若有）。另含 **CDD 结构域层**：mmseqs2 搜索 NCBI Cdd
+（替代 RPS-BLAST，同 Cenote-Taker3 思路）——把 mmseqs 格式 CDD 库放
+`databases/annot/cdd/cdd_db`（或 platform.json databases.cdd 指定前缀）即
+自动启用，命中经 viral_cdds_and_pfams_191028.txt（1,580 条精选病毒域列表）
+标记病毒相关性，evidence=cdd。
 
 CLI：`python main.py orfa --sample 样品名`。
-参考库可手动换：替换 `databases/viral_prot/viral_prot.faa` 后删除
+参考库可手动换：替换 `databases/annot/prot/viral_prot.faa` 后删除
 `organism_tax.tsv`、`db_info.json` 重跑即自动重建索引与搜索库。
 
 ## 基因组图模块（⑨，gbdraw / dna_features_viewer 双引擎）

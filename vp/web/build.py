@@ -32,9 +32,8 @@ def api_dbs():
         d = cfg.databases[key]
         out[key] = {'path': d,
                     'ready': db_ready(d) if os.path.isdir(d) else False}
-    # 通用参考库（refvirus / rvdb / 其它 kunpeng 库目录自动探测）
+    # 通用参考库（refvirus / 其它 kunpeng 库目录自动探测）；RVDB 已于 2026-09-10 移除
     for key, mapping in (('refvirus', ('virus', 'ref')),
-                         ('rvdb', ('virus', 'rvdb')),
                          ('k2viral', None)):
         if mapping:
             d = db_path(*mapping)

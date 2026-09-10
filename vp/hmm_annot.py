@@ -2,33 +2,35 @@
 """
 ⑥b 层2：HMM / 结构域注释（序列同源层之后的功能兜底）。
 
-- pyhmmer 流式扫描三库（内存恒定 ~50MB，与库大小无关）：
-    VOG   databases/hmm/vogdb/vog_all.hmm        49,116 profiles
-    RVDB  databases/rvdb/rvdb_v32_prot.hmm       13,679 profiles
-    vFam  databases/hmm/vfam/vFam-B_2014.hmm     5,585 profiles
+- pyhmmer 流式扫描 **Pfam 病毒库**（内存恒定 ~50MB，与库大小无关）：
+    Pfam  databases/annot/hmm/pfam/Pfam-A-Viruses.hmm   1,074 profiles
+  路径由 vp.config.db_path() 解析（见下方 refresh_paths），不硬编码 ——
+  数据库重组或自定义数据库根下都能对上。库可缺：available_libs()
+  只返回实际存在的库，缺则整个 HMM 层跳过（不报错）。
 - 命中过滤采用 rosekantor/viral_fams 口径双门槛：
     域级 i-Evalue ≤ 1e-3  且  HMM 模型覆盖率 ≥ 0.5
-- 功能/分类归属查预计算元数据：
-    VOG  → vog.annotations.tsv.gz（功能类别码+共识描述）
-           vog.lca.tsv.gz（成员基因组谱系 LCA，尾段即科/亚科级）
-    RVDB → annot/<FAM>.txt（KEYWORDS 词频 + LCA）
-    vFam → annot/vFam_NNNN_annotations.txt（FAMILIES/GENERA 计数 + 成员标题）
+- 功能/分类归属：Pfam-A-Viruses 为**自描述 HMM**（NAME/ACC/DESC 内嵌），
+  描述直接取命中自带 DESC，无需外部元数据文件。
 - 结构域层：mmseqs2 搜索 NCBI Cdd（替代 RPS-BLAST，思路同 Cenote-Taker3 的
   `mmseqs databases CDD`），命中按 viral_cdds_and_pfams_191028.txt（1,580 条
   精选病毒域列表，源自 Cenote-Taker2/3）标记病毒相关性。
 
+> 历史：曾支持 VOGDB(vog_all.hmm) / RVDB(rvdb_v32_prot.hmm) 两路，三者都
+> 不随平台分发。2026-09-10 起**只保留 Pfam 病毒库**这一路（不再有缺库提示），
+> 相关库位、元数据加载与合并分支已一并移除。
+
 对外接口：
   hmm_available()            pyhmmer 是否可用
-  annotate_orfs_hmm(...)     三库扫描 → {orf_id: {'hits': [...], 'best': hit}}
+  available_libs()           实际存在的 HMM 库 [(名, 路径)]
+  annotate_orfs_hmm(...)     逐库扫描 → {orf_id: {'hits': [...], 'best': hit}}
   cdd_search_orfs(...)       CDD 结构域搜索 → {orf_id: [hit, ...]}
   merge_hmm_cdd(...)         与层1结果合并 → 每_ORF 的 product/category/family 补全
 """
 import os
-import re
 import gzip
-import glob
+import shutil
 
-from .config import DIRS, get_config, db_path
+from .config import get_config, db_path
 
 # i-Evalue / 覆盖率门槛（viral_fams 口径）
 DOM_IEVAL_MAX = 1e-3
@@ -37,30 +39,71 @@ HMM_COV_MIN = 0.5
 CDD_EVALUE_MAX = 1e-3
 CDD_MAX_HITS = 3
 
+# ── 库路径（全部走 db_path 注册表；DB_LAYOUT 见 vp/config.py）─────────
 HMM_DIR = db_path('annot', 'hmm')
 CDD_DIR = db_path('annot', 'cdd')
+
+
+def _first_file(*paths):
+    """按序返回第一个存在的文件（都没有则返回第一个候选，
+    供 available_libs() 判定为"该库不可用"而跳过）。"""
+    for p in paths:
+        if os.path.isfile(p):
+            return p
+    return paths[0]
+
+
+# 唯一的 HMM 库：annot/hmm/pfam/Pfam-A-Viruses.hmm（Pfam 病毒谱）
+#   —— virsorter2 的病毒 Pfam 子集，1,074 profiles，纯文本 HMMER3/f，
+#      **自带 NAME/ACC/DESC**（不需要外部元数据，见 merge_hmm_cdd）；
+#      实测 2.2s 扫 1,074 profiles、零噪音。
+# 目录 2026-09-10 由 hmm/vfam/ 更名为 hmm/pfam/（名字与内容一致）。
+# VOGDB(vog_all.hmm) / RVDB(rvdb_v32_prot.hmm) / vFam(vFam-B_2014.hmm) 三路
+# 均已移除：库不随平台分发，留着只会产生「缺库」提示。**HMM 层只保留 Pfam**。
+PFAM_PATH = _first_file(
+    os.path.join(HMM_DIR, 'pfam', 'Pfam-A-Viruses.hmm'),
+)
+# 该库是「自描述」HMM（DESC 内嵌在 HMM 文件里）——Pfam-A-Viruses 属此类
+PFAM_SELF_DESC = os.path.basename(PFAM_PATH).startswith('Pfam-A-')
+
 HMM_LIBS = [
-    ('vog',  os.path.join(HMM_DIR, 'vogdb', 'vog_all.hmm')),
-    ('rvdb', os.path.join(DIRS['databases'], 'rvdb', 'rvdb_v32_prot.hmm')),
-    ('vfam', os.path.join(HMM_DIR, 'vfam', 'vFam-B_2014.hmm')),
+    ('pfam', PFAM_PATH),
 ]
-VOG_ANNOT_TSV = os.path.join(HMM_DIR, 'vogdb', 'vog.annotations.tsv.gz')
-VOG_LCA_TSV = os.path.join(HMM_DIR, 'vogdb', 'vog.lca.tsv.gz')
-RVDB_ANNOT_DIR = os.path.join(DIRS['databases'], 'rvdb', 'annot')
-RVDB_META_GZ = os.path.join(DIRS['databases'], 'rvdb', 'rvdb_annotations.tsv.gz')
-VFAM_ANNOT_DIR = os.path.join(HMM_DIR, 'vfam', 'annot')
+PFAM_ANNOT_DIR = os.path.join(HMM_DIR, 'pfam', 'annot')
 VIRAL_CDD_LIST = os.path.join(CDD_DIR, 'viral_cdds_and_pfams_191028.txt')
 CDD_ID_TBL = os.path.join(CDD_DIR, 'cddid_all.tbl')
 
-# VOG 功能类别码 → 平台类别（vogdb.functional_categories.txt 口径；
-# 具体描述仍优先走 classify_product 关键词归类，此处为兜底）
-VOG_CATEGORY_FALLBACK = {
-    'Xr': '聚合酶/复制相关', 'Xs': '结构蛋白',
-    'Xh': '宿主互作/致病', 'Xp': '其他功能蛋白', 'Xu': '假想蛋白（功能未定）',
-}
+_PFAM_META_CACHE = None
 
-_RVDB_META_CACHE = None
-_VOG_META_CACHE = None
+
+def refresh_paths():
+    """重算模块级库路径常量（切换「设置 → 数据库目录」后由 config 回调）。
+
+    本模块在 import 时快照了 HMM_DIR / CDD_DIR 及其派生常量。
+    若不重算，`db-migrate` 之后长驻的 Web 进程仍指向旧库位置：
+    旧路径已不存在 -> available_libs() 返回空 -> HMM/CDD 功能注释
+    **静默失效**（不报错，只是结果变空）。故注册进
+    vp/config.py::_refresh_module_paths()。
+    """
+    global HMM_DIR, CDD_DIR, HMM_LIBS
+    global PFAM_ANNOT_DIR, VIRAL_CDD_LIST, CDD_ID_TBL
+    global PFAM_PATH, PFAM_SELF_DESC
+    global _PFAM_META_CACHE
+
+    HMM_DIR = db_path('annot', 'hmm')
+    CDD_DIR = db_path('annot', 'cdd')
+    PFAM_PATH = _first_file(
+        os.path.join(HMM_DIR, 'pfam', 'Pfam-A-Viruses.hmm'),
+    )
+    PFAM_SELF_DESC = os.path.basename(PFAM_PATH).startswith('Pfam-A-')
+    HMM_LIBS = [
+        ('pfam', PFAM_PATH),
+    ]
+    PFAM_ANNOT_DIR = os.path.join(HMM_DIR, 'pfam', 'annot')
+    VIRAL_CDD_LIST = os.path.join(CDD_DIR, 'viral_cdds_and_pfams_191028.txt')
+    CDD_ID_TBL = os.path.join(CDD_DIR, 'cddid_all.tbl')
+    # 缓存按旧库内容构建，一并失效
+    _PFAM_META_CACHE = None
 
 
 def hmm_available():
@@ -78,204 +121,20 @@ def available_libs():
 
 
 # ------------------------------------------------------------------
-# VOG / RVDB / Pfam 元数据
+# Pfam 元数据
 # ------------------------------------------------------------------
 def _strip(s):
     return (s or '').strip()
 
 
-def load_vog_meta():
-    """VOG id → (类别码, 共识描述, 谱系尾段)。全量载入并缓存（同 RVDB）。"""
-    global _VOG_META_CACHE
-    if _VOG_META_CACHE is not None:
-        return _VOG_META_CACHE
-    meta = {}
-    try:
-        with gzip.open(VOG_ANNOT_TSV, 'rt', encoding='utf-8',
-                       errors='replace') as f:
-            for line in f:
-                if line.startswith('#'):
-                    continue
-                p = line.rstrip('\n').split('\t')
-                if len(p) >= 5:
-                    meta[p[0]] = {'cat': p[3].strip(), 'desc': p[4].strip()}
-    except OSError:
-        pass
-    try:
-        with gzip.open(VOG_LCA_TSV, 'rt', encoding='utf-8',
-                       errors='replace') as f:
-            for line in f:
-                if line.startswith('#'):
-                    continue
-                p = line.rstrip('\n').split('\t')
-                if len(p) >= 5 and p[0] in meta:
-                    lineage = p[3].strip()
-                    meta[p[0]]['lca'] = lineage
-                    meta[p[0]]['family'] = lineage.split(';')[-1].strip()
-    except OSError:
-        pass
-    _VOG_META_CACHE = meta
-    return meta
-
-
-_KW_STOP = {'viral', 'virus', 'viruses', 'protein', 'proteins', 'like',
-            'putative', 'hypothetical', 'associated', 'non', 'none',
-            'unknown', 'uncharacterized', 'containing', 'characterized'}
-
-
-def _rvdb_consensus(keywords):
-    """KEYWORDS 词频（已按权重降序）→ 拼共识描述：滤停用词/纯数字取前3。"""
-    words = [w for w in keywords
-             if w and not w.isdigit() and w.lower() not in _KW_STOP]
-    return ' '.join(words[:3])
-
-
-def _lineage_family_genus(lineage):
-    """'Viruses::...::Closteroviridae::Ampelovirus' → (科, 属)。
-    ICTV 命名码：科 *viridae、亚科 *virinae，属在其后一位。"""
-    parts = [p.strip() for p in lineage.split('::') if p.strip()]
-    fam_i = -1
-    family = genus = ''
-    for i, p in enumerate(parts):
-        low = p.lower()
-        if low.endswith('viridae') or low.endswith('virinae'):
-            family = p
-            fam_i = i
-            break
-    if fam_i >= 0 and fam_i + 1 < len(parts) \
-            and parts[fam_i + 1].lower().endswith('virus'):
-        genus = parts[fam_i + 1]
-    return family, genus
-
-
-def build_rvdb_meta_table(logger=None):
-    """把 13,679 个 annot/<n>.txt 一次性解析成 VOG 同构预计算表
-    rvdb_annotations.tsv.gz（GroupName|ProteinCount|LCA_Lineage|Family|
-    Genus|FunctionalCategory|ConsensusDescription），之后元数据查询走单文件。"""
-    from .orf_annot import classify_product   # 延迟导入避免环
-    import glob as _glob
-    files = _glob.glob(os.path.join(RVDB_ANNOT_DIR, '*.txt'))
-    if not files:
-        return None
-    rows = []
-    for i, path in enumerate(files):
-        n = os.path.basename(path)[:-4]
-        fam = f'FAM{int(n):06d}'
-        length = nbseq = 0
-        lca = ''
-        kw = []
-        section = None
-        try:
-            with open(path, encoding='utf-8', errors='replace') as f:
-                for line in f:
-                    line = line.rstrip('\n')
-                    if line.startswith('LENGTH\t'):
-                        length = line.split('\t', 1)[1].strip()
-                    elif line.startswith('LCA\t'):
-                        lca = line.split('\t', 1)[1].strip()
-                    elif line.startswith('NBSEQ\t'):
-                        nbseq = line.split('\t', 1)[1].strip()
-                    elif line.startswith('KEYWORDS:'):
-                        section = 'kw'
-                    elif line.startswith('KEYWORDS FROM SEQUENCES'):
-                        break          # 后段为原始标题词频，噪音大，不要
-                    elif section == 'kw':
-                        p = line.split('\t')
-                        if len(p) == 2:
-                            kw.append(p[0])
-                        elif not line.strip():
-                            section = None
-        except OSError:
-            continue
-        lineage = lca.replace('::', ';')
-        family, genus = _lineage_family_genus(lca)
-        kws = _rvdb_consensus(kw)
-        cat = classify_product(kws) if kws else ''
-        rows.append([fam, nbseq, lineage, family, genus, cat, kws])
-        if logger and (i + 1) % 2000 == 0:
-            logger.log(f"  RVDB 元数据 {i + 1}/{len(files)}")
-    rows.sort(key=lambda r: r[0])
-    with gzip.open(RVDB_META_GZ, 'wt', encoding='utf-8') as f:
-        f.write('#GroupName\tProteinCount\tLCA_Lineage\tFamily\tGenus\t'
-                'FunctionalCategory\tConsensusDescription\n')
-        for r in rows:
-            f.write('\t'.join(str(x) for x in r) + '\n')
-    if logger:
-        logger.log(f"RVDB 元数据表生成: {len(rows)} 个家族 → {RVDB_META_GZ}")
-    return RVDB_META_GZ
-
-
-def load_rvdb_meta(fam_ids=None):
-    """RVDB 家族元数据。优先读预计算 rvdb_annotations.tsv.gz（VOG 同构，
-    一次载入并缓存）；表缺失时回退逐文件（注意 annot 文件按数字命名，
-    FAM000001 ↔ 1.txt）。返回 {fam: {...}}。"""
-    global _RVDB_META_CACHE
-    if _RVDB_META_CACHE is not None:
-        return (_RVDB_META_CACHE if fam_ids is None
-                else {k: _RVDB_META_CACHE[k] for k in fam_ids
-                      if k in _RVDB_META_CACHE})
-    if os.path.isfile(RVDB_META_GZ):
-        meta = {}
-        with gzip.open(RVDB_META_GZ, 'rt', encoding='utf-8',
-                       errors='replace') as f:
-            for line in f:
-                if line.startswith('#'):
-                    continue
-                p = line.rstrip('\n').split('\t')
-                if len(p) >= 7:
-                    meta[p[0]] = {'nbseq': p[1], 'lca': p[2].replace(';', '::'),
-                                  'family': p[3], 'genus': p[4],
-                                  'category': p[5], 'desc': p[6]}
-        _RVDB_META_CACHE = meta
-        return (meta if fam_ids is None
-                else {k: meta[k] for k in fam_ids if k in meta})
-    meta = {}
-    for fam in (fam_ids or []):
-        try:
-            n = int(str(fam).replace('FAM', ''))
-        except ValueError:
-            continue
-        d = {}
-        try:
-            from .orf_annot import classify_product
-            with open(os.path.join(RVDB_ANNOT_DIR, f'{n}.txt'),
-                      encoding='utf-8', errors='replace') as f:
-                in_kw = False
-                for line in f:
-                    line = line.rstrip('\n')
-                    if line.startswith('LCA\t'):
-                        lca = line.split('\t', 1)[1].strip()
-                        d['lca'] = lca
-                        fam_, gen_ = _lineage_family_genus(lca)
-                        d['family'], d['genus'] = fam_, gen_
-                    elif line.startswith('KEYWORDS:'):
-                        in_kw = True
-                    elif line.startswith('KEYWORDS FROM SEQUENCES'):
-                        break
-                    elif in_kw:
-                        p = line.split('\t')
-                        if len(p) == 2:
-                            d.setdefault('keywords', []).append(p[0])
-                        elif not line.strip():
-                            in_kw = False
-        except OSError:
-            pass
-        kws = _rvdb_consensus(d.get('keywords', []))
-        if kws:
-            d['desc'] = kws
-            d['category'] = classify_product(kws)
-        meta[fam] = d
-    return meta
-
-
-def load_vfam_meta(fam_ids):
-    """按需读取 vFam annot/vFam_NNNN_annotations.txt →
+def load_pfam_meta(fam_ids):
+    """按需读取旧 vFam 的 annot/<fam>_annotations.txt →
     {fam: {'family': 主科, 'genus': 主属, 'desc': 代表产物名}}。
     格式：FAMILIES/GENERA 计数字典 + 成员 FASTA 标题。"""
     import ast
     meta = {}
     for fam in fam_ids:
-        path = os.path.join(VFAM_ANNOT_DIR, f'{fam}_annotations.txt')
+        path = os.path.join(PFAM_ANNOT_DIR, f'{fam}_annotations.txt')
         d = {}
         try:
             with open(path, encoding='utf-8', errors='replace') as f:
@@ -306,7 +165,7 @@ def load_vfam_meta(fam_ids):
                     elif in_titles and '|' in line:
                         titles.append(line)
                 for t in titles:
-                    # 标题形如 gi|..|ref|YP_xxx.1|vFam_1000| 产物 [物种]
+                    # 标题形如 gi|..|ref|YP_xxx.1|vFam_1000| 产物 [物种]（仅旧 vFam 库需要）
                     body = t.split('|', 5)[-1] if t.count('|') >= 5 else t
                     prod = body.split(' [')[0].strip()
                     low = prod.lower()
@@ -424,14 +283,11 @@ def _scan_library(faa, lib_name, lib_path, threads, logger=None):
 
 def annotate_orfs_hmm(faa, threads=None, logger=None, progress=None,
                       frac_from=0.0, frac_to=1.0):
-    """三库顺序扫描。返回 ({orf_id: {'hits': [...], 'best': hit}}, [库名])。"""
+    """逐库顺序扫描（当前仅 pfam）。返回
+    ({orf_id: {'hits': [...], 'best': hit}}, [库名])。"""
     libs = available_libs()
     if not libs:
         return {}, []
-    # RVDB 元数据表（VOG 同构）缺失时构建一次（约 1 分钟，之后全缓存）
-    if any(n == 'rvdb' for n, _p in libs) and not os.path.isfile(RVDB_META_GZ):
-        if glob.glob(os.path.join(RVDB_ANNOT_DIR, '*.txt')):
-            build_rvdb_meta_table(logger=logger)
     merged = {}
     done_libs = []
     for i, (lib_name, path) in enumerate(libs):
@@ -530,12 +386,19 @@ def cdd_search_orfs(faa, out_dir, threads=None, logger=None):
     from .utils import run_cmd
     out_tsv = os.path.join(out_dir, 'cdd_hits.raw.tsv')
     tmp = out_tsv + '.mmseqs_tmp'
-    run_cmd([mmseqs, 'easy-search', faa, db, out_tsv, tmp,
-             '--format-output', 'query,target,evalue,pident,qlen,qstart,'
-                                'qend,tstart,tend,bits',
-             '-e', str(CDD_EVALUE_MAX), '--max-seqs', '5',
-             '--threads', str(threads or cfg.threads)],
-            logger=logger, env=env)
+    try:
+        run_cmd([mmseqs, 'easy-search', faa, db, out_tsv, tmp,
+                 '--format-output', 'query,target,evalue,pident,qlen,qstart,'
+                                    'qend,tstart,tend,bits',
+                 '-e', str(CDD_EVALUE_MAX), '--max-seqs', '5',
+                 '--threads', str(threads or cfg.threads)],
+                logger=logger, env=env)
+    finally:
+        # mmseqs 的临时目录必须清掉：兄弟模块 orf_annot._run_search 有清理，
+        # 这里原先没有，实测 results/ERR7586041/04b_orf_annot/ 下留有
+        # cdd_hits.raw.tsv.mmseqs_tmp（还会被 /api/tool/runs 目录遍历扫到）。
+        if os.path.isdir(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
     viral_ids = _load_viral_cdd_list()
     names = _load_cdd_names()
     by_q = {}
@@ -570,11 +433,12 @@ def cdd_search_orfs(faa, out_dir, threads=None, logger=None):
 # 与层1合并
 # ------------------------------------------------------------------
 def format_hit_cell(hits):
-    """命中列表 → 紧凑单元格文本：VOG00001(2e-40,cov0.93)|PF00680(...)。
-    CDD 命中代号后附 ShortName 便于识读（如 *pfam00946 Mononeg_RNA_pol(...)）。"""
+    """命中列表 → 紧凑单元格文本：PF00680(2e-40,cov0.93)|PF00946(...)。
+    CDD 命中代号后附 ShortName 便于识读（如 *pfam00946 Mononeg_RNA_pol(...)）。
+    带 ``*`` 者 = 病毒白名单域（CDD 的 viral_list）。"""
     parts = []
     for h in hits:
-        mark = '*' if h.get('viral_list') or h.get('lib') == 'vog' else ''
+        mark = '*' if h.get('viral_list') else ''
         name = ''
         if h.get('lib') == 'cdd' and h.get('desc'):
             name = f" {h['desc']}"
@@ -585,7 +449,7 @@ def format_hit_cell(hits):
 def merge_hmm_cdd(rows, hmm_by_q, cdd_by_q, classify_product):
     """把层2结果并回层1行。返回 (n_hmm_only, n_cdd_only)。
 
-    优先级：层1 序列命中（informative）> HMM（VOG/RVDB/Pfam 元数据）> CDD 名称。
+    优先级：层1 序列命中（informative）> HMM（Pfam 自描述 DESC）> CDD 名称。
     rows 为 orf_annotation 行 dict（就地更新 product/organism/family/category/
     informative/evidence，并新增 hmm_hits/cdd_hits 列数据）。"""
     n_hmm_only = n_cdd_only = 0
@@ -600,31 +464,21 @@ def merge_hmm_cdd(rows, hmm_by_q, cdd_by_q, classify_product):
             continue
         if hh:
             best = hh['best']
-            lib, target = best['lib'], best['target']
-            desc, family, cat = '', '', ''
-            if lib == 'vog':
-                meta = load_vog_meta().get(target, {})
-                desc = meta.get('desc', '')
-                family = meta.get('family', '')
-                cat = classify_product(desc)
-                if cat == '假想蛋白（功能未定）' or not desc:
-                    cat = VOG_CATEGORY_FALLBACK.get(meta.get('cat', ''),
-                                                    cat) or cat
-            elif lib == 'rvdb':
-                meta = load_rvdb_meta([target]).get(target, {})
-                kws = meta.get('desc', '')
-                desc = f"RVDB {target}" + (f" ({kws})" if kws else '')
-                family = meta.get('family', '')
-                genus = meta.get('genus', '')
-                if genus and not r.get('genus'):
-                    r['genus'] = genus
-                cat = meta.get('category') or (
-                    classify_product(kws) if kws else '其他功能蛋白')
-            else:  # vfam
-                meta = load_vfam_meta([target]).get(target, {})
-                desc = meta.get('desc') or f"vFam {target.split('_')[-1]}"
-                family = meta.get('family', '')
-                cat = classify_product(desc)
+            target = best['target']
+            # HMM 层当前仅 pfam（Pfam-A-Viruses 自描述，DESC 直接来自 HMM 文件）
+            hit_desc = (best.get('desc') or '').strip()
+            if hit_desc:
+                # 自描述库（Pfam-A-Viruses）：DESC 直接来自 HMM 文件，
+                # 干净可读（如 "RNA-dependent RNA polymerase"），
+                # 无需 annot/ 外部元数据。
+                desc = hit_desc
+                meta = {}
+            else:
+                meta = load_pfam_meta([target]).get(target, {})
+                # 兜底标签用命中代号本身（Pfam 库自描述，正常走不到这里）
+                desc = meta.get('desc') or target
+            family = meta.get('family', '')
+            cat = classify_product(desc)
             r['product'] = desc or target
             r['category'] = cat
             if not r.get('family'):

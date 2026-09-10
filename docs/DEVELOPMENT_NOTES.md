@@ -753,6 +753,11 @@ hostpredict.log）/ 下载响应头（?dl=1 attachment）/ 工具②报告按钮
 
 ## 三十一、通用病毒参考库（ref-virus / RVDB）（2026-09-06 下午）
 
+> **2026-09-10 更新**：RVDB 库（databases/virus/rvdb/，1.6GB Kraken2 库）与
+> 构建入口已移除——病毒验证/蛋白注释两条链路只依赖 nnot/prot + nnot/cdd
+> + nnot/hmm/pfam，与 RVDB 无关；保留 RefSeq 通用库（databases/virus/ref/）。
+> 以下为该功能的实现记录，留作历史参考。
+
 用户在 databases/virus_ref/ 补充：NCBI RefSeq Viral
 （viral.1.1.genomic.fna.gz，1.9 万条）、RVDB C-RVDBv32.1（132 万条，
 头格式 acc|GENBANK|ACC|desc）、RVDB_Taxon_Current.tab.gz（1100 万行
