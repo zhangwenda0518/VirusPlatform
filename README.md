@@ -325,8 +325,7 @@ platform.json 工具路径、界面语言与分析默认参数配置（可手动
 ├─ bin/       单文件外部工具（kunpeng / seqkit / crabz / clustalw2 /
 │             muscle / aria2c / sracha）
 ├─ tools/     工具套件（Blast / mafft-win / FastTree / iQtree / trimAl /
-│             Gblocks / diamond / mmseqs / fastp / SPAdes 等）
-├─ vendor/    第三方源码（cf1-rs / salmon-src）
+│             Gblocks / diamond / mmseqs / fastp / SPAdes / salmon2 等）
 └─ open-virome/  Open-Virome 前端构建源（/virome 页引用，勿改名/搬动）
 
 databases/    kunpeng 病毒库（virus/plant·ref·rvdb）与注释库（annot/）、

@@ -58,7 +58,7 @@ def platform_root() -> Path:
     """
     p = Path(__file__).resolve().parent
     for _ in range(6):
-        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+        if (p / 'vp').is_dir() and (p / 'app.py').is_file():
             return p
         if p.parent == p:
             break
@@ -105,12 +105,19 @@ class ToolRegistry:
         self.env = None
 
     def probe(self, extra_dirs=None):
-        # tools\ 在模块上一级；部分工具（如 minibwa）直接放在平台根下
+        # 外部工具搜索目录：新布局 3rd/tools、3rd/bin 优先，旧根目录布局回退
+        # （2026-09-10 目录整理把 tools/ bin/ 收进 3rd/）
         root = platform_root()
-        base = root / 'tools'
+        bases = []
+        for rel in ('3rd/tools', '3rd/bin', 'tools', 'bin'):
+            d = root / rel
+            if d.is_dir():
+                bases.append(d)
         auto = []
-        for name, (exe, sub) in self.TOOL_HINTS.items():
-            for d in (base / sub, root / sub):
+        for base in bases:
+            auto.append(str(base))
+            for _exe, sub in self.TOOL_HINTS.values():
+                d = base / sub
                 if d.exists():
                     auto.append(str(d))
         dirs = list(dict.fromkeys(auto + [str(Path(d)) for d in (extra_dirs or [])]))
@@ -128,9 +135,11 @@ class ToolRegistry:
         PATH 里追加工具目录，让 samtools/bcftools 能互相调用。
         """
         env = dict(os.environ)
-        plugins = Path(root) / 'tools' / 'bcftools' / 'libexec' / 'bcftools'
-        if plugins.is_dir():
-            env['BCFTOOLS_PLUGINS'] = str(plugins)
+        for rel in ('3rd/tools', 'tools'):
+            plugins = Path(root) / rel / 'bcftools' / 'libexec' / 'bcftools'
+            if plugins.is_dir():
+                env['BCFTOOLS_PLUGINS'] = str(plugins)
+                break
         extra = [str(Path(p).parent) for p in self.paths.values() if p]
         if extra:
             env['PATH'] = os.pathsep.join(

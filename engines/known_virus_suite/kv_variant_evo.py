@@ -154,7 +154,7 @@ def _find_platform_root() -> Path:
     """
     p = Path(__file__).resolve().parent
     for _ in range(6):
-        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+        if (p / 'vp').is_dir() and (p / 'app.py').is_file():
             return p
         if p.parent == p:
             break
@@ -164,6 +164,14 @@ def _find_platform_root() -> Path:
 
 _PLATFORM_ROOT = _find_platform_root()
 
+
+def _tools_dir() -> Path:
+    """外部工具目录：新布局 3rd/tools 优先，旧根目录 tools/ 回退。"""
+    for rel in ('3rd/tools', 'tools'):
+        d = _PLATFORM_ROOT / rel
+        if d.is_dir():
+            return d
+    return _PLATFORM_ROOT / '3rd' / 'tools'
 
 def safe_name(s) -> str:
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in str(s))
@@ -811,8 +819,8 @@ def plot_variant_density(variants, genes, accession, genome_len, out_dir,
 # ══════════════════════════════════════════════════════════════════
 def _snpgenie_exe() -> tuple[Path | None, Path | None]:
     """定位 perl 与 snpgenie.pl。"""
-    perl = _PLATFORM_ROOT / 'tools' / 'strawberry-perl' / 'perl' / 'bin' / 'perl.exe'
-    script = _PLATFORM_ROOT / 'tools' / 'snpgenie' / 'snpgenie.pl'
+    perl = _tools_dir() / 'strawberry-perl' / 'perl' / 'bin' / 'perl.exe'
+    script = _tools_dir() / 'snpgenie' / 'snpgenie.pl'
     if not perl.is_file():
         w = shutil.which('perl')
         perl = Path(w) if w else None
@@ -1629,7 +1637,7 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
                 'skipped': []}
 
     workdir_en = Path(snpgenie_workdir) if snpgenie_workdir else (
-        _PLATFORM_ROOT / 'kv_variant_test' / '_snpgenie_evo')
+        _PLATFORM_ROOT / 'run' / '_snpgenie_evo')
 
     plots: list[str] = []
     snpgenie_hits: list[dict] = []

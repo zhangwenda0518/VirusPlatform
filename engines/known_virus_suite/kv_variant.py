@@ -64,7 +64,7 @@ def _platform_root() -> Path:
     """
     p = Path(__file__).resolve().parent
     for _ in range(6):
-        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+        if (p / 'vp').is_dir() and (p / 'app.py').is_file():
             return p
         if p.parent == p:
             break
@@ -72,13 +72,23 @@ def _platform_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _tools_dir() -> Path:
+    """外部工具目录：新布局 3rd/tools 优先，旧根目录 tools/ 回退
+    （2026-09-10 目录整理把 tools/ 收进 3rd/）。"""
+    root = _platform_root()
+    for rel in ('3rd/tools', 'tools'):
+        d = root / rel
+        if d.is_dir():
+            return d
+    return root / '3rd' / 'tools'
+
 def find_java() -> Path | None:
     """优先平台自带 JDK 21，其次 PATH 里的 java。"""
     root = _platform_root()
-    cand = sorted((root / 'tools' / 'jdk21').glob('jdk-*/bin/java.exe'))
+    cand = sorted((_tools_dir() / 'jdk21').glob('jdk-*/bin/java.exe'))
     if cand:
         return cand[-1]
-    cand = sorted((root / 'tools' / 'jdk21').glob('jdk-*/bin/java'))
+    cand = sorted((_tools_dir() / 'jdk21').glob('jdk-*/bin/java'))
     if cand:
         return cand[-1]
     w = shutil.which('java')
@@ -88,8 +98,8 @@ def find_java() -> Path | None:
 def find_snpeff() -> Path | None:
     root = _platform_root()
     for cand in [
-        root / 'tools' / 'snpeff' / 'snpEff' / 'snpEff.jar',
-        root / 'tools' / 'snpeff' / 'snpEff.jar',
+        _tools_dir() / 'snpeff' / 'snpEff' / 'snpEff.jar',
+        _tools_dir() / 'snpeff' / 'snpEff.jar',
     ]:
         if cand.exists():
             return cand
@@ -934,12 +944,12 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     bcftools = args.bcftools or str(
-        _platform_root() / 'tools' / 'bcftools' / 'bin' / 'bcftools.exe')
+        _tools_dir() / 'bcftools' / 'bin' / 'bcftools.exe')
     samtools = args.samtools or str(
-        _platform_root() / 'tools' / 'samtools' / 'bin' / 'samtools.exe')
+        _tools_dir() / 'samtools' / 'bin' / 'samtools.exe')
 
     env = dict(os.environ)
-    plugins = str(_platform_root() / 'tools' / 'bcftools' / 'libexec' / 'bcftools')
+    plugins = str(_tools_dir() / 'bcftools' / 'libexec' / 'bcftools')
     if Path(plugins).is_dir():
         env['BCFTOOLS_PLUGINS'] = plugins
 

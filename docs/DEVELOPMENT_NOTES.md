@@ -90,9 +90,7 @@
 │  │                       muscle / aria2c / sracha；*.orig.exe 备份同放）
 │  ├─ tools/               带目录结构的工具套件（Blast / mafft-win / FastTree /
 │  │                       iQtree / trimAl / Gblocks / diamond / mmseqs /
-│  │                       fastp / SPAdes 等）
-│  ├─ vendor/              Rust 第三方源码（salmon-src / cf1-rs）；
-│  │                       `target/` 为编译中间产物，可随时删除释放空间
+│  │                       fastp / SPAdes / salmon2 等）
 │  └─ open-virome/         Open-Virome 前端构建源（/virome 页 `_FRONTEND_BUILD`
 │                          引用，勿改名/搬动）
 ├─ git-repo/               第三方仓库镜像（ViralConsensus 等，仅供参考）
