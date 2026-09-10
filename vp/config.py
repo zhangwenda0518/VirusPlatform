@@ -8,6 +8,7 @@ import sys
 import json
 import glob
 import shutil
+import threading
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -46,15 +47,42 @@ DIRS = {
     'taxonomy':  os.path.join(PLATFORM_ROOT, 'databases', 'taxonomy'),
     'host_src':  os.path.join(PLATFORM_ROOT, 'host-db'),     # 宿主源基因组
     'virus_src': os.path.join(PLATFORM_ROOT, 'virus-db'),    # 病毒源参考
-    'results':   os.path.join(PLATFORM_ROOT, 'results'),     # 样品结果
-    'tool_runs': os.path.join(PLATFORM_ROOT, 'tool_runs'),   # 工具运行目录
-    'downloads': os.path.join(PLATFORM_ROOT, 'downloads'),   # 公共数据下载
-    'logan':     os.path.join(PLATFORM_ROOT, 'logan'),       # LOGAN 溯源任务
-    'submissions': os.path.join(PLATFORM_ROOT, 'submissions'),  # NCBI 提交准备
-    'meta_search': os.path.join(PLATFORM_ROOT, 'meta_search'),  # 公共数据检索
-    'tasks':     os.path.join(PLATFORM_ROOT, 'tasks'),       # GUI 任务状态
-    'logs':      os.path.join(PLATFORM_ROOT, 'logs'),        # 全局日志
+    # ---- 运行期数据统一收在 run/ 下（2026-09-10 目录整理）----
+    'results':   os.path.join(PLATFORM_ROOT, 'run', 'results'),   # 样品结果
+    'tool_runs': os.path.join(PLATFORM_ROOT, 'run', 'tool_runs'),  # 工具运行目录
+    'downloads': os.path.join(PLATFORM_ROOT, 'run', 'downloads'),  # 公共数据下载
+    'logan':     os.path.join(PLATFORM_ROOT, 'run', 'logan'),     # LOGAN 溯源任务
+    'submissions': os.path.join(PLATFORM_ROOT, 'run', 'submissions'),  # NCBI 提交准备
+    'meta_search': os.path.join(PLATFORM_ROOT, 'run', 'meta_search'),  # 公共数据检索
+    'tasks':     os.path.join(PLATFORM_ROOT, 'run', 'tasks'),     # GUI 任务状态
+    'logs':      os.path.join(PLATFORM_ROOT, 'run', 'logs'),      # 全局日志
+    'uploads':   os.path.join(PLATFORM_ROOT, 'run', 'uploads'),   # 粘贴/上传中转
+    'fastq':     os.path.join(PLATFORM_ROOT, 'run', 'fastq'),     # 流程 FASTQ 中转
     'webapp_static': os.path.join(PLATFORM_ROOT, 'webapp', 'static'),
+    # 示例数据根（内置示例 FASTA/GenBank/树）：默认在程序目录内，
+    # 但允许外置（打包时「程序 / 数据库 / 示例」三分离）。
+    'examples':  os.path.join(PLATFORM_ROOT, 'databases', 'examples'),
+}
+
+# 目录整理（2026-09-10）后的新旧顶层目录映射：
+#   运行期数据 → run/，外部二进制与第三方 → 3rd/。
+# 历史数据/前端/文档里仍可能写旧相对路径（tool_runs/xxx、results/xxx…），
+# utils.check_path 会按这张表重定向，保证旧调用与旧记录不失效。
+LEGACY_TOP_DIRS = {
+    'results': 'run/results',
+    'tool_runs': 'run/tool_runs',
+    'logs': 'run/logs',
+    'tasks': 'run/tasks',
+    'uploads': 'run/uploads',
+    'submissions': 'run/submissions',
+    'meta_search': 'run/meta_search',
+    'logan': 'run/logan',
+    'fastq': 'run/fastq',
+    'downloads': 'run/downloads',
+    'tools': '3rd/tools',
+    'bin': '3rd/bin',
+    'vendor': '3rd/vendor',
+    'open-virome': '3rd/open-virome',
 }
 
 # ------------------------------------------------------------------
@@ -67,7 +95,13 @@ DB_LAYOUT = {
         'rvdb':  ('virus/rvdb',  'rvdb_db'),
     },
     'host': {
-        'classify': ('host/classify', 'host_db'),
+        # 宿主**分类库**（kunpeng hash）与病毒/注释库不同：它按物种而异、
+        # 单库约 1.5GB，所以不进 databases/ 分发包（package.py --with-db
+        # 不再收录它），而与宿主源基因组一起放 host-db/ 下。
+        # 两种层级都接受（第三个元素 = base_key，指向 DIRS['host_src']）：
+        #   host-db/host/classify   把 databases/host 整体搬过来的结果
+        #   host-db/classify        拍平后的位置
+        'classify': (['host/classify', 'classify'], 'host_db', 'host_src'),
     },
     'annot': {
         'cdd':  ('annot/cdd',  'cdd'),
@@ -78,6 +112,14 @@ DB_LAYOUT = {
         'core': ('tax/core', 'taxonomy'),
         'ictv': ('tax/ictv', 'ictv_db'),
     },
+    # 建树参考库（两套口径，由库本身决定宿主范围）
+    #   plant : 植物病毒参考（ref_info 45 科 + 补齐 3 科，共 48 科），植物口径
+    #   ictv  : 全病毒界参考（ICTV acvirus_db 全量，20,178 条），不过滤宿主
+    # old_name 保留 acvirus_db：旧目录若仍在，_db_path 自动回退不报错。
+    'tree': {
+        'plant': ('tree_db/plant_tree.db', 'acvirus_db'),
+        'ictv':  ('tree_db/ictv_tree.db',  'acvirus_db'),
+    },
     'misc': {
         'viroids': ('misc/viroids', 'viroids-db'),
         'suvtk':   ('misc/suvtk',   'suvtk_db'),
@@ -87,26 +129,36 @@ DB_LAYOUT = {
 }
 
 
-def _db_path(new_sub, old_name):
+def _db_path(new_sub, old_name, base_key='databases'):
     """数据库路径：新分类路径优先，未迁移时回退旧目录。
 
-    返回新路径；若新路径尚不存在且旧目录存在，则返回旧目录（迁移期间
-    兼容）。目录落盘（建库）始终走新结构。
+    new_sub:  相对 base_key 的子路径；可为候选列表（按序取第一个存在的）
+    old_name: 旧布局目录名（同样相对 base_key）
+    base_key: DIRS 里的根键，默认 'databases'。宿主分类库用 'host_src'
+              —— 它按物种而异、体积大，不进 databases/ 分发包，
+              与宿主源基因组同放 host-db/ 下。
+
+    候选都不存在时返回第一个候选（供建库落盘用）。
     """
-    base = DIRS['databases']
-    new = os.path.join(base, new_sub)
-    if os.path.isdir(new):
-        return new
-    old = os.path.join(base, old_name)
-    if os.path.isdir(old):
-        return old
-    return new
+    base = DIRS[base_key]
+    subs = new_sub if isinstance(new_sub, (list, tuple)) else [new_sub]
+    for s in subs:
+        p = os.path.join(base, s)
+        if os.path.isdir(p):
+            return p
+    if old_name:
+        old = os.path.join(base, old_name)
+        if os.path.isdir(old):
+            return old
+    return os.path.join(base, subs[0])
 
 
 def db_path(category, name):
     """按分类取数据库路径（virus/plant、host/classify、annot/cdd 等）。"""
-    sub, old = DB_LAYOUT[category][name]
-    return _db_path(sub, old)
+    entry = DB_LAYOUT[category][name]
+    sub, old = entry[0], entry[1]
+    base_key = entry[2] if len(entry) > 2 else 'databases'
+    return _db_path(sub, old, base_key)
 
 
 # taxonomy 目录也走注册表（新 tax/core 优先，旧 databases/tax/core 兜底），
@@ -138,6 +190,8 @@ def current_host_genome():
 
 
 CONFIG_FILE = os.path.join(PLATFORM_ROOT, 'platform.json')
+# 配置文件写入互斥（Flask threaded=True，设置页可并发保存）
+_SAVE_LOCK = threading.RLock()
 
 
 # ------------------------------------------------------------------
@@ -183,6 +237,59 @@ def get_output_root():
     return _OUTPUT_ROOT
 
 
+# ------------------------------------------------------------------
+# 示例数据根（程序 / 数据库 / 示例 三分离打包时，示例可放在程序目录之外）
+# ------------------------------------------------------------------
+_EXAMPLES_ROOT = ''
+
+
+def _default_examples_root():
+    return os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+
+
+def _detect_examples_root():
+    """自动探测外置示例目录（无需用户手工配置）。
+
+    探测顺序：
+      1) <平台根>/databases/examples（传统内置布局）
+      2) <平台根>/../VirusPlatform-Examples/databases/examples
+      3) <平台根>/../VirusPlatform-Examples/examples
+      4) <平台根>/examples
+    找到含 example_viral_contigs.fasta 的目录即采用。
+    """
+    cands = [
+        _default_examples_root(),
+        os.path.join(os.path.dirname(PLATFORM_ROOT), 'VirusPlatform-Examples',
+                     'databases', 'examples'),
+        os.path.join(os.path.dirname(PLATFORM_ROOT), 'VirusPlatform-Examples',
+                     'examples'),
+        os.path.join(PLATFORM_ROOT, 'examples'),
+    ]
+    for c in cands:
+        if os.path.isfile(os.path.join(c, 'example_viral_contigs.fasta')):
+            return c
+    return ''
+
+
+def apply_examples_root(root):
+    """设置/切换示例数据根（'' = 自动探测，找不到则用平台内默认路径）。"""
+    global _EXAMPLES_ROOT
+    root = (root or '').strip()
+    if root:
+        if not os.path.isabs(root):
+            raise ValueError('示例目录需为绝对路径')
+        root = os.path.normpath(os.path.abspath(root))
+    else:
+        root = _detect_examples_root()
+    _EXAMPLES_ROOT = root
+    DIRS['examples'] = root or _default_examples_root()
+    return _EXAMPLES_ROOT
+
+
+def get_examples_root():
+    return _EXAMPLES_ROOT or DIRS['examples']
+
+
 def write_roots():
     """允许写入的根目录集合：平台根 + 自定义输出/输入/数据库根（若有）。
     check_path(in_platform=True) 据此放行写入类路径。"""
@@ -199,7 +306,9 @@ INPUT_SUBDIRS = ('fastq', 'uploads')
 # 数据库根：kunpeng 库/taxonomy/palmdb 等大数据目录 + 建库源数据
 _DATABASE_KEYS = {                       # DIRS 键 → 数据库根下的子路径
     'databases': 'databases',
-    'taxonomy':  os.path.join('databases', 'taxonomy'),
+    # taxonomy 不在此表内：它必须走 DB_LAYOUT（新布局 tax/core，旧布局
+    # taxonomy 兜底）。写死 'databases/taxonomy' 会让外部数据库根下的
+    # taxonomy 指向空目录（见 apply_database_root）。
     'host_src':  'host-db',
     'virus_src': 'virus-db',
 }
@@ -239,7 +348,32 @@ def apply_database_root(root):
         DIRS[key] = os.path.join(root, sub) if root \
             else os.path.join(PLATFORM_ROOT, sub)
         os.makedirs(DIRS[key], exist_ok=True)
+    # taxonomy 走注册表解析：新布局 <root>/databases/tax/core 优先，
+    # 旧布局 <root>/databases/taxonomy 兜底（与平台内 DIRS 初始化口径一致）。
+    DIRS['taxonomy'] = db_path('tax', 'core')
+    os.makedirs(DIRS['taxonomy'], exist_ok=True)
+    _refresh_module_paths()
     return _DATABASE_ROOT
+
+
+def _refresh_module_paths():
+    """通知「import 时快照了 DIRS」的模块重算路径常量。
+
+    否则切换数据库目录后，ictv_db / virus_ref / universal_ref /
+    local_search / verify / hmm_annot / orf_annot / suvtk_submit
+    仍指向旧库（长驻的 Web 进程尤其明显）。这类失配不会报错，
+    只会让功能静默失效（库找不到 → 该层结果为空）。
+    用延迟导入避免 config ↔ 这些模块的循环依赖。
+    """
+    for name in ('ictv_db', 'virus_ref', 'universal_ref', 'local_search',
+                 'verify', 'hmm_annot', 'orf_annot', 'suvtk_submit'):
+        try:
+            mod = __import__(f'vp.{name}', fromlist=['refresh_paths'])
+            fn = getattr(mod, 'refresh_paths', None)
+            if callable(fn):
+                fn()
+        except Exception:
+            pass
 
 
 def get_input_root():
@@ -272,13 +406,14 @@ def _glob_first(pattern):
 
 
 def detect_tools():
-    """自动探测外部工具路径（仅 PATH 与 bin/、tools/ 目录，不访问其他用户目录）。
-    bin/   = 单文件可执行（kunpeng、seqkit、crabz 等）
-    tools/ = 带目录结构的工具套件（Blast、mafft-win、iQtree 等）
-    旧版根目录布局保留为回退候选，兼容已分发的 exe 平台。"""
+    """自动探测外部工具路径（仅 PATH 与 3rd/bin、3rd/tools 目录，不访问其他用户目录）。
+    3rd/bin/   = 单文件可执行（kunpeng、seqkit、crabz 等）
+    3rd/tools/ = 带目录结构的工具套件（Blast、mafft-win、iQtree 等）
+    下面各条目里沿用 PLATFORM_ROOT 的候选是「旧版平铺分发」回退（exe 与 app.py
+    同级），仍然保留以兼容已分发的 exe 平台。"""
     R = PLATFORM_ROOT
-    BIN = os.path.join(R, 'bin')
-    T = os.path.join(R, 'tools')
+    BIN = os.path.join(R, '3rd', 'bin')
+    T = os.path.join(R, '3rd', 'tools')
     which = shutil.which
     cands = {
         'kunpeng': [
@@ -370,6 +505,35 @@ def detect_tools():
                      which('aria2c'), which('aria2c.exe')],
         'sracha':   [os.path.join(BIN, 'sracha.exe'), os.path.join(R, 'sracha.exe'),
                      which('sracha'), which('sracha.exe')],
+        # ---- 以下工具原先不在探测表里，只靠 platform.json 手填绝对路径；
+        # 打包版用的是干净配置（tools: {}），于是"已随包"的它们反而探测不到
+        # （实测发布版少了 salmon/samtools/table2asn 三个）。这里补齐候选，
+        # 让源码模式与发布版行为一致、且不依赖手改配置。
+        'samtools': [which('samtools'), which('samtools.exe'),
+                     os.path.join(T, 'samtools', 'bin', 'samtools.exe'),
+                     os.path.join(BIN, 'samtools.exe'),
+                     os.path.join(R, 'samtools.exe')],
+        'bcftools': [which('bcftools'), which('bcftools.exe'),
+                     os.path.join(T, 'bcftools', 'bin', 'bcftools.exe'),
+                     os.path.join(R, 'bcftools.exe')],
+        'salmon':   [which('salmon'), which('salmon.exe'),
+                     os.path.join(T, 'salmon2', 'salmon.exe'),
+                     os.path.join(T, 'salmon', 'bin', 'salmon.exe'),
+                     os.path.join(R, 'salmon.exe')],
+        'table2asn': [which('table2asn'), which('table2asn.exe'),
+                      os.path.join(T, 'table2asn', 'table2asn.exe'),
+                      os.path.join(R, 'table2asn.exe')],
+        'pandepth': [which('pandepth'), which('pandepth.exe'),
+                     _glob_first(os.path.join(T, 'pandepth*', 'pandepth.exe')),
+                     os.path.join(R, 'pandepth.exe')],
+        'viral_consensus': [
+            which('viral_consensus'), which('viral_consensus.exe'),
+            _glob_first(os.path.join(T, 'viral_consensus*',
+                                     'viral_consensus.exe')),
+            os.path.join(R, 'viral_consensus.exe')],
+        # 注：snpEff（jar）与 SNPGenie（perl 脚本）不是可直接执行的单文件工具，
+        # 由 known_virus_suite 自己按 tools/snpeff/snpEff/snpEff.jar、
+        # tools/snpgenie/snpgenie.pl 定位，不放进本探测表（避免"jar 当 exe"）。
     }
     out = {name: _first_exist(lst) for name, lst in cands.items()}
     if getattr(sys, 'frozen', False) and not out.get('gbdraw'):
@@ -437,6 +601,7 @@ class Config:
         self.output_root = ''      # 自定义输出根（'' = 平台目录内）
         self.input_root = ''       # 自定义输入根（fastq / uploads）
         self.database_root = ''    # 自定义数据库根（databases / host-db / virus-db）
+        self.examples_root = ''    # 自定义示例数据根（'' = 自动探测）
         self._db_override = {}
         # 使用者登记的外部已构建 kunpeng 病毒库（绝对路径，平台内/数据库根优先）
         self.extra_virus_libs = []
@@ -452,6 +617,9 @@ class Config:
                     setattr(self, attr, apply_fn(path))
                 except (OSError, ValueError):
                     setattr(self, attr, '')
+        # 示例数据根：显式配置优先，否则自动探测（程序/数据库/示例三分离
+        # 打包时示例目录位于程序目录之外，靠这里接上）。
+        apply_examples_root(self.examples_root)
         # 数据库实际路径按（可能已迁移的）数据库根重算；
         # platform.json 的 databases 显式覆盖：仅当该路径真实存在时生效
         # （迁移后旧路径不存在则回退注册表解析，自动切到新分类路径）。
@@ -484,6 +652,7 @@ class Config:
             self.output_root = str(data.get('output_root') or '').strip()
             self.input_root = str(data.get('input_root') or '').strip()
             self.database_root = str(data.get('database_root') or '').strip()
+            self.examples_root = str(data.get('examples_root') or '').strip()
             # threads: 0 / 缺省 = 自动探测（cpu 核数 - 1，见 __init__）；
             # 显式 >0 才采用——干净发布配置里写 0 不应钳成单线程
             try:
@@ -519,8 +688,10 @@ class Config:
                 if v and os.path.isdir(v):
                     kvi.append(v)
             self.extra_kv_indexes = kvi
-        except Exception:
-            pass
+        except Exception as e:
+            # 不要静默吞掉：配置损坏时用户"改了设置不生效"且无从发现。
+            sys.stderr.write(f'[vp.config] 读取 platform.json 失败，'
+                             f'已回退默认配置: {type(e).__name__}: {e}\n')
 
     def save(self):
         data = {'threads': self.threads, 'tools': self.tools,
@@ -529,15 +700,26 @@ class Config:
                 'output_root': self.output_root,
                 'input_root': self.input_root,
                 'database_root': self.database_root,
+                'examples_root': self.examples_root,
                 'extra_virus_libs': self.extra_virus_libs,
                 'extra_kv_indexes': self.extra_kv_indexes}
         if self.email:
             data['email'] = self.email
-        # 原子写：先写临时文件再替换，断电/崩溃不会损坏现有配置
-        tmp = CONFIG_FILE + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, CONFIG_FILE)
+        # 原子写：先写临时文件再替换，断电/崩溃不会损坏现有配置。
+        # 加锁 + 临时名带 pid/线程 id：Flask 以 threaded=True 运行，设置页
+        # 并发保存会共用同一个 platform.json.tmp，交错写入会写出损坏 JSON。
+        with _SAVE_LOCK:
+            tmp = f'{CONFIG_FILE}.{os.getpid()}.{threading.get_ident()}.tmp'
+            try:
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, CONFIG_FILE)
+            finally:
+                if os.path.isfile(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
 
     # ---- 语言 ---------------------------------------------------
     @property
@@ -571,6 +753,23 @@ class Config:
         if path and not os.path.isabs(path):
             raise ValueError('输出目录需为绝对路径（如 D:\\我的分析结果）')
         self.output_root = apply_output_root(path)
+        self.save()
+
+    def set_examples_root(self, path):
+        """设置示例数据根（'' = 自动探测），持久化并立即生效。
+
+        程序 / 数据库 / 示例 三分离打包时，示例目录在程序目录之外，
+        这里指定后各工具「✨ 示例」与「示例结果」页立即指向新位置。
+        """
+        path = (path or '').strip()
+        if path and not os.path.isabs(path):
+            raise ValueError('示例目录需为绝对路径')
+        if path and not os.path.isdir(path):
+            raise ValueError(f'示例目录不存在: {path}')
+        # 配置里只记用户显式指定的路径；留空 = 自动探测（保持 platform.json
+        # 可移植，不要把探测出来的本机绝对路径写回去）
+        apply_examples_root(path)
+        self.examples_root = path
         self.save()
 
     def tr(self, zh, en):

@@ -63,40 +63,51 @@
 
 ## 二、目录规范
 
+**2026-09-10 目录整理**：顶层按「代码 / 数据库 / 运行期数据 / 外部依赖」四层
+收敛，运行期数据进 `run/`、外部二进制与第三方进 `3rd/`，数据库保持原位。
+
 ```
 <平台根>/
 ├─ app.py / main.py        GUI 与 CLI 入口
 ├─ vp/                     核心 pipeline 包（GUI 与 CLI 共用，勿在 app.py 写业务逻辑）
+├─ engines/                自带 CLI 的独立引擎（known_virus_suite 五段整合）
 ├─ webapp/
 │  ├─ templates/           页面模板（Jinja2）
-│  └─ static/              app.css / app.js / i18n.js / vendor/
-├─ databases/              kunpeng 库、taxonomy、tree_db（plant_tree.db 植物病毒参考）、palmdb 等（大数据）
-├─ results/<样品>/          每样品产物（00_prep … 09_genome_plots、logs）
-├─ tool_runs/              工具箱独立运行产物
-├─ logan/<查询名>/          LOGAN 溯源任务
-├─ tasks/ · logs/          GUI 任务状态与运行日志
+│  └─ static/              app.css / app.js / i18n.js / examples.js / vendor/
+├─ databases/              kunpeng 库、taxonomy、tree_db、annot、misc、examples（大数据）
+├─ host-db/ · virus-db/    建库源数据（宿主源基因组 / 病毒源参考）
+├─ run/                    运行期数据（可清理重建，git 忽略）
+│  ├─ results/<样品>/       每样品产物（00_prep … 09_genome_plots、logs）
+│  ├─ tool_runs/           工具箱独立运行产物
+│  ├─ logan/<查询名>/       LOGAN 溯源任务
+│  ├─ tasks/ · logs/       GUI 任务状态与运行日志
+│  ├─ uploads/ · submissions/ · meta_search/ · fastq/ · downloads/
 ├─ tests/                  自检/造数脚本与烟测数据
 ├─ docs/                   开发文档（本文档）
 ├─ scripts/                辅助脚本（build_virus_db.py / package.py / VirusPlatform.spec）
-├─ bin/                    单文件外部可执行（kunpeng / seqkit / crabz / clustalw2 /
-│                          muscle / aria2c / sracha；*.orig.exe 备份同放）
-├─ tools/                  带目录结构的工具套件（Blast / mafft-win / FastTree /
-│                          iQtree / trimAl / Gblocks / SDTv1.3 / diamond / mmseqs /
-│                          fastp / SPAdes 安装包）
-├─ open-virome/            Open-Virome 前端构建源（app.py `_FRONTEND_BUILD` 引用，
-│                          勿改名/搬动）
-├─ host-db/ · virus-db/    建库源数据
-├─ vendor/                 Rust 第三方源码（salmon-src / cf1-rs）；
-│                          `target/` 为编译中间产物，可随时删除释放空间
+├─ 3rd/                    外部依赖（git 忽略）
+│  ├─ bin/                 单文件外部可执行（kunpeng / seqkit / crabz / clustalw2 /
+│  │                       muscle / aria2c / sracha；*.orig.exe 备份同放）
+│  ├─ tools/               带目录结构的工具套件（Blast / mafft-win / FastTree /
+│  │                       iQtree / trimAl / Gblocks / diamond / mmseqs /
+│  │                       fastp / SPAdes 等）
+│  ├─ vendor/              Rust 第三方源码（salmon-src / cf1-rs）；
+│  │                       `target/` 为编译中间产物，可随时删除释放空间
+│  └─ open-virome/         Open-Virome 前端构建源（/virome 页 `_FRONTEND_BUILD`
+│                          引用，勿改名/搬动）
 ├─ git-repo/               第三方仓库镜像（ViralConsensus 等，仅供参考）
-├─ _archive/               归档区（历史产物、外平台工具、迁移备份）
-├─ fastq/                  用户测序数据
-└─ dist/                   PyInstaller 打包产物
+└─ _archive/               归档区（历史产物、外平台工具、迁移备份）
 ```
 
-工具路径探测集中在 `vp/config.py::detect_tools()`：先 `bin/`、`tools/`，
-旧版根目录布局保留为回退（兼容已分发的 exe 平台）；`platform.json` 的
-`tools` 覆盖优先级最高。
+**旧路径兼容（重要）**：`vp/utils.py::check_path` 会把旧的平台相对顶层目录
+自动重定向到新位置（`tool_runs/`、`results/`、`uploads/`… → `run/`；
+`tools/`、`bin/`、`vendor/`、`open-virome/` → `3rd/`），映射表见
+`vp/config.py::LEGACY_TOP_DIRS`。因此历史数据、前端拼接的路径、旧文档示例
+都无需手工改；**新增代码请直接用 `DIRS[...]`，不要再写字面量路径**。
+
+工具路径探测集中在 `vp/config.py::detect_tools()`：先 `3rd/bin/`、
+`3rd/tools/`，根目录平铺布局保留为回退（兼容已分发的 exe 平台）；
+`platform.json` 的 `tools` 覆盖优先级最高。
 
 **`platform.json` 的 tools 路径约定（2026-09-09 起）**：平台根内的工具写
 **相对路径**（如 `bin/minibwa.exe`），由 `vp/config.py::Config._load()`

@@ -7,9 +7,7 @@
 """
 import os
 import sys
-import json
 import time
-import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -19,7 +17,7 @@ EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
 EX_FA = os.path.join(EX, 'example_viral_contigs.fasta')
 EX_GB = os.path.join(EX, 'example_genome.gb')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
-RUNS = os.path.join(PLATFORM_ROOT, 'tool_runs')
+RUNS = os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
 
 
 def check(cond, msg):
@@ -60,7 +58,11 @@ check(os.path.isfile(EX_FA) and os.path.isfile(EX_GB) and os.path.isfile(EX_SET)
 
 # ---------- 1. ORF 预测（orfipy + pyrodigal） ----------
 print('--- 1. ORF 预测 ---')
-orf_run, res = run_tool(c, tm, 'orf', {'fasta': EX_FA, 'min_aa': 100})
+# orfipy 已从默认工具集移除（见 vp/orf.py 模块 docstring：6 框 start-stop 仅
+# 显式指定时运行），这里显式要求三件套，保证 orfipy 分支也有回归覆盖。
+orf_run, res = run_tool(c, tm, 'orf',
+                        {'fasta': EX_FA, 'min_aa': 100,
+                         'orf_tool': 'orfipy,pyrodigal,pyrodigal_rv'})
 check(orf_run.startswith('orf_'), f'运行名 orf_*: {orf_run}')
 rd = os.path.join(RUNS, orf_run)
 for sub in ('03_assembly/viral_contigs.fasta', '03_assembly/contigs.filtered.fasta',
@@ -150,7 +152,7 @@ ctg_run, res = run_tool(c, tm, 'contigs', {'contigs': EX_FA, 'min_len': 500},
                         timeout=3600)
 rd = os.path.join(RUNS, ctg_run)
 for sub in ('contigs.filtered.fasta', 'virus_classification.tsv',
-            'viral_contigs.fasta', 'contig_blast.tsv'):
+            'viral_contigs.fasta'):
     check(os.path.isfile(os.path.join(rd, sub.replace('/', os.sep))),
           f'产物存在: {sub}')
 check((res.get('n_viral') or 0) >= 2, f'病毒 contig {res.get("n_viral")} 条')

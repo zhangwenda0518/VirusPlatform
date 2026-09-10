@@ -24,17 +24,26 @@ import sys
 import csv
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 import pandas as pd
 
-from .config import DIRS, get_config, db_path
+from .config import get_config, db_path
 from .utils import safe_open, iter_fasta, write_fasta_record
 
 PLATFORM_ROOT = str(Path(__file__).resolve().parents[1])
 SUVTK_DB_DEFAULT = db_path('misc', 'suvtk')
-_MMSEQS_BIN = os.path.join(PLATFORM_ROOT, 'tools', 'mmseqs', 'bin')
-_T2A_BIN = os.path.join(PLATFORM_ROOT, 'tools', 'table2asn')
+_MMSEQS_BIN = os.path.join(PLATFORM_ROOT, '3rd', 'tools', 'mmseqs', 'bin')
+_T2A_BIN = os.path.join(PLATFORM_ROOT, '3rd', 'tools', 'table2asn')
+
+
+def refresh_paths():
+    """重算模块级库路径常量（切换「设置 → 数据库目录」后由 config 回调）。
+
+    SUVTK_DB_DEFAULT 在 import 时快照；不重算则 db-migrate 后
+    BFVD 库仍指旧位置。工具目录（_MMSEQS_BIN/_T2A_BIN）随程序走，不重算。
+    """
+    global SUVTK_DB_DEFAULT
+    SUVTK_DB_DEFAULT = db_path('misc', 'suvtk')
 
 # NCBI MIUVIG:5.0 结构化注释字段（行级 collection_date/geo_loc_name/lat_lon 由
 # taxonomy.tsv 提供，文件级参数由本表提供）。软件字段须 `软件;版本;参数` 三段格式。
@@ -220,18 +229,14 @@ def _clean(v):
 
 def build_source_src(rows):
     """表行(list[dict]) → source.src 文本（列缺失容忍为空）。"""
-    cols = ['sequence_name', 'organism', 'src-Isolate', 'collection_date',
-            'src-geo_loc_name', 'src-Lat_Lon', 'bioproject', 'biosample',
-            'sra', 'src-Isolation-source', 'src-Segment', 'src-Host',
-            'src-Tissue_type', 'src-Cultivar', 'src-Dev_stage',
-            'src-Collected_by']
     lines = ['Sequence_ID\tOrganism\tIsolate\tCollection_date\tgeo_loc_name\t'
              'Lat_Lon\tBioproject\tBiosample\tSRA\tMetagenomic\t'
              'Metagenome_source\tSegment\tHost\tTissue_type\tCultivar\t'
              'Dev_stage\tCollected_by']
     for r in rows:
-        def g(c):
-            return _clean(r.get(c))
+        # 默认参数绑定 r：避免闭包捕获循环变量（B023），也让 g 可在循环外安全复用
+        def g(c, _r=r):
+            return _clean(_r.get(c))
         lines.append('\t'.join([
             g('sequence_name'), g('organism'), g('src-Isolate'),
             g('collection_date'), g('src-geo_loc_name'), g('src-Lat_Lon'),
@@ -327,8 +332,8 @@ def _platform_feat_miuvig(run_dir, out_path):
     n_evidenced = len([c for c in evidence_count.values() if c > 0])
     feat_pred = f'{model};3.7.1;single mode'
     sim_search_meth = f'{engine};2.1.8;default'
-    viral_fams_pred = f'HMMER;3.4;VOGdb/RVDB/vFam'
-    cdd_pred = f'MMseqs2;14.7e284;CDD+Pfam'
+    viral_fams_pred = 'HMMER;3.4;VOGdb/RVDB/vFam'
+    cdd_pred = 'MMseqs2;14.7e284;CDD+Pfam'
     ref_db = 'RefSeq viral'
     ref_db_version = '2024-06'
 

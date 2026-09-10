@@ -133,7 +133,7 @@ check('>ctg_demo_1' in content and 'NNNN' in content.replace('ACGTN', 'NNNN') or
 check(content.count('>') == 3, f'fsa 共 3 条记录: {content.count(">")}')
 
 # ---------- 4. 从分析结果导入 ----------
-runs_root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+runs_root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
 fake_run = 'contigs_itsubmit'
 rdir = os.path.join(runs_root, fake_run)
 os.makedirs(rdir, exist_ok=True)

@@ -3,7 +3,6 @@
 import io
 import os
 import sys
-import json
 import time
 import shutil
 
@@ -11,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-DL = os.path.join(PLATFORM_ROOT, 'downloads')
+DL = os.path.join(PLATFORM_ROOT, 'run', 'downloads')
 
 
 def check(cond, msg):

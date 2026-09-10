@@ -19,7 +19,7 @@ from vp.web.state import _WWW
 bp = Blueprint('virome', __name__)
 
 _VIROME_DIST = os.path.join(_WWW, 'static', 'virome')
-_FRONTEND_BUILD = os.path.join(PLATFORM_ROOT, 'open-virome',
+_FRONTEND_BUILD = os.path.join(PLATFORM_ROOT, '3rd', 'open-virome',
                                'frontend', 'build')
 if os.path.isdir(os.path.join(_FRONTEND_BUILD, 'static')):
     _VIROME_DIST = _FRONTEND_BUILD

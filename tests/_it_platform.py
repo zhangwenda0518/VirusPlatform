@@ -38,7 +38,9 @@ def main():
                           ('ictvPreview()', 'ICTV 选参预览'),
                           ('id="spCascade"', 'ICTV 级联下拉容器'),
                           ('tbBuild(this)', '进化树构建·集合建树'),
-                          ('id="tbMolecule"', '建树分子类型'),
+                          ('id="tbSource"', '建树来源类型'),
+                          ('id="alSource"', '比对来源类型'),
+                          ('id="al_fa_extra"', '比对卡额外序列'),
                           ('alignRun(this)', '序列比对·运行'),
                           ('alignEditToggle()', '比对查看器·编辑模式'),
                           ('alignSave(this)', '比对查看器·保存副本'),
@@ -60,7 +62,8 @@ def main():
               encoding='utf-8').read()
     for fn in ('ictvCascadeRefetch', 'ictvPreview', 'ictvDownload', 'loadTbColls',
                'tbBuild', 'tbBuildFor', 'alignRun', 'alignLoad', 'alignRender',
-               'alignEditToggle', 'alignSave', 'alignSend', 'tbMolChanged'):
+               'alignEditToggle', 'alignSave', 'alignSend', 'tbSourceChanged',
+               'alSourceChanged', 'alFillFromSource', 'loadAlColls'):
         check(f'function {fn}' in js or f'async function {fn}' in js,
               f'app.js 定义 {fn}')
     # 旧项目归档：样品/集合列表不再出现下划线与归档项
@@ -83,7 +86,10 @@ def main():
           and 'data-zoom="1.5"' in html,
           '图谱页预览含缩放控制（适应宽度 / 100% / 150%）')
     html = c.get('/primer').get_data(as_text=True)
-    check('EXAMPLE_CONSERVED_FASTA' in html, '引物页渲染含模式感知示例按钮')
+    # /primer 已重构为交互式 primer3 设计器（原「模式感知示例」随旧页面下线），
+    # 断言改为新页面的示例入口：填充 pd_fa + 复用内置示例常量。
+    check("fillExample('pd_fa'" in html and 'EXAMPLE_FASTA' in html,
+          '引物页渲染含示例按钮')
     js = open(os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
               encoding='utf-8').read()
     for const in ('EXAMPLE_FASTA', 'EXAMPLE_SET_FASTA', 'EXAMPLE_TREE_NWK',
@@ -92,7 +98,6 @@ def main():
         check(const in js, f'app.js 定义 {const}')
 
     # 示例文件齐全
-    import glob
     need = ['example_viral_contigs.fasta', 'example_virus_set.fasta',
             'example_conserved_set.fasta', 'example_tree.nwk',
             'example_genome.gb'] + \
@@ -175,11 +180,11 @@ def main():
                   ('/annotation', 1), ('/genome', 1), ('/primer', 1)]:
         h = c.get(pg).get_data(as_text=True)
         check(h.count('class="rh" id="rh-') == n, f'{pg} 历史容器 {n} 个')
-    _os.makedirs(_os.path.join(PLATFORM_ROOT, 'tool_runs', 'it_rh_chk'),
+    _os.makedirs(_os.path.join(PLATFORM_ROOT, 'run', 'tool_runs', 'it_rh_chk'),
                  exist_ok=True)
     r = c.post('/api/tool/runs/it_rh_chk/delete')
     check(r.status_code == 200
-          and not _os.path.isdir(_os.path.join(PLATFORM_ROOT, 'tool_runs',
+          and not _os.path.isdir(_os.path.join(PLATFORM_ROOT, 'run', 'tool_runs',
                                                'it_rh_chk')),
           '运行目录删除 API')
     r = c.post('/api/tool/runs/no_such_run/delete')

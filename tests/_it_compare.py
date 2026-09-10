@@ -20,7 +20,7 @@ EX_SET = os.path.join(EX, 'example_virus_set.fasta')
 EX_TREE = os.path.join(EX, 'example_tree.nwk')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb')
               for x in 'ABC']
-RUNS = os.path.join(PLATFORM_ROOT, 'tool_runs')
+RUNS = os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
 COLL = 'it_compare_coll'
 
 
@@ -74,14 +74,41 @@ def main():
     check(d['n'] == 6 and len(d['matrix']) == 6, '矩阵 6×6')
     diag_ok = all(abs(d['matrix'][i][i] - 100.0) < 1e-9 for i in range(6))
     check(diag_ok, '对角线 = 100')
-    # 变种与母本应高度一致（>92%），跨参考应低一些
+    # 变种与母本应高度一致（>92%），跨参考应低一些。
+    # 不硬编码名字：example_virus_set.fasta 由 tests/make_examples.py 从
+    # databases/ncbi_refs/_smoke_tmv 生成，参考换过名字就变；而且同名
+    # accession 会被展示层加 _1 后缀去重（实测 PZ512725.1 / PZ512725.1_1）。
+    # 这里按「同 accession 前缀 = 近缘对，不同前缀 = 跨参考」自动配对。
+    import re as _re
     names, m = d['names'], d['matrix']
-    i_v1 = names.index('NC_002692_variant1')
-    i_b = names.index('NC_002692')
-    check(m[i_v1][i_b] > 92, f'variant1 vs 母本 identity {m[i_v1][i_b]:.1f}% > 92')
-    i_t1, i_t2 = names.index('NC_001367'), names.index('NC_002692')
-    check(m[i_t1][i_t2] < m[i_v1][i_b] - 3,
-          f'跨参考 identity {m[i_t1][i_t2]:.1f}% 明显低于近缘对')
+
+    def _base(n):
+        return _re.sub(r'_\d+$', '', n)
+
+    groups = {}
+    for n in names:
+        groups.setdefault(_base(n), []).append(n)
+    # 同 accession 的成对组合里取 identity 最高的一对（variant 的突变率
+    # 各不相同：2% / 8% / 15%，随便挑一对可能是 15% 那对）
+    best = None
+    for v in groups.values():
+        if len(v) < 2:
+            continue
+        for i in range(len(v)):
+            for j in range(i + 1, len(v)):
+                ia, ib = names.index(v[i]), names.index(v[j])
+                if best is None or m[ia][ib] > best[0]:
+                    best = (m[ia][ib], v[i], v[j])
+    check(best is not None, f'存在近缘对（同 accession 两条）：{groups}')
+    check(len(groups) >= 2, '存在 ≥2 个不同参考')
+    near, n_a, n_b = best
+    bases = [b for b in groups if b != _base(n_a)]
+    i_a = names.index(n_a)
+    i_o = names.index(groups[bases[0]][0])
+    cross = m[i_a][i_o]
+    check(near > 92, f'最相近缘对 identity {near:.1f}% > 92（{n_a} vs {n_b}）')
+    check(cross < near - 3,
+          f'跨参考 identity {cross:.1f}% 明显低于近缘对 {near:.1f}%')
 
     # ---------- 2. MSA 查看（structcmp 运行 → SNP 数据） ----------
     print('--- 2. MSA 查看 ---', flush=True)
@@ -109,9 +136,15 @@ def main():
               for i in range(len(d['matrix']))), 'SDT 矩阵对角线 = 100')
     # 近缘对（变种 vs 母本）的 SDT 相似度应高于跨参考对
     nm = d.get('names') or []
-    j = nm.index('NC_002692_variant1')
-    k = nm.index('NC_002692')
-    j2 = nm.index('NC_001367')
+    _g = {}
+    for _n in nm:
+        _g.setdefault(_base(_n), []).append(_n)
+    _pair = next((v for v in _g.values() if len(v) >= 2), None)
+    check(_pair is not None, f'SDT 矩阵含近缘对：{nm}')
+    j, k = nm.index(_pair[0]), nm.index(_pair[1])
+    _other = next((n for n in nm if _base(n) != _base(_pair[0])), None)
+    check(_other is not None, 'SDT 矩阵含另一参考')
+    j2 = nm.index(_other)
     check(d['matrix'][j][k] > d['matrix'][j2][k],
           f"SDT 近缘对 {d['matrix'][j][k]:.1f}% > 跨参考对 "
           f"{d['matrix'][j2][k]:.1f}%")
@@ -146,7 +179,7 @@ def main():
     check(d.get('tool') == 'FastTree', f"树摘要 tool = {d.get('tool')}")
 
     # 本机树文件 API（内置示例树 + 非法路径）
-    r = c.get(f'/api/tree/file?path=databases/examples/example_tree.nwk')
+    r = c.get('/api/tree/file?path=databases/examples/example_tree.nwk')
     check(r.status_code == 200 and r.get_json()['newick'].endswith(';'),
           '/api/tree/file 读内置示例树')
     r = c.get('/api/tree/file?path=../platform.json')

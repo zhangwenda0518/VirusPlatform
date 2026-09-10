@@ -16,7 +16,7 @@ from vp.config import PLATFORM_ROOT  # noqa: E402
 EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
-RUNS = os.path.join(PLATFORM_ROOT, 'tool_runs')
+RUNS = os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
 COLL = 'it_align_coll'
 
 
@@ -114,7 +114,12 @@ def main():
     r = c.get('/api/align/file?path=../platform.json')
     check(r.status_code == 400, '查看器路径穿越被拒')
 
-    # ---------- 3. CDS/PEP 基因级建树 ----------
+    # ---------- 3. 基因级建树 ----------
+    # 架构变更（2026-09-10）：/api/gb/phylo 只建全基因组树（molecule 固定
+    # genome），基因级建树改由「序列比对」模块挑选序列集完成——见
+    # vp/web/refs.py:api_gb_phylo 的 docstring。因此这里改为：
+    #   ① 断言 API 按新契约忽略 molecule/gene，产物只落 phylo/；
+    #   ② 直接用库函数验证基因级（PEP/CDS）建树能力仍在。
     print('--- 3. 基因级建树（CDS/PEP）---', flush=True)
     from vp.gb_collection import gb_collection_dir  # noqa: E402
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)
@@ -126,10 +131,22 @@ def main():
 
     r = c.post('/api/gb/phylo', json={'name': COLL, 'tree_tool': 'fasttree',
                                       'molecule': 'pep', 'gene': 'coat protein'})
-    check(r.status_code == 200, 'PEP 建树启动')
+    check(r.status_code == 200, '集合建树启动')
     rec = wait_task(tm, r.get_json()['task'], timeout=1200)
     check(rec['status'] == 'done',
-          f"PEP 建树完成: {rec.get('error', '')[-300:]}")
+          f"集合建树完成: {rec.get('error', '')[-300:]}")
+    gdir = os.path.join(gb_collection_dir(COLL), 'phylo')
+    check(os.path.isfile(os.path.join(gdir, 'tree.nwk')),
+          'API 建树产物在 phylo/（molecule/gene 已下线）')
+    with open(os.path.join(gdir, 'tree.nwk')) as f:
+        nwk = f.read().strip()
+    check(nwk.endswith(';') and nwk.count(':') >= 2, 'Newick 合法')
+    check(os.path.isfile(os.path.join(gdir, 'combined.fa')), 'combined.fa')
+
+    # ② 库层基因级建树（PEP / CDS）仍可用
+    from vp.gb_collection import build_collection_phylo  # noqa: E402
+    res = build_collection_phylo(COLL, tree_tool='fasttree', molecule='pep',
+                                 gene='coat protein')
     gdir = os.path.join(gb_collection_dir(COLL), 'gene_trees',
                         'coat_protein_pep')
     check(os.path.isfile(os.path.join(gdir, 'tree.nwk')), 'PEP tree.nwk')
@@ -141,22 +158,21 @@ def main():
         heads = [l.strip() for l in f if l.startswith('>')]
     check(len(heads) == 3, f'PEP 提取 3 条（{len(heads)}）')
 
-    r = c.post('/api/gb/phylo', json={'name': COLL, 'tree_tool': 'fasttree',
-                                      'molecule': 'cds', 'gene': 'coat protein'})
-    rec = wait_task(tm, r.get_json()['task'], timeout=1200)
-    check(rec['status'] == 'done', f"CDS 建树完成: {rec.get('error', '')[-200:]}")
+    build_collection_phylo(COLL, tree_tool='fasttree', molecule='cds',
+                           gene='coat protein')
     gdir2 = os.path.join(gb_collection_dir(COLL), 'gene_trees',
                          'coat_protein_cds')
     check(os.path.isfile(os.path.join(gdir2, 'tree.nwk')), 'CDS tree.nwk')
 
-    # 参数守卫
-    r = c.post('/api/gb/phylo', json={'name': COLL, 'molecule': 'pep'})
-    check(r.status_code == 400, 'PEP 无关键词被拒')
-    r = c.post('/api/gb/phylo', json={'name': COLL, 'molecule': 'pep',
-                                      'gene': 'nonexistent_gene_xyz'})
-    rec = wait_task(tm, r.get_json()['task'], timeout=600)
-    check(rec['status'] == 'failed' and '命中' in (rec.get('error') or ''),
-          '无命中基因报错清晰')
+    # 参数守卫（库层）
+    for kw, msg in (({'molecule': 'pep'}, 'PEP 无关键词被拒'),
+                    ({'molecule': 'pep', 'gene': 'nonexistent_gene_xyz'},
+                     '无命中基因报错清晰')):
+        try:
+            build_collection_phylo(COLL, tree_tool='fasttree', **kw)
+            check(False, msg)
+        except ValueError as e:
+            check('命中' in str(e) or '关键词' in str(e), f'{msg}: {e}')
 
     # 清理
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)

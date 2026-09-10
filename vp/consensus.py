@@ -275,7 +275,7 @@ def _samtools_exe():
         if p and os.path.isfile(p):
             return p
     # 平台 bin/ 下常见位置兑底
-    for cand in ('bin/samtools.exe', 'bin/samtools'):
+    for cand in ('3rd/bin/samtools.exe', '3rd/bin/samtools'):
         p = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), *cand.split('/'))
         if os.path.isfile(p):
@@ -552,7 +552,10 @@ def analyze_variants(ref_seq, cons, rows, min_minor_freq=MIN_MINOR_FREQ,
                 types.append('SNV')
             if minor_n >= min_minor_count and minor_f >= min_minor_freq:
                 types.append('iSNV')
-        if not types:
+        if not types or types == ['lowcov']:
+            # 纯 lowcov（深度不足且无其他信号）不入表——覆盖缺口由
+            # coverage.tsv 表达；否则 depth=0 的位点会把 variants.tsv
+            # 灌满（实测 7235 行里 7154 行是 depth=0 的 lowcov）。
             continue
         out.append({
             'contig': '', 'pos': i + 1, 'ref_base': ref_b, 'cons_base': con_b,

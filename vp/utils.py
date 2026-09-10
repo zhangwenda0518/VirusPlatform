@@ -17,7 +17,6 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-from .config import PLATFORM_ROOT
 
 
 def decode_output(raw):
@@ -41,16 +40,48 @@ def decode_output(raw):
 # ------------------------------------------------------------------
 # 路径安全
 # ------------------------------------------------------------------
+def _redirect_legacy_top(raw):
+    """目录整理（2026-09-10）兼容：把旧的平台相对顶层目录重定向到新位置。
+
+    运行期数据已搬进 run/、外部二进制与第三方搬进 3rd/，但历史数据、前端
+    拼接的路径、文档示例里仍可能写 tool_runs/xxx、results/xxx… 这类旧相对
+    路径。这里按 config.LEGACY_TOP_DIRS 统一重写，保证旧调用与旧记录不失效。
+
+    仅处理**相对路径**（绝对路径由调用方自己负责），且仅当旧位置不存在、
+    新位置存在时才改写，避免误伤同名的用户目录。
+    """
+    s = str(raw).replace('\\', '/')
+    if not s or os.path.isabs(str(raw)) or ':' in s.split('/')[0]:
+        return raw
+    head, sep, tail = s.partition('/')
+    if not sep:
+        return raw
+    try:
+        from .config import LEGACY_TOP_DIRS, PLATFORM_ROOT
+    except Exception:                                # 循环导入兜底
+        return raw
+    new = LEGACY_TOP_DIRS.get(head)
+    if not new:
+        return raw
+    old_abs = os.path.join(PLATFORM_ROOT, head)
+    new_abs = os.path.join(PLATFORM_ROOT, *new.split('/'))
+    if os.path.exists(old_abs) or not os.path.exists(new_abs):
+        return raw                                   # 旧位置还在 / 新位置不存在 → 不动
+    return os.path.join(new, tail)
+
+
 def check_path(path, must_exist=False, in_platform=False):
     """规范化并校验路径。
 
     - 拒绝路径中含 '..' 段（防穿越）
     - in_platform=True 时强制路径位于平台根目录内（用于输出/中间文件）
     - must_exist=True 时要求文件/目录已存在
+    - 旧顶层目录（tool_runs/ results/ …）自动重定向到 run/ 3rd/（见
+      _redirect_legacy_top）
     返回规范化后的绝对路径。
     """
-    raw = str(path)
-    for seg in raw.replace('/', os.sep).split(os.sep):
+    raw = _redirect_legacy_top(path)
+    for seg in str(raw).replace('/', os.sep).split(os.sep):
         if seg == '..':
             raise ValueError(f"非法路径（含 ..）: {raw}")
     p = os.path.normpath(os.path.abspath(raw))

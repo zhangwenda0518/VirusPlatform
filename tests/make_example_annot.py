@@ -87,7 +87,7 @@ def run_one(contig: str, seq: str, action: str, engine: str) -> str:
     safe = re.sub(r'[^A-Za-z0-9_\-.]', '_', contig)[:30]
     tag = '' if engine == 'online' else '_' + engine
     stem = f'{safe}_{key}{tag}'
-    p = os.path.join(ROOT, 'tool_runs', '_seq_input', stem, 'analysis',
+    p = os.path.join(ROOT, 'run', 'tool_runs', '_seq_input', stem, 'analysis',
                      f'{stem}_{action}.json')
     if not os.path.isfile(p):
         raise RuntimeError(f'{action}: 缓存文件不存在 {p}')

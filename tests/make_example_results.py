@@ -34,7 +34,7 @@ JOBS = [
     ('hostremoval', 'hostremoval', '宿主去除与序列提取', {
         'r1': EX + 'example_R1.fastq.gz',
         'r2': EX + 'example_R2.fastq.gz',
-        'db': 'databases/host/classify'}),
+        'db': 'host-db/host/classify'}),
     ('fastp', 'fastp', '序列质控（fastp）', {
         'r1': EX + 'example_R1.fastq.gz',
         'r2': EX + 'example_R2.fastq.gz'}),
@@ -96,7 +96,7 @@ SKIP_SUFFIX = ('.fastq.gz', '.fq.gz', '.fasta.gz', '.tmp', '.k2', '.bam',
 def _kvsuite_params():
     """kvsuite 需要样品表：临时生成一份指向示例 reads 的 TSV（不建真样品，
     避免示例数据混进用户的样品列表）。"""
-    d = os.path.join(ROOT, 'tool_runs', '_example_inputs')
+    d = os.path.join(ROOT, 'run', 'tool_runs', '_example_inputs')
     os.makedirs(d, exist_ok=True)
     sheet = os.path.join(d, 'example_sample_sheet.tsv')
     r1 = os.path.join(ROOT, 'databases', 'examples', 'example_R1.fastq.gz')
@@ -110,7 +110,7 @@ def _variant_params():
     """变异段（kvsuite stage=variant）不跑 reads，只吃上游 BAM/VCF。
     取最近一次 kvsuite 示例运行的 bam 目录。"""
     import glob
-    cands = sorted(glob.glob(os.path.join(ROOT, 'tool_runs', 'kvsuite_*',
+    cands = sorted(glob.glob(os.path.join(ROOT, 'run', 'tool_runs', 'kvsuite_*',
                                           'kvsuite', 'bam')),
                    key=os.path.getmtime, reverse=True)
     for d in cands:
@@ -140,7 +140,7 @@ def run_one(client, tool, params, timeout=3600):
 
 
 def collect(run, module, title, meta):
-    src = os.path.join(ROOT, 'tool_runs', run)
+    src = os.path.join(ROOT, 'run', 'tool_runs', run)
     dst = os.path.join(EXR, module)
     if os.path.isdir(dst):
         shutil.rmtree(dst)

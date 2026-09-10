@@ -159,13 +159,15 @@ def api_settings_get():
         'output_root': cfg.output_root,
         'input_root': cfg.input_root,
         'database_root': cfg.database_root,
+        'examples_root': getattr(cfg, 'examples_root', ''),
+        'examples_effective': DIRS.get('examples', ''),
         'dirs': {'results': DIRS['results'],
                  'tool_runs': tool_runs_root(),
                  'databases': DIRS['databases'],
                  'fastq': DIRS.get('fastq')
-                          or os.path.join(PLATFORM_ROOT, 'fastq'),
+                          or os.path.join(PLATFORM_ROOT, 'run', 'fastq'),
                  'uploads': DIRS.get('uploads')
-                            or os.path.join(PLATFORM_ROOT, 'uploads'),
+                            or os.path.join(PLATFORM_ROOT, 'run', 'uploads'),
                  'host_src': DIRS.get('host_src')
                              or os.path.join(PLATFORM_ROOT, 'host-db'),
                  'virus_src': DIRS.get('virus_src')
@@ -228,6 +230,13 @@ def api_settings_set():
             abort(400, f'数据库目录不合法: {e}')
         except OSError as e:
             abort(400, f'数据库目录无法创建: {e}')
+    if 'examples_root' in body:
+        try:
+            cfg.set_examples_root(str(body.get('examples_root') or ''))
+        except ValueError as e:
+            abort(400, f'示例目录不合法: {e}')
+        except OSError as e:
+            abort(400, f'示例目录不可读: {e}')
     try:
         cfg.save()
     except OSError as e:

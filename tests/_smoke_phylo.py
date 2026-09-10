@@ -26,7 +26,7 @@ def mutate(base_seq, k):
     return ''.join(s)
 
 
-work = check_path(os.path.join(PLATFORM_ROOT, 'results', '_smoke_phylo'),
+work = check_path(os.path.join(PLATFORM_ROOT, 'run', 'results', '_smoke_phylo'),
                   in_platform=True)
 os.makedirs(work, exist_ok=True)
 

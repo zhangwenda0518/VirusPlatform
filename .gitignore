@@ -6,42 +6,30 @@
 # 说明：被忽略的文件仍在磁盘上，只是不进 git 历史
 # ============================================================
 
-# ---------- 1. 数据与运行产物（约 28GB，可重新生成或下载） ----------
+# ---------- 1. 数据与运行产物（可重新生成或下载） ----------
+# 目录分层（2026-09-10 整理）：
+#   代码      vp/ webapp/ engines/ tests/ scripts/ docs/ + 根目录入口文件
+#   数据库    databases/ host-db/ virus-db/
+#   运行期    run/  （results tool_runs logs tasks uploads submissions
+#                     meta_search logan fastq downloads）
+#   外部依赖  3rd/  （tools bin vendor open-virome）
 # databases/ 整体忽略，但内置示例数据例外（README 称「内置」，体积仅 ~200KB，
 # 丢失会导致 tests/_it_platform.py 与前端 ✨示例按钮失效；2026-09-09 曾丢失并重建）
 databases/*
 !databases/examples/
 databases/examples/_work/
-tools/
-downloads/
-fastq/
-results/
-tool_runs/
-meta_search/
-logan/
-submissions/
-uploads/
-logs/
-tasks/
 host-db/
 virus-db/
-# 上面的 `results/` 规则会连带忽略 databases/examples/results/（同名目录），
-# 但示例结果是「内置资产」，需纳管 —— 必须写在这些规则之后才能生效。
+run/
+3rd/
+# 示例结果是「内置资产」，需纳管（databases/examples/ 已 re-include，这里再显式保一次）
 !databases/examples/results/
-# 同理：`logan/` 规则会连带忽略 databases/examples/results/logan/（示例报告）。
-!databases/examples/results/logan/
-!databases/examples/results/logan/**
 
 # ---------- 2. 归档 / 备份 / 审计快照（不参与日常开发） ----------
 _archive/
 _audit_20260909/
 _backup_before_*/
-
-# ---------- 3. 外部二进制与第三方源码（体积大、从不修改） ----------
-bin/*.exe
 git-repo/
-vendor/
-open-virome/
 
 # ---------- 4. 前端第三方资源（不修改，可重新获取） ----------
 webapp/static/plotly.min.js

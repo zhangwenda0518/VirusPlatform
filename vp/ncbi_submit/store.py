@@ -22,7 +22,6 @@ import os
 import re
 import shutil
 import sys
-import csv as _csv
 from pathlib import Path
 
 import pandas as pd
@@ -663,7 +662,7 @@ def export_submission_fasta(name, fasta_path, min_len=200):
       - 序列字符规范化为 IUPAC（其余字符替换 N）
     返回报告 dict {path, written, missing, extra, short, duplicates, replaced}。
     """
-    from collections import Counter, OrderedDict
+    from collections import Counter
     from ..utils import iter_fasta
 
     df = load_table(name)
@@ -729,7 +728,7 @@ def infer_source_fasta(name):
     返回绝对路径或 None。
     """
     from ..config import PLATFORM_ROOT
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     cands = []
     cl = _read_link(name, 'contigs')
     if cl and cl.get('run'):
@@ -819,7 +818,7 @@ def import_from_run(name, run):
     from ..config import PLATFORM_ROOT
     if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
         raise ValueError(f'非法运行名: {run!r}')
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     tsv = check_path(os.path.join(root, run, 'virus_classification.tsv'),
                      must_exist=True, in_platform=True)
     tdf = pd.read_csv(tsv, sep='\t', dtype=str, keep_default_na=False)
@@ -872,7 +871,7 @@ def import_from_run(name, run):
 def list_contig_runs():
     """有 virus_classification.tsv 的 contigs 运行列表（导入下拉用）。"""
     from ..config import PLATFORM_ROOT
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     out = []
     if os.path.isdir(root):
         for nm in sorted(os.listdir(root), reverse=True):
@@ -888,7 +887,7 @@ def list_orf_runs():
     """有 CDS 注释产物（04b_orf_annot/orf_annotation.tsv 或 04_orf/*.gff）的
     orf/orfa 运行列表（"关联注释"下拉用）。"""
     from ..config import PLATFORM_ROOT
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     out = []
     if os.path.isdir(root):
         for nm in sorted(os.listdir(root), reverse=True):
@@ -908,7 +907,7 @@ def _orf_run_dir(run):
     from ..config import PLATFORM_ROOT
     if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
         raise ValueError(f'非法运行名: {run!r}')
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     return check_path(os.path.join(root, run), must_exist=True,
                       in_platform=True)
 
@@ -1100,7 +1099,6 @@ def generate_feature_tbl(name):
     df = load_table(name)
     names = [str(v or '').strip() for v in df['sequence_name'].tolist()
              if str(v or '').strip() and not is_placeholder(str(v or ''))]
-    want = set(names)
     out = os.path.join(_table_dir(name), 'featuretable.tbl')
     written_contigs, cds_total, no_product = [], 0, 0
     with safe_open(out, 'wt') as f:
@@ -1120,8 +1118,8 @@ def generate_feature_tbl(name):
                 # 会丢 product 名并报 MissingProteinName×N Error。须用 suvtk
                 # 同款无斜杠、无引号、tab 分隔格式（product\t名字）。
                 f.write(f'\t\t\tproduct\t{product}\n')
-                f.write(f'\t\t\tcodon_start\t1\n')
-                f.write(f'\t\t\ttransl_table\t1\n')
+                f.write('\t\t\tcodon_start\t1\n')
+                f.write('\t\t\ttransl_table\t1\n')
                 cds_total += 1
     skipped = sorted(n for n in names if n not in written_contigs)
     if not written_contigs:

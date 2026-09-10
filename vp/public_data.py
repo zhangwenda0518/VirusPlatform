@@ -119,7 +119,7 @@ def _http_get(url, timeout=40):
 
 def aria2c_path():
     """内置 aria2c.exe（bin/，兼容旧版根目录布局）；找不到再试 PATH。"""
-    for p in (os.path.join(PLATFORM_ROOT, 'bin', 'aria2c.exe'),
+    for p in (os.path.join(PLATFORM_ROOT, '3rd', 'bin', 'aria2c.exe'),
               os.path.join(PLATFORM_ROOT, 'aria2c.exe')):
         if os.path.isfile(p):
             return p
@@ -129,7 +129,7 @@ def aria2c_path():
 def sracha_path():
     """内置 sracha.exe（bin/，官方 0.7.0；兼容旧版根目录布局）；
     找不到再试 PATH。"""
-    for p in (os.path.join(PLATFORM_ROOT, 'bin', 'sracha.exe'),
+    for p in (os.path.join(PLATFORM_ROOT, '3rd', 'bin', 'sracha.exe'),
               os.path.join(PLATFORM_ROOT, 'sracha.exe')):
         if os.path.isfile(p):
             return p
@@ -137,7 +137,7 @@ def sracha_path():
 
 
 def fasterq_path():
-    for p in (os.path.join(PLATFORM_ROOT, 'bin', 'fasterq-dump.exe'),
+    for p in (os.path.join(PLATFORM_ROOT, '3rd', 'bin', 'fasterq-dump.exe'),
               os.path.join(PLATFORM_ROOT, 'fasterq-dump.exe')):
         if os.path.isfile(p):
             return p
@@ -1062,7 +1062,6 @@ class DownloadManager:
         单端单文件 → <acc>.fastq.gz；双端 _1/_2 → 同名 _1/_2.fastq.gz。
         完成后条目替换为 FASTQ（供 ready_files 配对进流程）。"""
         import bz2 as _bz2
-        import gzip as _gzip
         for fe in entries:
             src = fe['out']
             try:

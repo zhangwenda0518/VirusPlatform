@@ -2,25 +2,14 @@
 """输入输出杂项 API（自 app.py 拆出）。
 
 粘贴序列、拖拽上传、序列查看器、打开平台目录。"""
-import json
 import os
 import re
-import shutil
-import subprocess
-import sys
-import threading
 import time
-import uuid
 
-from flask import (Blueprint, abort, jsonify, render_template, request,
-                   send_file, send_from_directory)
+from flask import (Blueprint, abort, jsonify, request)
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
-from vp.web.common import _safe_sample
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
-from vp.web.tasks import tm
+from vp.config import DIRS, PLATFORM_ROOT
+from vp.utils import (check_path, safe_open)
 
 bp = Blueprint('io_api', __name__)
 
@@ -47,12 +36,12 @@ def api_paste_input():
         abort(400, 'FASTQ 格式应以 @ 开头')
     ts = time.strftime('%Y%m%d_%H%M%S')
     fname = f'paste_{ts}{ext}'
-    fdir = os.path.join(PLATFORM_ROOT, 'uploads')
+    fdir = os.path.join(PLATFORM_ROOT, 'run', 'uploads')
     os.makedirs(fdir, exist_ok=True)
     fp = os.path.join(fdir, fname)
     with safe_open(fp, 'wt') as f:
         f.write(text + '\n')
-    return jsonify({'path': f'uploads/{fname}', 'size': len(text)})
+    return jsonify({'path': f'run/uploads/{fname}', 'size': len(text)})
 
 
 @bp.route('/api/upload', methods=['POST'])
@@ -68,7 +57,7 @@ def api_upload():
     if not name:
         abort(400, '文件名无效')
     updir = check_path(DIRS.get('uploads')
-                       or os.path.join(PLATFORM_ROOT, 'uploads'),
+                       or os.path.join(PLATFORM_ROOT, 'run', 'uploads'),
                        must_exist=False, in_platform=True)
     os.makedirs(updir, exist_ok=True)
     dst = check_path(os.path.join(updir, name), must_exist=False,
@@ -85,7 +74,7 @@ def api_upload():
     f.save(str(dst))
     up_disp = (os.path.abspath(dst) if DIRS.get('uploads')
                and not DIRS['uploads'].startswith(PLATFORM_ROOT)
-               else 'uploads/' + os.path.basename(dst))
+               else 'run/uploads/' + os.path.basename(dst))
     return jsonify({'path': up_disp,
                     'size': os.path.getsize(dst)})
 
@@ -109,7 +98,7 @@ def api_seqview():
     if not p.lower().endswith(_DATA_EXTS +
                               tuple(e + '.gz' for e in _DATA_EXTS)):
         abort(400, '仅支持 FASTA / FASTA.gz')
-    rows, previews = [], []
+    rows = []
     total_bp = 0
     truncated = False
     rec_i = -1

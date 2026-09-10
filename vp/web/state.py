@@ -48,7 +48,7 @@ cfg = get_config()
 
 def tool_runs_root():
     """tool_runs 根目录（设置自定义输出根后由 DIRS 决定）。"""
-    return DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'tool_runs')
+    return DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
 
 
 # ------------------------------------------------------------------
