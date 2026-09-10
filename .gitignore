@@ -13,17 +13,15 @@
 #   运行期    run/  （results tool_runs logs tasks uploads submissions
 #                     meta_search logan fastq downloads）
 #   外部依赖  3rd/  （tools bin vendor open-virome）
-# databases/ 整体忽略，但内置示例数据例外（README 称「内置」，体积仅 ~200KB，
-# 丢失会导致 tests/_it_platform.py 与前端 ✨示例按钮失效；2026-09-09 曾丢失并重建）
+#   内置示例  examples/  ← 2026-09-10 由 databases/examples/ 迁到根目录；
+#                          体积小（~8MB）且是「内置资产」，整体纳管进 git
+# 丢失示例会导致 tests/_it_platform.py 与前端 ✨示例按钮失效；2026-09-09 曾丢失并重建
 databases/*
-!databases/examples/
-databases/examples/_work/
 host-db/
 virus-db/
 run/
 3rd/
-# 示例结果是「内置资产」，需纳管（databases/examples/ 已 re-include，这里再显式保一次）
-!databases/examples/results/
+examples/_work/
 
 # ---------- 2. 归档 / 备份 / 审计快照（不参与日常开发） ----------
 _archive/

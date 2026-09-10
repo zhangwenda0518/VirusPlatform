@@ -10,7 +10,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vp.config import DIRS
 from vp import logan_trace as lt
 
-SAMPLE = 'REGRESS'
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _logan_fixture import pick_sample, skip_if_none  # noqa: E402
+
+# 来源样品按内容挑选（原先硬编码 'REGRESS'，该样品在当前工作区不存在）
+SAMPLE = pick_sample()
+skip_if_none(SAMPLE, 'test_logan_trace')
 JOB = '_test_logan'
 
 
@@ -39,12 +44,19 @@ def fake_result_tsv(n=8, delim='\t'):
     return ('\n'.join(lines) + '\n').encode('utf-8')
 
 
-def ensure_job(name=JOB, sample=SAMPLE, n_seg=2):
+def ensure_job(name=JOB, sample=SAMPLE, n_seg=2, contig_ids=None):
+    """建查询任务。默认只用**第一条** contig：来源样品的 contig 数随样品而变
+    （GQMIX 11 条 / ERR7586041 2 条），用全部 contig 会让"导入 s1 → 状态
+    done"之类断言随数据漂移。"""
     try:
         lt.delete_job(name)
     except Exception:
         pass
-    return lt.create_job(name, sample=sample, n_seg=n_seg)
+    if contig_ids is None and sample:
+        rows = lt.list_virus_contigs(sample)
+        contig_ids = [rows[0]['contig']] if rows else None
+    return lt.create_job(name, sample=sample, contig_ids=contig_ids,
+                         n_seg=n_seg)
 
 
 def test_query_samples():
@@ -91,7 +103,7 @@ def _fake_build_report(name):
     if os.path.isfile(parsed):
         try:
             with open(parsed, encoding='utf-8') as f:
-                rows = _json.load(f).get('rows', [])
+                rows = json.load(f).get('rows', [])
             organisms = sorted({r.get('organism', '') for r in rows if r.get('organism')})
         except Exception:
             organisms = []
@@ -196,8 +208,18 @@ def test_flask(monkeypatch):
     check(r.status_code == 308, '无尾斜杠 308 重定向（相对路径可解析）')
     r = c.get(f'/logan/report/{job}/plotly.min.js')
     check(r.status_code == 200, '报告目录静态文件路由 200')
-    r = c.get('/report/REGRESS/plotly.min.js')
-    check(r.status_code == 200, '既有 ⑧报告的 plotly 静态路由 200')
+    # 既有 ⑧报告目录的静态文件路由：需要一个真正有 07_report/ 的样品
+    with_rep = next((d for d in sorted(os.listdir(DIRS['results']))
+                     if not d.startswith('_')
+                     and os.path.isfile(os.path.join(DIRS['results'], d,
+                                                     '07_report',
+                                                     'report.html'))), None)
+    if with_rep:
+        r = c.get(f'/report/{with_rep}/plotly.min.js')
+        check(r.status_code == 200,
+              f'既有 ⑧报告的 plotly 静态路由 200（{with_rep}）')
+    else:
+        print('  · 跳过：当前没有含 07_report/ 的样品')
     # 上传导入（multipart）
     r = c.post(f'/api/logan/job/{job}/import/1',
                data={'file': (io.BytesIO(fake_result_tsv(n=3)), 'r.csv')},
@@ -250,6 +272,21 @@ def test_default_stages_and_dedup(monkeypatch):
         lt.delete_job(JOB)
 
 
+class _MiniMonkeypatch:
+    """脚本模式下的 monkeypatch 替身（本文件既能 pytest 运行也能直接运行）。
+
+    pytest 会注入真正的 monkeypatch fixture；直接 `python tests/test_logan_trace.py`
+    时没有 fixture，原先 __main__ 直接调用带参函数会 TypeError。
+    """
+
+    def __init__(self):
+        self._undo = []
+
+    def setattr(self, obj, name, value):
+        self._undo.append((obj, name, getattr(obj, name, None)))
+        setattr(obj, name, value)
+
+
 if __name__ == '__main__':
     test_segments()
     test_query_samples()
@@ -258,8 +295,13 @@ if __name__ == '__main__':
     except Exception:
         pass
     test_create_job()
-    test_import_and_report()
+    _mp = _MiniMonkeypatch()
+    test_import_and_report(_mp)
     test_paste_source()
-    test_flask()
-    lt.delete_job(JOB)
+    test_flask(_mp)
+    test_default_stages_and_dedup(_mp)
+    try:
+        lt.delete_job(JOB)
+    except Exception:
+        pass
     print('\n全部通过 ✔  (任务已清理)')

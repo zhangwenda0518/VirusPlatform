@@ -3,7 +3,7 @@
 该卡的输入是 GenBank 集合或 .gb 文件；平台已内置 3 个示例 .gb
 （example_synteny_A/B/C.gb，同属不同种），这里直接用内置引擎
 （vp.synteny.run_comparison，LoVis4u 不可用时自动回退）跑一遍，
-把 compare.html / SVG / PNG / 家族表固化到 databases/examples/results/synteny/。
+把 compare.html / SVG / PNG / 家族表固化到 examples/results/synteny/。
 
 用法：
     python tests/make_example_synteny.py
@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-EX = os.path.join(ROOT, 'databases', 'examples')
+EX = os.path.join(ROOT, 'examples')
 OUT = os.path.join(EX, 'results', 'synteny')
 WORK = os.path.join(EX, '_work', 'synteny')
 GBS = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
@@ -77,7 +77,7 @@ def main() -> int:
         'title': '同属共线性比较（LoVis4u / 内置引擎）',
         'files': sorted(copied),
         'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'source': 'databases/examples/example_synteny_{A,B,C}.gb',
+        'source': 'examples/example_synteny_{A,B,C}.gb',
         'note': (f'示例 3 个同属 GenBank：{res["n_genes"]} 基因 → '
                  f'{res["n_clusters"]} 个家族'),
     }

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
 RUNS = os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')

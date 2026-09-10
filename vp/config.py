@@ -61,7 +61,7 @@ DIRS = {
     'webapp_static': os.path.join(PLATFORM_ROOT, 'webapp', 'static'),
     # 示例数据根（内置示例 FASTA/GenBank/树）：默认在程序目录内，
     # 但允许外置（打包时「程序 / 数据库 / 示例」三分离）。
-    'examples':  os.path.join(PLATFORM_ROOT, 'databases', 'examples'),
+    'examples':  os.path.join(PLATFORM_ROOT, 'examples'),
 }
 
 # 目录整理（2026-09-10）后的新旧顶层目录映射：
@@ -244,26 +244,26 @@ _EXAMPLES_ROOT = ''
 
 
 def _default_examples_root():
-    return os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+    return os.path.join(PLATFORM_ROOT, 'examples')
 
 
 def _detect_examples_root():
     """自动探测外置示例目录（无需用户手工配置）。
 
     探测顺序：
-      1) <平台根>/databases/examples（传统内置布局）
-      2) <平台根>/../VirusPlatform-Examples/databases/examples
+      1) <平台根>/examples（2026-09-10 起的内置布局，与数据库分离）
+      2) <平台根>/databases/examples（旧内置布局，兼容未迁移的部署）
       3) <平台根>/../VirusPlatform-Examples/examples
-      4) <平台根>/examples
+      4) <平台根>/../VirusPlatform-Examples/databases/examples
     找到含 example_viral_contigs.fasta 的目录即采用。
     """
     cands = [
         _default_examples_root(),
-        os.path.join(os.path.dirname(PLATFORM_ROOT), 'VirusPlatform-Examples',
-                     'databases', 'examples'),
+        os.path.join(PLATFORM_ROOT, 'databases', 'examples'),
         os.path.join(os.path.dirname(PLATFORM_ROOT), 'VirusPlatform-Examples',
                      'examples'),
-        os.path.join(PLATFORM_ROOT, 'examples'),
+        os.path.join(os.path.dirname(PLATFORM_ROOT), 'VirusPlatform-Examples',
+                     'databases', 'examples'),
     ]
     for c in cands:
         if os.path.isfile(os.path.join(c, 'example_viral_contigs.fasta')):

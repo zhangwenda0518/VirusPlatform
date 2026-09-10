@@ -7,7 +7,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT, DIRS  # noqa: E402
+from vp.config import DIRS  # noqa: E402
 from vp.utils import check_path, safe_open, write_fasta_record  # noqa: E402
 from vp.phylo import build_phylo, resolve_ncbi_refs  # noqa: E402
 
@@ -27,13 +27,24 @@ def mutate(base_seq, k, n_mut=60):
 
 # TMV 全基因组（NC_001367.1, 6395bp）作为"contig 种子"
 from vp.ncbi_download import collection_dir
+from vp.utils import iter_fasta  # noqa: E402
 smoke_dir = collection_dir('_smoke_tmv')
 smoke_fa = os.path.join(smoke_dir, 'refs.fa')
 smoke_mark = os.path.join(smoke_dir, '_synthetic.marker')
-smoke_synthetic = not os.path.isfile(smoke_fa) or os.path.isfile(smoke_mark)
-if not os.path.isfile(smoke_fa):
-    # 无联网下载的 fixture 时合成替代序列（离线可复现）：
-    # NC_001367(TMV) / NC_002692 / NC_009497 各 6395bp 随机序列
+
+
+def _has_tmv(path):
+    return os.path.isfile(path) and any(
+        h.startswith('NC_001367') for h, _s in iter_fasta(path))
+
+
+# 集合缺失 **或** 现有内容不含 TMV 时都合成 fixture（后者发生在
+# databases/ncbi_refs/_smoke_tmv 被真实下载内容覆盖之后——硬编码
+# accession 的断言会因此失效，故按内容判定而不是只看文件是否存在）。
+smoke_synthetic = not _has_tmv(smoke_fa)
+if smoke_synthetic:
+    # 离线可复现 fixture：NC_001367(TMV) / NC_002692 / NC_009497
+    # 各 6395bp 确定性随机序列
     os.makedirs(smoke_dir, exist_ok=True)
     rnd = random.Random(20260906)
     with safe_open(smoke_fa, 'wt') as f:
@@ -42,8 +53,9 @@ if not os.path.isfile(smoke_fa):
                 f, acc, ''.join(rnd.choice(BASES) for _ in range(6395)))
     with safe_open(smoke_mark, 'wt') as f:
         f.write('合成离线 fixture（非真实 NCBI 下载）\n')
-    print('（_smoke_tmv 集合缺失，已合成离线 fixture）')
-from vp.utils import iter_fasta  # noqa: E402
+    print('（_smoke_tmv 集合缺失或不含 TMV，已合成离线 fixture）')
+# 是否合成数据：以 marker 为准（重跑时本次不再合成，但目录里仍是合成序列）
+smoke_synthetic = smoke_synthetic or os.path.isfile(smoke_mark)
 tmv = None
 for h, s in iter_fasta(smoke_fa):
     if h.startswith('NC_001367'):
@@ -64,6 +76,27 @@ with safe_open(os.path.join(a_dir, 'summary.json'), 'wt') as f:
 # 运行阶段⑤：额外参考 = _smoke_tmv 集合（TMV+SeV+Bunyamwera）
 extra = resolve_ncbi_refs(['_smoke_tmv'])
 print('extra refs:', extra)
+
+# 参考池固定为 fixture（3 条 6395bp）：真实参考库里有 40kb 级序列，MAFFT 对
+# 40kb×40kb 的 DP 是 O(L²)，34 条 ~1Mb 的比对实测 20 分钟无输出；本测试
+# 验证的是 MAFFT→trimAl→FastTree 链路与 extra_refs 合并，用小参考池
+# 既快又确定。
+import vp.phylo as _phylo  # noqa: E402
+_phylo.find_virus_ref_fasta = lambda: smoke_fa
+try:
+    import vp.virus_ref as _virus_ref  # noqa: E402
+    _virus_ref.available = lambda: False
+except Exception:
+    pass
+try:
+    # ICTV gb_cache 里缓存过 40kb 级古菌病毒基因组，混进来会让 MAFFT 的
+    # O(L²) DP 跑上几十分钟；本测试只验证链路，故屏蔽该参考源。
+    import vp.ictv_db as _ictv_db  # noqa: E402
+    _ictv_db._refs_fa_path = lambda: None
+    _ictv_db._gb_cached_accs = lambda: set()
+except Exception:
+    pass
+
 summary = build_phylo(work, top_n_refs=3, tree_tool='fasttree',
                       extra_refs=extra)
 g = summary['groups'][0]

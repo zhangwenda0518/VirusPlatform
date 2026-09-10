@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""生成内置示例测序数据（databases/examples/example_R1/R2.fastq.gz）。
+"""生成内置示例测序数据（examples/example_R1/R2.fastq.gz）。
 
 为什么单独造一份：tests/syn_R1/R2.fastq.gz 由 make_synthetic.py 生成时只
 匹配到 1 个病毒（且其注释把 NC_003530 误标为 Pepper mild mottle virus，
@@ -59,7 +59,7 @@ def fake_qual():
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ref = os.path.join(root, 'virus-db', 'final.cluster.ref.fasta')
-    ex = os.path.join(root, 'databases', 'examples')
+    ex = os.path.join(root, 'examples')
     os.makedirs(ex, exist_ok=True)
     out1 = os.path.join(ex, 'example_R1.fastq.gz')
     out2 = os.path.join(ex, 'example_R2.fastq.gz')
@@ -94,7 +94,7 @@ def main():
                 w1.write(f'@{name} 1:N:0:example\n{r1}\n+\n{fake_qual()}\n')
                 w2.write(f'@{name} 2:N:0:example\n{r2}\n+\n{fake_qual()}\n')
                 n += 1
-    print(f'  生成 {n:,} 对模拟 reads -> databases/examples/example_R{{1,2}}.fastq.gz')
+    print(f'  生成 {n:,} 对模拟 reads -> examples/example_R{{1,2}}.fastq.gz')
     for p in (out1, out2):
         print(f'    {os.path.basename(p):26s} {os.path.getsize(p) / 1024:.0f} KB')
 

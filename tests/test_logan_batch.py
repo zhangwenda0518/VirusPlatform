@@ -12,7 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp import logan_trace as lt
 
-SAMPLE = 'REGRESS'
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _logan_fixture import pick_sample, skip_if_none  # noqa: E402
+
+# 来源样品按内容挑选（原先硬编码 'REGRESS'，该样品在当前工作区不存在）
+SAMPLE = pick_sample()
+skip_if_none(SAMPLE, 'test_logan_batch')
 JOB = '_test_batch'
 
 # 假 logan_submit：解析输入 FASTA，逐条输出 PROGRESS 进度事件并写入
@@ -79,6 +84,21 @@ def check(cond, msg):
     assert cond, msg
 
 
+def _make_two_seg_job(name):
+    """建一个恰好 2 片段的查询任务（本测试的断言按 2 片段编写）。
+
+    优先用样品里最长的病毒 contig（>2500bp 才会切成 2 段）；样品里没有
+    这么长的 contig 时改用确定性合成序列，保证可复现。
+    """
+    rows = lt.list_virus_contigs(SAMPLE) if SAMPLE else []
+    best = max(rows, key=lambda r: r.get('length') or 0, default=None)
+    if best and (best.get('length') or 0) > 2500:
+        return lt.create_job(name, sample=SAMPLE,
+                             contig_ids=[best['contig']], n_seg=2)
+    seq = ('ACGT' * 1000)[:4000]
+    return lt.create_job(name, pasted=f'>synth_contig\n{seq}\n', n_seg=2)
+
+
 def main():
     fake = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         '_fake_logan_submit.py')
@@ -91,7 +111,7 @@ def main():
             pass
 
         print('== 批量准备 ==')
-        d = lt.create_job(JOB, sample=SAMPLE, n_seg=2)
+        d = _make_two_seg_job(JOB)
         check(d['n_segments'] == 2, f'查询任务 2 个片段（{d["name"]}）')
         in_path, out_dir, acc2seg, n = lt.batch_prepare(d['name'])
         check(n == 2 and len(acc2seg) == 2,
@@ -139,7 +159,7 @@ def main():
             lt.delete_job(JOB + '2')
         except Exception:
             pass
-        d2 = lt.create_job(JOB + '2', sample=SAMPLE, n_seg=2)
+        d2 = _make_two_seg_job(JOB + '2')
         in_path2, out_dir2, acc2seg2, n2 = lt.batch_prepare(d2['name'])
         accs = sorted(acc2seg2)
         with lt.safe_open(os.path.join(out_dir2, accs[0] + '.tsv'), 'wt') as f:
@@ -161,7 +181,9 @@ def main():
             lt.delete_job(JOB + '3')
         except Exception:
             pass
-        lt.create_job(JOB + '3', sample=SAMPLE, n_seg=1)
+        lt.create_job(JOB + '3',
+                      pasted='>synth_contig\n' + ('ACGT' * 1000)[:4000] + '\n',
+                      n_seg=1)
         rr = c.post(f'/api/logan/job/{JOB + "3"}/batch', json={'emails': 'a@b.c'})
         check(rr.status_code == 200, '批量任务经 API 启动')
         tid = rr.get_json()['task']

@@ -22,7 +22,7 @@ def main():
     shutil.rmtree(run_dir, ignore_errors=True)
     os.makedirs(run_dir, exist_ok=True)
 
-    fa = os.path.join('databases', 'examples', 'example_viral_contigs.fasta')
+    fa = os.path.join('examples', 'example_viral_contigs.fasta')
     recs = [(h.split()[0], s) for h, s in iter_fasta(fa)]
     vfa = os.path.join(run_dir, 'viral_contigs.fasta')
     with safe_open(vfa, 'wt') as f:

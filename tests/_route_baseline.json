@@ -11,6 +11,9 @@
   "/api/build_taxonomy": "build.api_build_taxonomy",
   "/api/build_universal_db": "build.api_build_universal_db",
   "/api/build_virus_db": "build.api_build_virus_db",
+  "/api/cds/export": "cds_export.api_cds_export",
+  "/api/cds/selection/save": "cds_export.api_cds_selection_save",
+  "/api/cds/table": "cds_export.api_cds_table",
   "/api/compare/preview": "refs.api_compare_preview",
   "/api/compare/run": "refs.api_compare_run",
   "/api/convert_kraken2": "build.api_convert_kraken2",
@@ -21,13 +24,13 @@
   "/api/dl/create": "download.api_dl_create",
   "/api/dl/to_pipeline": "download.api_dl_to_pipeline",
   "/api/example_input/<path:name>": "examples.api_example_input",
+  "/api/example_paths": "examples.api_example_paths",
   "/api/examples": "examples.api_examples",
   "/api/examples/<module>": "examples.api_example",
   "/api/examples/<module>/<path:filename>": "examples.api_example_file",
   "/api/gb/collections": "refs.api_gb_collections",
   "/api/gb/download": "refs.api_gb_download",
   "/api/gb/extract": "refs.api_gb_extract",
-  "/api/gb/extract_files": "refs.api_gb_extract_files",
   "/api/gb/import": "refs.api_gb_import",
   "/api/gb/inspect": "refs.api_gb_inspect",
   "/api/gb/phylo": "refs.api_gb_phylo",
@@ -139,6 +142,7 @@
   "/api/tool/kvsuite_result": "tool_results.api_tool_kvsuite_result",
   "/api/tool/msa_data": "tool_results.api_tool_msa_data",
   "/api/tool/open": "tools.api_tool_open",
+  "/api/tool/primer_design": "tool_results.api_tool_primer_design",
   "/api/tool/quicktree_data": "tool_results.api_tool_quicktree_data",
   "/api/tool/report": "tool_results.api_tool_report",
   "/api/tool/report_data": "tool_results.api_tool_report_data",
@@ -154,6 +158,7 @@
   "/api/upload": "io_api.api_upload",
   "/archive_report/<sample>/": "pages.page_archive_report",
   "/build": "pages.page_build",
+  "/cds-export": "pages.page_cds_export",
   "/compare/<name>/": "refs.page_compare",
   "/compare/<name>/<path:filename>": "refs.page_compare_file",
   "/download": "download.page_download",
@@ -218,6 +223,15 @@
   "/api/build_virus_db": [
    "POST"
   ],
+  "/api/cds/export": [
+   "POST"
+  ],
+  "/api/cds/selection/save": [
+   "POST"
+  ],
+  "/api/cds/table": [
+   "GET"
+  ],
   "/api/compare/preview": [
    "GET"
   ],
@@ -248,6 +262,9 @@
   "/api/example_input/<path:name>": [
    "GET"
   ],
+  "/api/example_paths": [
+   "GET"
+  ],
   "/api/examples": [
    "GET"
   ],
@@ -265,9 +282,6 @@
   ],
   "/api/gb/extract": [
    "POST"
-  ],
-  "/api/gb/extract_files": [
-   "GET"
   ],
   "/api/gb/import": [
    "POST"
@@ -603,6 +617,9 @@
   "/api/tool/open": [
    "POST"
   ],
+  "/api/tool/primer_design": [
+   "POST"
+  ],
   "/api/tool/quicktree_data": [
    "GET"
   ],
@@ -646,6 +663,9 @@
    "GET"
   ],
   "/build": [
+   "GET"
+  ],
+  "/cds-export": [
    "GET"
   ],
   "/compare/<name>/": [

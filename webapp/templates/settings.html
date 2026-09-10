@@ -71,6 +71,21 @@
   </section>
 
   <section class="card" style="margin-bottom:18px">
+      <h2 data-i18n="se.exRoot">📦 示例数据目录</h2>
+      <p class="hint" data-i18n="se.exRootHint">内置示例（各工具「✨ 示例」按钮、结果中心「示例结果」页）所在目录。留空 = 自动探测：程序根目录下的 examples/，或与程序同级的 VirusPlatform-Examples/examples（程序 / 数据库 / 示例 三分离打包时用）。</p>
+      <div class="set-row">
+        <div class="s-label" data-i18n="se.exRootLabel">示例数据根目录</div>
+        <div class="s-ctrl" style="display:flex;gap:8px;width:100%">
+          <input id="exRoot" style="flex:1">
+          <button class="btn small" onclick="browseDir('exRoot')">📁 <span data-i18n="se.pick">浏览</span></button>
+          <button class="btn small primary" onclick="applyRoot('examples_root', $('exRoot').value.trim(), 'exRootMsg')" data-i18n="se.outRootApply">应用</button>
+          <button class="btn small" onclick="applyRoot('examples_root', '', 'exRootMsg')" data-i18n="se.outRootReset">恢复默认</button>
+        </div>
+      </div>
+      <div id="exRootMsg" class="hint" style="margin-top:6px"></div>
+  </section>
+
+  <section class="card" style="margin-bottom:18px">
       <h2 data-i18n="se.storage">💾 存储与磁盘</h2>
       <p class="hint" data-i18n="se.storageHint">磁盘剩余空间与各目录占用。
          目录占用为后台统计（数据库较大时约需几十秒），结果缓存 10 分钟。
@@ -159,6 +174,8 @@ async function loadSettings() {
     $('outRoot').value = d.output_root || '';
     $('inRoot').value = d.input_root || '';
     $('dbRoot').value = d.database_root || '';
+    $('exRoot').value = d.examples_root || '';
+    $('exRoot').placeholder = d.examples_effective || '';
     FIELDS = d.default_fields || [];
     DEFS = d.defaults || {};
     renderDefaults(d.language === 'en');
@@ -237,7 +254,8 @@ async function applyRoot(kind, path, msgId) {
   const msg = $(msgId);
   const doneTxt = {output_root: t('se.outRootDone', '✔ 已生效，推荐子目录已就绪'),
                    input_root: t('se.inRootDone', '✔ 已生效，fastq / uploads 子目录已就绪'),
-                   database_root: t('se.dbRootDone', '✔ 已生效，数据库子目录已就绪')}[kind];
+                   database_root: t('se.dbRootDone', '✔ 已生效，数据库子目录已就绪'),
+                   examples_root: t('se.exRootDone', '✔ 已生效，示例目录已切换')}[kind];
   try {
     const r = await fetch('/api/settings', {
       method: 'POST', headers: {'Content-Type': 'application/json'},

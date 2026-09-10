@@ -3,7 +3,7 @@
 
 产物（默认分离布局，`dist/` 下三个互不干扰的目录）:
   dist/VirusPlatform/            ① 程序（exe + webapp + bin/ + tools/，~1GB）
-  dist/VirusPlatform-Examples/   ② 示例数据（databases/examples/，~1MB）
+  dist/VirusPlatform-Examples/   ② 示例数据（<程序>/examples/，~1MB）
   dist/VirusPlatform-Database/   ③ 数据库（仅 --with-db 时生成，~47GB）
 
 为什么分离：
@@ -12,7 +12,7 @@
   - 示例数据只读、体量小，可随程序走也可单独给学员。
 
 程序启动时按此顺序找示例目录（vp/config.py `_detect_examples_root`）：
-  platform.json.examples_root → <程序>/databases/examples →
+  platform.json.examples_root → <程序>/examples →
   <程序>/../VirusPlatform-Examples/databases/examples → <程序>/examples
 
 用法:
@@ -195,9 +195,9 @@ else:
 # ------------------------------------------------------------------
 if not _args.db_only:
     print('== 3/5 示例数据 ==')
-    src_ex = os.path.join('databases', 'examples')
+    src_ex = 'examples'
     if not os.path.isdir(src_ex):
-        print('  ! 未找到 databases/examples，跳过')
+        print('  ! 未找到 examples/，跳过')
     else:
         if SPLIT:
             dst = os.path.join(EX_DIR, 'databases', 'examples')
@@ -206,14 +206,14 @@ if not _args.db_only:
             shutil.copytree(src_ex, dst,
                             ignore=shutil.ignore_patterns('_work', '__pycache__'))
             n = sum(len(fs) for _d, _s, fs in os.walk(dst))
-            print(f'  + {EX_DIR}/databases/examples/（{n} 个文件，'
+            print(f'  + {EX_DIR}/examples/（{n} 个文件，'
                   f'程序目录不含示例）')
         else:
             dst = os.path.join(APP, 'databases', 'examples')
             _rmtree(dst)
             shutil.copytree(src_ex, dst,
                             ignore=shutil.ignore_patterns('_work', '__pycache__'))
-            print('  + 程序目录内 databases/examples/（--no-split）')
+            print('  + 程序目录内 examples/（--no-split）')
 
 # ------------------------------------------------------------------
 # 4) 数据库包（独立目录）

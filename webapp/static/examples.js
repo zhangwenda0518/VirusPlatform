@@ -4,7 +4,7 @@
  * 目的：任何模块都不需要用户先准备数据 —— 点「✨ 示例」即填好该模块
  *       所需输入；页面首次打开且输入为空时也会自动填入（可在设置关闭）。
  *
- * 数据文件全部在 databases/examples/，由 tests/make_example_reads.py 与
+ * 数据文件全部在 examples/，由 tests/make_example_reads.py 与
  * tests/make_examples.py 生成（确定性、可重跑）：
  *   example_R1/R2.fastq.gz      3 种植物病毒模拟双端 reads（~60x）
  *   example_viral_contigs.fasta 2 条病毒 contig（含 Pepper yellows virus）
@@ -20,7 +20,7 @@
 (function () {
   'use strict';
 
-  var DIR = 'databases/examples/';
+  var DIR = 'examples/';
   var F = {
     R1: DIR + 'example_R1.fastq.gz',
     R2: DIR + 'example_R2.fastq.gz',
@@ -65,7 +65,7 @@
     '/orf':         { of_fa: 'CONTIGS' },
     '/annotation':  { oa_fa: 'CONTIGS' },
     '/genome':      { gp_ann: 'GENOME' },
-    '/primer':      { pr_fa: 'CONSERVED' },
+    '/primer':      { pd_fa: 'CONSERVED' },  /* 字段名为 primer.html 的 pd_fa */
     '/logan':       { pasteSeq: 'TMV_TEXT' },  /* 文本域：填序列内容 */
     '/samples':     { sample: 'example_reads', r1: 'R1', r2: 'R2' },
     '/meta':        { mtSpecies: 'Tobacco mosaic virus', mtSource: 'All' }
@@ -197,7 +197,7 @@
       var h2 = sec.querySelector('h2');
       if (!h2) return;
       if (hasFill) {
-        h2.appendChild(mkBtn('✨ 示例', '一键填入内置示例数据（databases/examples/）',
+        h2.appendChild(mkBtn('✨ 示例', '一键填入内置示例数据（examples/）',
           function () {
             var n = applyFor(sec);
             if (typeof toast === 'function') {
@@ -285,7 +285,7 @@
 
   /* ============================================================
    * 示例结果查看器（阶段 C）
-   * 读 /api/examples/<模块>（只读 databases/examples/results/，与真实结果隔离）
+   * 读 /api/examples/<模块>（只读 examples/results/，与真实结果隔离）
    * 图片内联、TSV/CSV 转表格、JSON 格式化、其余给下载链接。
    * ============================================================ */
   var RESULT_MAP = {
@@ -547,7 +547,7 @@
       var texts = d.files.filter(function (f) { return f.kind === 'text'; });
       var others = d.files.filter(function (f) { return f.kind === 'other'; });
       var html = '<p class="hint">生成于 ' + esc(d.generated_at || '-') +
-        ' · 目录 databases/examples/results/' + esc(module) +
+        ' · 目录 examples/results/' + esc(module) +
         '/（只读，与真实结果隔离）</p>';
       if (imgs.length) {
         html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin:10px 0">';
@@ -668,7 +668,7 @@
     });
     var box = mask.querySelector('#vpIdxBody');
     fetch('/api/examples').then(function (r) { return r.json(); }).then(function (list) {
-      var h = '<p class="hint">全部产物固化在 <code>databases/examples/results/</code>' +
+      var h = '<p class="hint">全部产物固化在 <code>examples/results/</code>' +
         '（只读，与真实运行结果隔离），共 ' + list.length + ' 个模块。</p>' +
         '<table class="tbl" style="font-size:12px"><tr><th>模块</th><th>说明</th>' +
         '<th>产物</th><th>生成时间</th><th></th></tr>';

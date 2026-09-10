@@ -22,13 +22,12 @@ import random
 import re
 import shutil
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-EX = os.path.join(ROOT, 'databases', 'examples')
+EX = os.path.join(ROOT, 'examples')
 GBS = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
 
 
@@ -102,7 +101,7 @@ def main() -> int:
 
     # 重建集合：整目录删掉 → 重新导入（会重新拷贝新的 .gb）→ 重跑特征提取
     from vp.gb_collection import (extract_collection_features, gb_collection_dir,
-                                  import_local_gb, list_gb_collections)
+                                  import_local_gb)
     cdir = gb_collection_dir('EXAMPLE_SET')
     if os.path.isdir(cdir):
         shutil.rmtree(cdir, ignore_errors=True)

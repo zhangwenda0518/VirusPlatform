@@ -29,6 +29,8 @@ BASELINE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 def collect():
     """收集全部路由：rule -> sorted(methods)，另记 endpoint 便于报告。"""
+    # 只读：禁止 import app 时改写/修剪 tasks/*.json（见 TaskManager._recover_interrupted）
+    os.environ.setdefault('VP_NO_RECOVER', '1')
     import app as appmod
     rules = {}
     endpoints = {}

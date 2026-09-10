@@ -46,7 +46,7 @@ print('\n== 配置：taxonomy 映射 / 示例根 ==')
 from vp import config as C  # noqa: E402
 check('taxonomy' not in C._DATABASE_KEYS,
       'taxonomy 不再由 _DATABASE_KEYS 写死（改走 DB_LAYOUT + 旧布局兜底）')
-check(C.DIRS['examples'].replace('\\', '/').endswith('databases/examples'),
+check(C.DIRS['examples'].replace('\\', '/').endswith('examples'),
       f"DIRS['examples'] 指向示例目录: {C.DIRS['examples']}")
 check(os.path.isdir(C.DIRS['examples']), '示例目录存在')
 check(C._detect_examples_root() != '' or True, '示例根自动探测可调用')
@@ -116,7 +116,7 @@ check(r.status_code == 404, f'示例输入越界被拒（{r.status_code}）')
 
 # 图谱预览（gbdraw + 多记录 FASTA + ASCII 中转目录）——打包验证时发现的真实缺陷
 r = c.post('/api/tool/genoplot_preview',
-           json={'fasta': 'databases/examples/example_viral_contigs.fasta',
+           json={'fasta': 'examples/example_viral_contigs.fasta',
                  'mode': 'circular'})
 ok = r.status_code == 200 and '<svg' in (r.get_json() or {}).get('svg', '')
 check(ok, f'图谱预览可出图（{r.status_code}）')
@@ -188,7 +188,7 @@ check('P3_GLOBAL = {' not in src_pr,
 check('.designPrimers(' not in src_pr,
       'primer.py 不再调用已弃用的 designPrimers')
 from vp.utils import iter_fasta as _if  # noqa: E402
-_nm, _sq = next(iter(_if(os.path.join(ROOT, 'databases', 'examples',
+_nm, _sq = next(iter(_if(os.path.join(ROOT, 'examples',
                                       'example_viral_contigs.fasta'))))
 _pairs = PR.design_primers_for_seq('demo', _sq.upper(), num_return=3)
 check(len(_pairs) == 3, f'引物对数 {len(_pairs)}')
@@ -204,7 +204,7 @@ from vp.local_search import contig_blast_table  # noqa: E402
 _tmp = os.path.join(ROOT, 'run', 'tool_runs', '_tmp', 'verifyfix_ctgblast')
 os.makedirs(_tmp, exist_ok=True)
 _tab, _tsv = contig_blast_table(
-    os.path.join(ROOT, 'databases', 'examples',
+    os.path.join(ROOT, 'examples',
                  'example_viral_contigs.fasta'), _tmp, threads=4)
 check(len(_tab) >= 1 and all(v.get('accession') for v in _tab.values()),
       f'contig 级 BLASTN 给出最近参考（{len(_tab)} 条）')

@@ -74,7 +74,9 @@
 ├─ webapp/
 │  ├─ templates/           页面模板（Jinja2）
 │  └─ static/              app.css / app.js / i18n.js / examples.js / vendor/
-├─ databases/              kunpeng 库、taxonomy、tree_db、annot、misc、examples（大数据）
+├─ databases/              kunpeng 库、taxonomy、tree_db、annot、misc（大数据）
+├─ examples/               内置各工具示例数据 + results/（示例运行结果，与真实结果隔离）；
+│                          2026-09-10 由 databases/examples/ 迁到根目录，整体纳管 git
 ├─ host-db/ · virus-db/    建库源数据（宿主源基因组 / 病毒源参考）
 ├─ run/                    运行期数据（可清理重建，git 忽略）
 │  ├─ results/<样品>/       每样品产物（00_prep … 09_genome_plots、logs）

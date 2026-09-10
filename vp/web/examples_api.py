@@ -1,26 +1,40 @@
 # -*- coding: utf-8 -*-
-"""示例结果 API（阶段 C）：只读暴露 databases/examples/results/<模块>/。
+"""示例结果 API（阶段 C）：只读暴露 <示例根>/results/<模块>/。
 
 与真实结果彻底隔离 —— 不读 tool_runs/ 也不读 results/，只读示例目录；
 目录内容由 tests/make_example_results.py 生成并写 manifest.json。
+
+示例根来自 `DIRS['examples']`（vp/config.py）：默认 <程序>/examples，
+可用 platform.json 的 examples_root 指向程序目录之外（程序 / 数据库 / 示例
+三分离打包），启动时也会自动探测同级的 VirusPlatform-Examples/。
 
 路由：
     GET /api/examples                     清单（含各模块标题与产物文件）
     GET /api/examples/<module>            单模块详情（含可预览文件的文本/尺寸）
     GET /api/examples/<module>/<path>     取单个产物文件（图片/表格/JSON）
+    GET /api/example_input/<path:name>    取示例输入文件（只读）
+    GET /api/example_paths                示例输入的**绝对路径**表（前端填框用）
 """
 import json
 import os
 
 from flask import Blueprint, abort, jsonify, send_file
 
-from vp.config import PLATFORM_ROOT
-from vp.utils import check_path
+from vp.config import DIRS, PLATFORM_ROOT
 
 bp = Blueprint('examples', __name__)
 
-EXR = os.path.join(PLATFORM_ROOT, 'databases', 'examples', 'results')
-EX_IN = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+
+def _exr():
+    """示例结果根（每次读取，支持运行期切换示例根）。"""
+    return os.path.join(DIRS.get('examples') or
+                        os.path.join(PLATFORM_ROOT, 'examples'),
+                        'results')
+
+
+def _ex_in():
+    return DIRS.get('examples') or os.path.join(PLATFORM_ROOT, 'databases',
+                                                'examples')
 
 # 可内联预览的文本类扩展名（其余按下载/图片处理）
 _TEXT_EXT = {'.json', '.tsv', '.csv', '.txt', '.md', '.nwk', '.gff', '.gff3',
@@ -34,7 +48,7 @@ _PDF_EXT = {'.pdf'}
 
 
 def _manifest():
-    p = os.path.join(EXR, 'manifest.json')
+    p = os.path.join(_exr(), 'manifest.json')
     if not os.path.isfile(p):
         return {}
     try:
@@ -44,15 +58,24 @@ def _manifest():
         return {}
 
 
+def _within(root, path):
+    """path 是否位于 root 内（示例根可能在平台目录之外，故不能只用
+    check_path(in_platform=True)）。"""
+    root = os.path.normpath(os.path.abspath(root))
+    p = os.path.normpath(os.path.abspath(path))
+    return p == root or p.startswith(root + os.sep)
+
+
 def _module_dir(module):
     """模块目录（白名单校验，防路径注入）。"""
     import re
     if not re.fullmatch(r'[A-Za-z0-9_\-]{1,40}', str(module)):
         abort(400, '无效的模块名')
-    d = os.path.join(EXR, module)
-    if not os.path.isdir(d):
+    root = _exr()
+    d = os.path.join(root, module)
+    if not os.path.isdir(d) or not _within(root, d):
         abort(404, f'示例结果不存在: {module}')
-    return check_path(d, must_exist=True, in_platform=True)
+    return os.path.normpath(os.path.abspath(d))
 
 
 def _kind(name):
@@ -104,23 +127,43 @@ def api_example(module):
 
 @bp.route('/api/example_input/<path:name>')
 def api_example_input(name):
-    """取示例**输入**文件（databases/examples/ 下，只读）。
+    """取示例**输入**文件（<示例根>/ 下，只读）。
 
     前端「✨ 示例」需要把示例 FASTA 正文填进 textarea（CDD / BLAST 走粘贴入口、
     LOGAN 粘贴框），而 databases/ 不经 HTTP 暴露，故单开只读路由。
     """
-    p = check_path(os.path.join(EX_IN, name), must_exist=True,
-                   in_platform=True)
-    if not os.path.isfile(p):
+    root = _ex_in()
+    p = os.path.join(root, name)
+    # 示例根可能位于平台目录之外，故用「根内前缀」校验而非
+    # check_path(in_platform=True)（后者只认平台/输出根）。
+    if not _within(root, p) or not os.path.isfile(p):
         abort(404, '示例输入不存在')
-    return send_file(p)
+    return send_file(os.path.normpath(os.path.abspath(p)))
+
+
+@bp.route('/api/example_paths')
+def api_example_paths():
+    """示例输入文件的绝对路径表：{文件名: 绝对路径}。
+
+    前端「✨ 示例」按钮填的是**路径字符串**，后端再按它取文件。示例目录
+    可能位于程序目录之外（三分离打包），相对路径 `examples/x`
+    就不成立了，故由服务端给出真实绝对路径。
+    """
+    root = _ex_in()
+    out = {}
+    if os.path.isdir(root):
+        for fn in sorted(os.listdir(root)):
+            p = os.path.join(root, fn)
+            if os.path.isfile(p):
+                out[fn] = p
+    return jsonify({'root': root, 'files': out})
 
 
 @bp.route('/api/examples/<module>/<path:filename>')
 def api_example_file(module, filename):
     """取示例结果的单个产物（只读）。"""
     d = _module_dir(module)
-    p = check_path(os.path.join(d, filename), must_exist=True, in_platform=True)
-    if not os.path.isfile(p):
+    p = os.path.join(d, filename)
+    if not _within(d, p) or not os.path.isfile(p):
         abort(404, '文件不存在')
-    return send_file(p)
+    return send_file(os.path.normpath(os.path.abspath(p)))

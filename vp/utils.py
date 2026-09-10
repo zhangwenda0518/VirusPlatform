@@ -41,33 +41,65 @@ def decode_output(raw):
 # 路径安全
 # ------------------------------------------------------------------
 def _redirect_legacy_top(raw):
-    """目录整理（2026-09-10）兼容：把旧的平台相对顶层目录重定向到新位置。
+    """目录整理（2026-09-10）兼容：把旧的顶层目录重定向到新位置。
 
-    运行期数据已搬进 run/、外部二进制与第三方搬进 3rd/，但历史数据、前端
-    拼接的路径、文档示例里仍可能写 tool_runs/xxx、results/xxx… 这类旧相对
-    路径。这里按 config.LEGACY_TOP_DIRS 统一重写，保证旧调用与旧记录不失效。
+    运行期数据已搬进 run/、外部二进制与第三方搬进 3rd/、示例搬到
+    <平台根>/examples/，但历史数据、前端拼接的路径、文档示例里仍可能写
+    tool_runs/xxx、results/xxx、databases/examples/xxx… 这类旧路径。
 
-    仅处理**相对路径**（绝对路径由调用方自己负责），且仅当旧位置不存在、
-    新位置存在时才改写，避免误伤同名的用户目录。
+    两类写法都要覆盖（很多 API 是**先 os.path.join(PLATFORM_ROOT, path)
+    再 check_path**，只处理相对路径会漏掉它们）：
+      1) 相对路径：tool_runs/x  → run/tool_runs/x
+      2) 平台根下的绝对路径：<根>/tool_runs/x → <根>/run/tool_runs/x
+    平台根之外的绝对路径原样返回。
+
+    仅当旧位置不存在、新位置存在时才改写，避免误伤同名目录。
     """
     s = str(raw).replace('\\', '/')
-    if not s or os.path.isabs(str(raw)) or ':' in s.split('/')[0]:
-        return raw
-    head, sep, tail = s.partition('/')
-    if not sep:
+    if not s:
         return raw
     try:
         from .config import LEGACY_TOP_DIRS, PLATFORM_ROOT
     except Exception:                                # 循环导入兜底
         return raw
-    new = LEGACY_TOP_DIRS.get(head)
-    if not new:
+    root_s = str(PLATFORM_ROOT).replace('\\', '/').rstrip('/')
+    low_s, low_root = s.lower(), root_s.lower()
+    if low_s.startswith(low_root + '/'):
+        tail = s[len(root_s) + 1:]                   # 平台根下的绝对路径
+        absolute = True
+    elif os.path.isabs(str(raw)) or ':' in s.split('/')[0]:
+        return raw                                   # 平台外的绝对路径 → 不动
+    else:
+        tail = s
+        absolute = False
+
+    def _finish(new_rel):
+        """新相对路径 → 按原式（绝对/相对）重建。"""
+        return (root_s + '/' + new_rel) if absolute else new_rel.replace('/', os.sep)
+
+    def _usable(old_rel, new_rel):
+        old_abs = os.path.join(PLATFORM_ROOT, *old_rel.split('/'))
+        new_abs = os.path.join(PLATFORM_ROOT, *new_rel.split('/'))
+        return (not os.path.exists(old_abs)) and os.path.exists(new_abs)
+
+    # 特例（多段前缀）：示例数据 2026-09-10 由 databases/examples/ 迁到
+    # <平台根>/examples/，历史记录与旧前端常量里仍可能写旧前缀。
+    _EX_OLD = 'databases/examples/'
+    if tail.startswith(_EX_OLD):
+        rest = tail[len(_EX_OLD):]
+        if _usable('databases/examples', 'examples'):
+            return _finish('examples/' + rest)
+        if tail.startswith('databases/examples'):
+            return _finish('examples/' + tail[len('databases/examples'):])
         return raw
-    old_abs = os.path.join(PLATFORM_ROOT, head)
-    new_abs = os.path.join(PLATFORM_ROOT, *new.split('/'))
-    if os.path.exists(old_abs) or not os.path.exists(new_abs):
+
+    head, sep, tail_rest = tail.partition('/')
+    if not sep:
+        return raw
+    new = LEGACY_TOP_DIRS.get(head)
+    if not new or not _usable(head, new):
         return raw                                   # 旧位置还在 / 新位置不存在 → 不动
-    return os.path.join(new, tail)
+    return _finish(new + '/' + tail_rest)
 
 
 def check_path(path, must_exist=False, in_platform=False):

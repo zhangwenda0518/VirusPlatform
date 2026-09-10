@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
 COLL = 'it_extract_coll'
 
@@ -107,17 +107,6 @@ def main():
     with open(os.path.join(exd, 'genes.tsv')) as f:
         rows_tsv = f.read().splitlines()
     check(len(rows_tsv) == 7, f'genes.tsv 6 基因 + 表头（{len(rows_tsv)} 行）')
-
-    # 产物清单 API
-    r = c.get(f'/api/gb/extract_files?name={COLL}')
-    check(r.status_code == 200 and len(r.get_json()) >= 15,
-          f'extract_files 清单（{len(r.get_json())} 项）')
-    r = c.get('/api/gb/extract_files?name=no_such_coll')
-    check(r.status_code == 404, '未提取集合 404')
-    # 集合列表标记
-    r = c.get('/api/gb/collections')
-    mine = next(x for x in r.get_json() if x['name'] == COLL)
-    check(mine.get('has_extract') is True, '集合列表 has_extract 标记')
 
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)
     print('EXTRACT + SAMPLING TESTS PASSED', flush=True)

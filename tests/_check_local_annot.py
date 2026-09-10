@@ -4,7 +4,6 @@
 不依赖运行中的服务；结果与前端「命中表」同源。
 """
 import io
-import json
 import os
 import sys
 import time
@@ -12,7 +11,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-FA = os.path.join(ROOT, 'databases', 'examples', 'example_contig_1.fasta')
+FA = os.path.join(ROOT, 'examples', 'example_contig_1.fasta')
 CONTIG = 'example_contig_1'
 
 

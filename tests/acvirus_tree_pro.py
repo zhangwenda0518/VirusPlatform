@@ -4,8 +4,6 @@
 from __future__ import annotations
 import argparse
 import json
-import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -13,7 +11,6 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.patches as patches
@@ -342,7 +339,6 @@ def draw_tree_synteny_figure(tree_file, pos_df, sim_df, taxa_meta, out_prefix,
             i1,i2=prot_to_info[p1],prot_to_info[p2]; g1,g2=i1["nucl_id"],i2["nucl_id"]
             if abs(y_coords[g1]-y_coords[g2])==1:
                 y1,y2=y_coords[g1],y_coords[g2]
-                s1=a if False else i1["start"]; e1=i1["end"]
                 y1u = y1+0.15 if y1<y2 else y1-0.15
                 y2u = y2-0.15 if y1<y2 else y2+0.15
                 poly=patches.Polygon([(i1["start"],y1u),(i1["end"],y1u),(i2["end"],y2u),(i2["start"],y2u)],

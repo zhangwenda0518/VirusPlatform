@@ -5,7 +5,7 @@ LOGAN 的真实流程是「切片段 → 上传到 logan-search.org → 下载�
   1. 用示例 TMV 序列建一个名为 EXAMPLE_TMV 的真实任务（走 create_job 同一路径）；
   2. 为每个片段导入一份**示例结果表**（列名与 Logan-Search 导出表一致，
      数值为演示用），从而走完 import_result → build_report 全链路；
-  3. 把 trace_report.html 等产物固化到 databases/examples/results/logan/。
+  3. 把 trace_report.html 等产物固化到 examples/results/logan/。
 
 用法（需平台已在 http://127.0.0.1:8765 运行）：
     python tests/make_example_logan.py
@@ -22,7 +22,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('VP_BASE', 'http://127.0.0.1:8765')
-EX = os.path.join(ROOT, 'databases', 'examples')
+EX = os.path.join(ROOT, 'examples')
 OUT = os.path.join(EX, 'results', 'logan')
 JOB = 'EXAMPLE_TMV'
 TMV = os.path.join(EX, 'example_tmv.fasta')
@@ -191,7 +191,7 @@ def main() -> int:
             else:
                 shutil.copy2(src, os.path.join(OUT, name))
             copied.append(name)
-    print(f'已固化 {len(copied)} 个产物到 databases/examples/results/logan/')
+    print(f'已固化 {len(copied)} 个产物到 examples/results/logan/')
     for n in copied:
         print(f'  {n}  ({os.path.getsize(os.path.join(OUT, n)) / 1024:.1f} KB)')
 
@@ -202,7 +202,7 @@ def main() -> int:
         'title': 'LOGAN 序列溯源查询（示例任务 EXAMPLE_TMV）',
         'files': sorted(copied),
         'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-        'source': 'databases/examples/',
+        'source': 'examples/',
         'note': ('示例任务已建在 logan/EXAMPLE_TMV/，可直接在 /logan 页面查看；'
                  '结果表为演示数据，列名与 Logan-Search 导出表一致'),
     }

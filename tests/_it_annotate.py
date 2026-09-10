@@ -3,7 +3,7 @@
 → 工具④ contig 分类与逐 contig 分析（本地 primer + 在线 NCBI blastn/CDD）。
 
 全部走 /api/tool/* Web API（Flask test client），任务经 TaskManager 轮询，
-示例数据用 databases/examples/ 内置文件（离线可复跑；在线部分失败自动跳过）。
+示例数据用 examples/ 内置文件（离线可复跑；在线部分失败自动跳过）。
 """
 import os
 import sys
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_FA = os.path.join(EX, 'example_viral_contigs.fasta')
 EX_GB = os.path.join(EX, 'example_genome.gb')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')

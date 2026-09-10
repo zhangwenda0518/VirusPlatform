@@ -10,7 +10,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.utils import iter_fasta, safe_open, write_fasta_record
+from vp.utils import iter_fasta, safe_open
 
 random.seed(42)
 

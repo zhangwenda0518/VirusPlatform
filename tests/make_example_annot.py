@@ -3,7 +3,7 @@
 
 默认走**本地引擎**（离线：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 /
 DIAMOND vs RefSeq 病毒蛋白库），秒级完成；`--engine online` 可改用 NCBI 在线
-（分钟级、需联网）。产物固化到 databases/examples/results/{cdd,hom}/，
+（分钟级、需联网）。产物固化到 examples/results/{cdd,hom}/，
 与真实运行结果隔离。
 
 用法（需平台已在 http://127.0.0.1:8765 运行）：
@@ -24,7 +24,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('VP_BASE', 'http://127.0.0.1:8765')
-EX = os.path.join(ROOT, 'databases', 'examples')
+EX = os.path.join(ROOT, 'examples')
 OUT = os.path.join(EX, 'results')
 CONTIG_FA = os.path.join(EX, 'example_contig_1.fasta')
 
@@ -117,7 +117,7 @@ def main() -> int:
         name = f'{contig}_{action}_{args.engine}.json'
         shutil.copy2(src, os.path.join(dst_dir, name))
         made.setdefault(module, []).append(name)
-        print(f'  → databases/examples/results/{module}/{name}'
+        print(f'  → examples/results/{module}/{name}'
               f'  ({os.path.getsize(src) / 1024:.1f} KB)')
 
     mp = os.path.join(OUT, 'manifest.json')
@@ -133,7 +133,7 @@ def main() -> int:
             'title': TITLES.get(module, module),
             'files': sorted(allf),
             'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'source': 'databases/examples/example_contig_1.fasta',
+            'source': 'examples/example_contig_1.fasta',
             'note': ('本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / '
                      'DIAMOND vs RefSeq 病毒蛋白库'
                      if args.engine == 'local' else

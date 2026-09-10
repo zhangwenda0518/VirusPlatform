@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""阶段 B：跑一遍各模块，把产物固化到 databases/examples/results/<模块>/。
+"""阶段 B：跑一遍各模块，把产物固化到 examples/results/<模块>/。
 
 做法：用平台自己的 /api/tool/run 提交任务（与用户点击「运行」完全同一条
 链路），轮询到完成后把 tool_runs/<run>/ 复制到示例结果目录，并写
@@ -21,8 +21,8 @@ import time
 ROOT = r'D:\桌面\植物病毒分析平台'
 sys.path.insert(0, ROOT)
 
-EX = 'databases/examples/'
-EXR = os.path.join(ROOT, 'databases', 'examples', 'results')
+EX = 'examples/'
+EXR = os.path.join(ROOT, 'examples', 'results')
 
 # (模块名, 工具键, 标题, 参数)  —— 参数键名取自各 _tool_job_* 的 ctx.req/ctx.p
 JOBS = [
@@ -99,8 +99,8 @@ def _kvsuite_params():
     d = os.path.join(ROOT, 'run', 'tool_runs', '_example_inputs')
     os.makedirs(d, exist_ok=True)
     sheet = os.path.join(d, 'example_sample_sheet.tsv')
-    r1 = os.path.join(ROOT, 'databases', 'examples', 'example_R1.fastq.gz')
-    r2 = os.path.join(ROOT, 'databases', 'examples', 'example_R2.fastq.gz')
+    r1 = os.path.join(ROOT, 'examples', 'example_R1.fastq.gz')
+    r2 = os.path.join(ROOT, 'examples', 'example_R2.fastq.gz')
     with io.open(sheet, 'w', encoding='utf-8', newline='\n') as f:
         f.write('name\tr1\tr2\nEXAMPLE\t' + r1 + '\t' + r2 + '\n')
     return {'sample_sheet': sheet, 'stage': 'all'}
@@ -167,7 +167,7 @@ def collect(run, module, title, meta):
             files.append(os.path.relpath(os.path.join(d, fn), dst).replace('\\', '/'))
     return {'module': module, 'title': title, 'run': run,
             'files': sorted(files), 'generated_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'source': 'databases/examples/', **(meta or {})}
+            'source': 'examples/', **(meta or {})}
 
 
 def main():

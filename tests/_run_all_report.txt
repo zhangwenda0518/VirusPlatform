@@ -1,0 +1,256 @@
+批量测试汇总: 15/15 通过，总耗时 641.3s
+
+======================================================================
+[PASS] tests/_it_platform.py  (7.0s)
+----------------------------------------------------------------------
+  ok 示例结果覆盖 ≥26 个模块（实际 26）
+  ok 本地 blastn 就绪（病毒参考核酸库 + BLAST+）
+  ok 本地 DIAMOND blastx 就绪（viral_prot.dmnd）
+  ok 本地 CDD 就绪（mmseqs2 + cdd_db）
+  ok 前端可切换本地 / 在线引擎（cdd_engine / hom_engine）
+  ok 本地 blastn 结果可经 API 读取（47 条命中）
+  ok 本地示例产物存在: cdd/example_contig_1_cdd_local.json
+  ok cdd/example_contig_1_cdd_local.json: engine=local 且有命中（9 条）
+  ok 本地 CDD 用核酸坐标（coord=nt + query_len）
+  ok 本地示例产物存在: hom/example_contig_1_blastx_local.json
+  ok hom/example_contig_1_blastx_local.json: engine=local 且有命中（15 条）
+  ok app.js 静态资源 200
+  ok i18n.js 静态资源 200
+PLATFORM CHECKS PASSED
+
+======================================================================
+[PASS] tests/_it_msa.py  (0.6s)
+----------------------------------------------------------------------
+  ok 计数正确
+  ok s1 SNP 行 = 'ACACAC'
+  ok s3 SNP 行 = 'GTGT--'
+  ok 共识 = ['A', 'C', 'G', 'C', 'A', 'C']
+  ok 位点5 多样性 = 0.5
+  ok 位点6 多样性 = 0.25
+  ok 单序列正确抛错
+  ok /api/msa/samples 200
+  ok 样品列表含 itmsa
+  ok /api/msa/data 200
+  ok API 数据正确
+  ok 不存在的组返回 4xx
+  ok 路径注入返回 400
+MSA VIEW TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_concurrency.py  (7.9s)
+----------------------------------------------------------------------
+
+[4] light 闸门（上限 4）与 heavy 独立
+  OK   light 并发峰值 4 <= 4
+
+[5] list_all 日志瘦身
+  OK   运行中任务日志 30 行 <= 30
+  OK   任务已完成
+  OK   终态任务日志 5 行 <= 5
+
+[6] _trim_memory 回收
+  OK   order 长度 12 <= 300
+
+==============================================
+ALL PASS
+
+======================================================================
+[PASS] tests/_smoke_phylo.py  (10.2s)
+----------------------------------------------------------------------
+tools: {'mafft': 'D:\\桌面\\植物病毒分析平台\\tools\\mafft-win\\mafft.bat', 'trimal': 'D:\\桌面\\植物病毒分析平台\\tools\\trimAl\\trimal.exe', 'gblocks': 'D:\\桌面\\植物病毒分析平台\\tools\\Gblocks\\Gblocks.exe', 'fasttree': 'D:\\桌面\\植物病毒分析平台\\tools\\FastTree\\FastTree.exe', 'iqtree2': None, 'iqtree3': 'D:\\桌面\\植物病毒分析平台\\tools\\iQtree\\iqtree-3.0.1-Windows\\bin\\iqtree3.exe'}
+MAFFT OK, first seq line length: 60
+trimAl: {'applied': True, 'cols_before': 1644, 'cols_after': 1476} -> aln.trim.fasta
+FastTree OK: (variant_3:4.07983,(variant_1:0.78466,variant_4:0.62338)1.000:4.41926,(WT_ref:0. ...
+IQ-TREE OK: (WT_ref:0.0000020065,((variant_1:0.0149537830,variant_4:0.0000021400)99.9/100:0. ...
+iqtree log parse: {'model': 'F81+F+I+G4', 'logl': -3027.1628}
+ALL SMOKE TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_phylo.py  (14.0s)
+----------------------------------------------------------------------
+TMV seed: 6395 bp
+extra refs: ['D:\\桌面\\植物病毒分析平台\\databases\\ncbi_refs\\_smoke_tmv\\refs.fa']
+group: unknown | n_refs: 3 | trim: {'applied': True, 'cols_before': 9225, 'cols_after': 4773} | tree: tree.nwk
+combined IDs: ['ctg1', 'ctg2', 'NC_001367', 'NC_002692', 'NC_009497']
+  （合成 fixture：跳过 trimAl 回退断言）
+INTEGRATION TEST PASSED
+
+======================================================================
+[PASS] tests/_it_extract.py  (4.8s)
+----------------------------------------------------------------------
+  ok 示例集合导入
+  ok 提取任务启动
+  ok 提取完成: 
+  ok 3 基因组 × 6 CDS（3/18/18）
+  ok 6 个基因分目录（6）
+  ok extract/genome.fa
+  ok extract/CDS.fa
+  ok extract/PEP.fa
+  ok extract/genes.tsv
+  ok extract/CDS/ 按基因 6 个文件（6）
+  ok extract/PEP/ 按基因 6 个文件（6）
+  ok 按基因文件含 3 个基因组的同源序列（3）
+  ok genes.tsv 6 基因 + 表头（7 行）
+EXTRACT + SAMPLING TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_submit.py  (3.4s)
+----------------------------------------------------------------------
+  ok /contig_runs 200
+  ok copy_table 另存为成功
+  ok 副本内容与源一致
+  ok write_file 预览编辑保存
+  ok write_file 拒绝 .sqn/中枢表/穿越/zip
+  ok BioSample 占位符选项: strict=4+1跳, include=5+0跳
+  ok /copy 200
+  ok /copy 重名被拒
+  ok /create sample=public 200
+  ok public 样例载入 5 行
+  ok /file_save 200
+  ok /file_save .sqn 被拒
+  ok /samples 200
+SUBMIT INTEGRATION TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_align.py  (31.4s)
+----------------------------------------------------------------------
+  ok 示例集合导入完成
+  ok 集合建树启动
+  ok 集合建树完成: 
+  ok API 建树产物在 phylo/（molecule/gene 已下线）
+  ok Newick 合法
+  ok combined.fa
+  ok PEP tree.nwk
+  ok PEP Newick 合法
+  ok PEP combined.fa
+  ok PEP 提取 3 条（3）
+  ok CDS tree.nwk
+  ok PEP 无关键词被拒: 基因级建树需提供基因/产物关键词（如 coat protein）
+  ok 无命中基因报错清晰: 基因 "nonexistent_gene_xyz" 在集合 [it_align_coll] 中命中 0 条记录（需 ≥2 才能建树；换关键词或用全基因组模式）
+ALIGN MODULE INTEGRATION TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_annotate.py  (431.1s)
+----------------------------------------------------------------------
+  ok /api/tool/viral_contigs 200, 2 行
+  ok /api/tool/report_data 200
+  ok 报告数据 mode=contig, n_virus=2
+  ok /api/tool/analyze primer 启动: {'cached': False, 'task': '39037a94ef1b'}
+  ok primer 分析完成
+  ok primer 结果缓存可读
+  ok /api/tool/runs 200
+  ok 运行列表含 genoplot_20260910_113251_ea60e6
+  ok 运行列表含 primer_20260910_113303_7d8ef7
+  ok 运行列表含 structcmp_20260910_113304_b8906a
+  ok 运行列表含 contigs_20260910_113312_c1ad66
+--- 8. 在线 NCBI 分析（blastn / CDD，失败自动跳过） ---
+  ok BLASTN 在线分析完成，47 条命中
+ANNOTATE GROUP INTEGRATION TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_compare.py  (111.6s)
+----------------------------------------------------------------------
+  ok 共线性产物存在: html（compare.html）
+  ok 共线性产物存在: svg（compare.svg）
+  ok 共线性产物存在: png（compare.png）
+  ok 共线性产物存在: clusters（gene_clusters.tsv）
+  ok 共线性产物存在: similarity（genome_similarity.tsv）
+  ok 共线性产物存在: faa（cds_proteins.faa）
+  ok 共线性产物存在: m8（cds_allvsall.m8）
+  ok /api/gb/phylo 启动
+  ok 集合建树完成: 
+  ok 结果中心出现 gb: 伪样品
+  ok 伪样品分组含树文件
+  ok /api/tree/data (gb:) 返回 Newick
+  ok /api/sdt/data (gb:) 200
+COMPARE GROUP INTEGRATION TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_synteny.py  (11.6s)
+----------------------------------------------------------------------
+  ok 矩阵对称
+  ok /api/gb/inspect 启动
+  ok 非法 tree_tool 返回 400
+  ok /api/tool/msa_data 返回 SNP 展示数据
+  ok msa_data 运行名注入被拒
+  ok /api/tree/file 读取平台内树文件
+  ok 非树扩展名返回 400
+  ok 路径穿越/非树文件被拒
+  ok 缺省 → 主病毒库
+  ok 内置键名 refvirus → refvirus_db
+  ok 平台相对路径解析
+  ok 未知病毒库被拒: 400 {'error': '病毒库不存在: no_such_db（可用内置库: virus, refvirus, rvdb, k2viral 或填库目录路径）'}
+  ok 就绪库接受（k2viral 未就绪时 400，就绪时 200 启动任务）
+SYNTENY INTEGRATION TESTS PASSED
+
+======================================================================
+[PASS] tests/_it_dl_delete.py  (1.0s)
+----------------------------------------------------------------------
+  ok batch.json/batch.log 已删
+  ok 数据文件保留: ['a_R1.fastq.gz', 'a_R2.fastq.gz', 'extra.txt']
+  ok 内存记录移除
+  ok 列表不再显示
+--- ③ delete（全删）---
+  ok delete 返回 True
+  ok 目录整体移除
+  ok 记录移除
+--- ④ API ---
+  ok API delete_files 生效
+  ok API delete_record 生效
+  ok 记录已不存在 → 400
+  ok 无效动作 400
+DL DELETE MODES TESTS PASSED
+
+======================================================================
+[PASS] tests/test_logan_trace.py  (1.1s)
+----------------------------------------------------------------------
+  ✔ 报告目录静态文件路由 200
+  ✔ 既有 ⑧报告的 plotly 静态路由 200（ERR7586041）
+  ✔ multipart 上传导入 s1
+  ✔ 导入后状态 done（1/1）
+  ✔ 坏结果文件返回 400
+  ✔ 路径穿越被拦截
+== 默认阶段与任务去重 ==
+  ✔ 默认分析阶段包含 hostana
+  ✔ 默认分析阶段不含旧的 virome
+  ✔ CLI 默认阶段与管道常量一致
+  ✔ 同一样品的样品分析会被拦截
+  ✔ 英文 LOGAN 批量任务名也会被拦截
+
+全部通过 ✔  (任务已清理)
+
+======================================================================
+[PASS] tests/test_logan_batch.py  (4.3s)
+----------------------------------------------------------------------
+  ✔ 已拒绝: 该任务所有片段均已导入结果，无需批量提交
+== 补漏场景（仅未导入片段进入批量） ==
+  ✔ 部分回收 1 片段
+  ✔ 任务状态 partial
+  ✔ 补漏批量仅含未导入片段
+  ✔ 补漏批量回收 s2
+  ✔ 补漏后结果齐全
+== SSE 实时进度流 ==
+  ✔ 批量任务经 API 启动
+  ✔ SSE 推送任务快照
+  ✔ SSE 快照含状态/进度（done）
+
+批量模式 + 实时进度全部通过 ✔
+（测试任务与假脚本已清理）
+
+======================================================================
+[PASS] tests/_check_local_annot.py  (1.3s)
+----------------------------------------------------------------------
+        cd23180        ps-ssRNAv_Solemoviridae_RdRp E=1.041E-143 2004-3371
+        pfam01690      PLRV_ORF5                    E=2.501E-79 4299-5747
+        pfam02122      Peptidase_S39                E=1.853E-63 811-1419
+  blastn: 命中缓存
+  blastn: engine=local hits=47
+        NC_077216.1       100.0% Pepper yellows virus genome assembly, complete Polerovirus PEVYV6
+        NC_036803.1        92.0% Pepper vein yellows virus 5 isolate Spain-Alme Polerovirus PEVYV5
+        NC_075416.1        94.6% Pepper vein yellows virus isolate HN, complete Polerovirus PEVYV1
+  blastx: 命中缓存
+  blastx: engine=local hits=15
+        YP_010806246.1    100.0% P2-RdRp                                        Pepper yellows virus
+        YP_009455740.1     96.2% P2                                             Pepper vein yellows virus 5
+        YP_010790320.1     95.9% putative P1-P2 fusion protein                  Pepper vein yellows virus
+ALL OK

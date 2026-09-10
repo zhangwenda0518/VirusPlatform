@@ -328,10 +328,12 @@ platform.json 工具路径、界面语言与分析默认参数配置（可手动
 │             Gblocks / diamond / mmseqs / fastp / SPAdes / salmon2 等）
 └─ open-virome/  Open-Virome 前端构建源（/virome 页引用，勿改名/搬动）
 
+examples/     内置各工具示例数据（✨示例按钮共用：2 条病毒基因组、6 条同属
+              近缘集、保守区近缘集、示例树、示例 GenBank 与共线性 .gb）；
+              results/ 固化各模块示例运行结果（与真实结果隔离）。2026-09-10
+              由 databases/examples/ 迁到平台根目录，整体纳管 git。
 databases/    kunpeng 病毒库（virus/plant·ref·rvdb）与注释库（annot/）、
-              taxonomy、建树库（tree_db/）；examples/ 内置各工具示例数据
-              （✨示例按钮共用：2 条病毒基因组、6 条同属近缘集、保守区
-              近缘集、示例树、示例 GenBank 与共线性 .gb）
+              taxonomy、建树库（tree_db/）
 host-db/      宿主数据：建库源基因组（<taxid>_<物种>/genome.fa）与宿主
               **分类库**（host/classify/，kunpeng hash）。宿主库按物种而
               异、单库约 1.5GB，故不放 databases/、也不进「数据库包」
@@ -402,7 +404,7 @@ python scripts/package.py --verify              :: 打包后跑 exe --cli selfch
 ```
 dist/
 ├─ VirusPlatform/            ① 程序（VirusPlatform.exe + webapp + bin/ + tools/）
-├─ VirusPlatform-Examples/   ② 示例数据（databases/examples/，只读，~1MB）
+├─ VirusPlatform-Examples/   ② 示例数据（examples/，只读，~8MB）
 ├─ VirusPlatform-Database/   ③ 数据库包（仅 --with-db 生成）
 └─ 程序与数据说明.txt
 ```
@@ -411,8 +413,9 @@ dist/
   不含本机绝对路径，启动自动探测工具与示例。
 - **示例包**与程序同级放置即被自动识别（`vp/config.py` 的
   `_detect_examples_root` 依次探测：`platform.json.examples_root` →
-  `<程序>/databases/examples` → `<程序>/../VirusPlatform-Examples/databases/examples`
-  → `<程序>/examples`）；也可搬到任意位置后到「设置 → 示例数据目录」填绝对路径。
+  `<程序>/examples` → `<程序>/databases/examples`（旧布局）→
+  `<程序>/../VirusPlatform-Examples/examples`）；也可搬到任意位置后到
+  「设置 → 示例数据目录」填绝对路径。
   前端「✨ 示例」按钮经 `/api/example_paths` 取**真实绝对路径**，因此示例
   放在程序目录之外也能正常填入。
 - **数据库对接（二选一）**：

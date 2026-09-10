@@ -284,21 +284,42 @@ function pasteSeq(inputId, ext) {
 
 // ---------------- 内置示例数据 ----------------
 // 平台自带示例（两条植物病毒完整基因组，~6-7kb），各工具「✨ 示例」按钮共用
-const EXAMPLE_FASTA = 'databases/examples/example_viral_contigs.fasta';
+const EXAMPLE_FASTA = 'examples/example_viral_contigs.fasta';
 // 6 条同属近缘基因组（3 参考 + 3 受控突变衍生株）：MSA / 结构比较 / SDT 等多序列示例
-const EXAMPLE_SET_FASTA = 'databases/examples/example_virus_set.fasta';
+const EXAMPLE_SET_FASTA = 'examples/example_virus_set.fasta';
 // 5 条同种近缘序列（≥90% 一致）：保守区引物设计示例（需全表保守区段）
-const EXAMPLE_CONSERVED_FASTA = 'databases/examples/example_conserved_set.fasta';
+const EXAMPLE_CONSERVED_FASTA = 'examples/example_conserved_set.fasta';
 // 示例树（上集建树产物）：进化树查看器「✨ 示例」
-const EXAMPLE_TREE_NWK = 'databases/examples/example_tree.nwk';
+const EXAMPLE_TREE_NWK = 'examples/example_tree.nwk';
 // 示例 GenBank（含 CDS 注释）：基因组图谱 GenBank 模式「✨ 示例」
-const EXAMPLE_GENBANK_GB = 'databases/examples/example_genome.gb';
+const EXAMPLE_GENBANK_GB = 'examples/example_genome.gb';
 // 共线性比较离线示例（3 条同属小基因组 .gb，逗号分隔供 s_files 导入）
-const EXAMPLE_SYNTENY_GBS = 'databases/examples/example_synteny_A.gb,databases/examples/example_synteny_B.gb,databases/examples/example_synteny_C.gb';
-function fillExample(inputId, path) {
+const EXAMPLE_SYNTENY_GBS = 'examples/example_synteny_A.gb,examples/example_synteny_B.gb,examples/example_synteny_C.gb';
+// 示例数据的**实际绝对路径**表（服务端给出）：示例目录可能位于程序目录
+// 之外（程序/数据库/示例三分离打包），此时下面这些相对路径不成立，
+// fillExample 会用 /api/example_paths 换成真实绝对路径。
+let _EX_PATHS = null;
+async function _exampleAbs(path) {
+  const raw = String(path || '');
+  if (!raw) return raw;
+  try {
+    if (!_EX_PATHS) {
+      const r = await fetch('/api/example_paths');
+      const d = r.ok ? await r.json() : {};
+      _EX_PATHS = d.files || {};
+    }
+  } catch (e) { _EX_PATHS = _EX_PATHS || {}; }
+  return raw.split(',').map(function (one) {
+    const s = one.trim();
+    if (!s) return s;
+    const base = s.split(/[\\/]/).pop();
+    return (_EX_PATHS && _EX_PATHS[base]) || s;
+  }).join(',');
+}
+async function fillExample(inputId, path) {
   var inp = $(inputId);
   if (!inp) return;
-  inp.value = path || EXAMPLE_FASTA;
+  inp.value = await _exampleAbs(path || EXAMPLE_FASTA);
   if (typeof toast === 'function') {
     toast('已填入内置示例', inp.value, { ttl: 3000 });
   }
@@ -673,13 +694,13 @@ async function copyText(text, tag) {
 }
 
 /* Metabuli 同款示例病毒（TMV / PVY / CMV / PSTVd / Mix）：
-   来源 <DEMO-IP>/metabuli examples，已固化到 databases/examples/ */
+   来源 <DEMO-IP>/metabuli examples，已固化到 examples/ */
 const EXAMPLE_METABULI = {
-  tmv: 'databases/examples/example_tmv.fasta',
-  pvy: 'databases/examples/example_pvy.fasta',
-  cmv: 'databases/examples/example_cmv.fasta',
-  pstvd: 'databases/examples/example_pstvd.fasta',
-  mix: 'databases/examples/example_mix.fasta'
+  tmv: 'examples/example_tmv.fasta',
+  pvy: 'examples/example_pvy.fasta',
+  cmv: 'examples/example_cmv.fasta',
+  pstvd: 'examples/example_pstvd.fasta',
+  mix: 'examples/example_mix.fasta'
 };
 function vEx(key, inputId) {
   const path = EXAMPLE_METABULI[key];
@@ -2635,10 +2656,10 @@ const TOOL_REGISTRY = [
   { id: 't-identify', href: '/tools#t-identify', ic: '🦠', zh: '② 病毒识别和分类',   en: '② Virus classify' },
   { id: 't-assemble', href: '/tools#t-assemble', ic: '🧩', zh: '③ 病毒组装',         en: '③ Assembly' },
   { id: 't-contigs',  href: '/tools#t-contigs',  ic: '🔎', zh: '④ 病毒 contig 深度分析', en: '④ Contig deep-dive' },
-  { id: 't-ncbi',     href: '/tools#t-ncbi',     ic: '⬇', zh: '⑤ 参考序列下载',    en: '⑤ NCBI references' },
+  { id: 't-seqprep',  href: '/tools#t-seqprep',  ic: '⬇', zh: '⑤ 参考序列下载',    en: '⑤ NCBI references' },
   { id: 't-synteny',  href: '/tools#t-synteny',  ic: '🧬', zh: '⑥ 同属共线性比较',   en: '⑥ Synteny' },
-  { id: 't-msa',      href: '/tools#t-msa',      ic: '🔤', zh: '⑦ 多序列比对/MSA 查看', en: '⑦ MSA viewer' },
-  { id: 't-tree',     href: '/tools#t-tree',     ic: '🌳', zh: '⑧ 进化树查看器',     en: '⑧ Tree viewer' },
+  { id: 't-align',    href: '/tools#t-align',    ic: '🔤', zh: '⑦ 多序列比对/MSA 查看', en: '⑦ MSA viewer' },
+  { id: 't-treebuild', href: '/tools#t-treebuild', ic: '🌳', zh: '⑧ 进化树查看器',     en: '⑧ Tree viewer' },
   { id: 't-sdt',      href: '/tools#t-sdt',      ic: '📐', zh: '⑨ SDT 分析和绘制',   en: '⑨ SDT matrix' },
   { id: 't-seqview',  href: '/results#seqview',  ic: '📄', zh: '序列查看器',         en: 'Sequence viewer' },
   { id: 'dl',         href: '/download',          ic: '📥', zh: '公共数据下载',       en: 'Public data downloads' },
@@ -2801,9 +2822,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // ---------------- 收藏星渲染（专项分析各工具卡标题） ----------------
 function wireStars() {
-  document.querySelectorAll('section.card > h2[id]').forEach(h2 => {
-    const id = h2.id;
-    if (!id.startsWith('t-') || h2.querySelector('.starbtn')) return;
+  // id 挂在 <section class="card" id="t-..."> 上（不是 h2）；旧选择器
+  // 'section.card > h2[id]' 永远选不中 → 收藏星从不渲染、"常用工具"整块失效。
+  document.querySelectorAll('section.card[id^="t-"]').forEach(card => {
+    const id = card.id;
+    if (!id.startsWith('t-') || card.querySelector('.starbtn')) return;
+    const host = card.querySelector('h2') || card;
     const btn = document.createElement('button');
     btn.className = 'starbtn';
     btn.type = 'button';
@@ -2818,7 +2842,7 @@ function wireStars() {
             on ? t('fav.added', '★ 已加入常用（总览页可见）')
                : t('fav.removed', '已移出常用'), {ttl: 2000});
     };
-    h2.appendChild(btn);
+    host.appendChild(btn);
   });
 }
 

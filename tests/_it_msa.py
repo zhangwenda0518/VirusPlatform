@@ -2,7 +2,6 @@
 """MSA 查看模块自测：snp_view_data 单元验证 + Flask API 冒烟。"""
 import os
 import sys
-import json
 import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,7 +58,7 @@ except ValueError:
 import app as appmod  # noqa: E402
 c = appmod.app.test_client()
 r = c.get('/api/msa/samples')
-check(r.status_code == 200, f'/api/msa/samples 200')
+check(r.status_code == 200, '/api/msa/samples 200')
 items = r.get_json()
 check(any(x['sample'] == 'itmsa' for x in items), '样品列表含 itmsa')
 

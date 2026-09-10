@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""生成内置示例数据（databases/examples/）。
+"""生成内置示例数据（examples/）。
 
 产物（全部确定性生成，重跑幂等）：
 - example_viral_contigs.fasta  已随平台内置（2 条完整植物病毒基因组，勿覆盖）
@@ -25,10 +25,10 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
-from vp.config import PLATFORM_ROOT, get_config
+from vp.config import PLATFORM_ROOT
 from vp.utils import iter_fasta, safe_open, write_fasta_record
 
-EX_DIR = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX_DIR = os.path.join(PLATFORM_ROOT, 'examples')
 REF_FA = os.path.join(PLATFORM_ROOT, 'databases', 'ncbi_refs',
                       '_smoke_tmv', 'refs.fa')
 EX_CONTIGS = os.path.join(EX_DIR, 'example_viral_contigs.fasta')
@@ -70,18 +70,20 @@ def make_virus_set():
 
 
 def make_conserved_set():
-    """5 条同种近缘序列（同一参考 0.1%~1.2% 受控突变）——保守区引物示例。
+    """5 条同种近缘序列（同一参考受控突变）——保守区引物示例。
 
-    保守区引物要求全序列 ≥90% 一致的连续列 ≥400（vp/primer.min_len/min_ident），
-    突变率须压到同种分离株水平（~1%）才能形成足够长的连续保守段；
-    跨物种的 example_virus_set.fasta 达不到，故另备近缘集。
+    保守区判定的口径是**逐列**：某一列只要有 1 条序列与多数碱基不同，
+    5 条里就是 4/5 = 80% < min_ident 90%（vp/primer.min_ident），该列即
+    判为不保守。因此要形成 ≥400bp 的连续保守段，必须让 4 条衍生株合计的
+    每碱基突变率 λ 满足 λ×400 << 1——λ≈0.002 时最长连续段可达数千 bp；
+    原先的 (0.1%~1.2%，λ≈0.022) 实测最长只有 224bp，示例永远出不了引物。
     """
     refs = list(iter_fasta(REF_FA))
     base_h, base_s = refs[0]
     base_h = base_h.split()[0]
     random.seed(13)
     recs = [(base_h, base_s.upper())]
-    for i, rate in enumerate((0.001, 0.003, 0.006, 0.012), 1):
+    for i, rate in enumerate((0.0001, 0.0003, 0.0006, 0.0010), 1):
         recs.append((f'{base_h}_isolate{i}', mutate_seq(base_s, rate)))
     out = os.path.join(EX_DIR, 'example_conserved_set.fasta')
     with safe_open(out, 'wt') as f:
@@ -117,7 +119,6 @@ def make_tree(set_fa):
 
 def make_genbank():
     """示例 contig 1 → GenBank（pyrodigal 基因坐标 + 分级 product 占位）。"""
-    import numpy as np
     from pyrodigal import GeneFinder
 
     recs = list(iter_fasta(EX_CONTIGS))

@@ -120,7 +120,7 @@ rep('POST /api/analyze body=null 返回 500',
 # ---------------------------------------------------------------- 7
 print('\n=== 7. examples_api 可读平台内任意文件 ===')
 r = c.get('/api/example_input/platform.json')
-rep('GET /api/example_input/platform.json 返回 200（应限 databases/examples/）',
+rep('GET /api/example_input/platform.json 返回 200（应限 examples/）',
     r.status_code == 200, f'status={r.status_code}')
 
 # ---------------------------------------------------------------- 8

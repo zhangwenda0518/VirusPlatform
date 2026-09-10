@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX = os.path.join(PLATFORM_ROOT, 'examples')
 
 PAGES = ['/', '/pipeline', '/samples', '/hostremoval', '/hostpredict',
          '/orf', '/annotation', '/genome', '/primer', '/build', '/results',
@@ -268,7 +268,7 @@ def main():
     check(_n_cmv == 3, f'CMV 示例含三分体（实际 {_n_cmv} 段）')
     check(_n_mix == 6, f'Mix All 示例含 6 条记录（实际 {_n_mix} 条）')
 
-    # 示例结果 API（只读 databases/examples/results/，与真实结果隔离）
+    # 示例结果 API（只读 examples/results/，与真实结果隔离）
     _r = c.get('/api/examples')
     _ex = _r.get_json() or []
     check(_r.status_code == 200 and len(_ex) >= 10,

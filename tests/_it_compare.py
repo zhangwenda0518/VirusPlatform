@@ -3,7 +3,7 @@
 NT+AA 同一性表 → 快速建树 → 树文件 API → NCBI 在线（可跳过）→
 GenBank 集合示例导入 → 同属共线性比较 → 集合建树。
 
-全部走 Web API（Flask test client），示例数据用 databases/examples/ 内置文件。
+全部走 Web API（Flask test client），示例数据用 examples/ 内置文件。
 注意：sdt/identity 工具内部用 ProcessPoolExecutor，Windows spawn 会重导入
 __main__——测试体必须收进 main() + __name__ 保护，否则子进程递归崩溃。
 """
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vp.config import PLATFORM_ROOT  # noqa: E402
 
-EX = os.path.join(PLATFORM_ROOT, 'databases', 'examples')
+EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
 EX_TREE = os.path.join(EX, 'example_tree.nwk')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb')
@@ -179,7 +179,7 @@ def main():
     check(d.get('tool') == 'FastTree', f"树摘要 tool = {d.get('tool')}")
 
     # 本机树文件 API（内置示例树 + 非法路径）
-    r = c.get('/api/tree/file?path=databases/examples/example_tree.nwk')
+    r = c.get('/api/tree/file?path=examples/example_tree.nwk')
     check(r.status_code == 200 and r.get_json()['newick'].endswith(';'),
           '/api/tree/file 读内置示例树')
     r = c.get('/api/tree/file?path=../platform.json')
