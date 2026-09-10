@@ -30,17 +30,17 @@ STDLIB |= {'os', 'sys', 're', 'json', 'time', 'shutil', 'glob', 'csv',
            'datetime', 'calendar', 'locale', 'gettext', 'logging'}
 
 # 本地模块（平台自己的包）
-LOCAL = {'vp', 'app', 'main', 'scripts', 'tests', 'known_virus_suite'}
+LOCAL = {'vp', 'app', 'main', 'scripts', 'tests', 'engines'}
 
 
 def _local_submodules():
-    """扫描平台本地包目录下的模块名（如 known_virus_suite/kv_*.py）。
+    """扫描平台本地包目录下的模块名（如 engines/known_virus_suite/kv_*.py）。
 
-    同包内既用 `from known_virus_suite import x` 也用裸 `import kv_common`，
+    同包内既用 `from engines.known_virus_suite import x` 也用裸 `import kv_common`，
     后者的顶层名不在 LOCAL 里会误报为缺失第三方包。
     """
     names = set()
-    for pkg in ('known_virus_suite', 'vp'):
+    for pkg in ('vp', os.path.join('engines', 'known_virus_suite')):
         d = os.path.join(ROOT, pkg)
         if not os.path.isdir(d):
             continue

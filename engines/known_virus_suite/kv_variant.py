@@ -58,7 +58,18 @@ def read_text_lossless(path: Path) -> str:
 
 # ── 工具定位 ────────────────────────────────────────────────────────
 def _platform_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    """平台根目录（本引擎位于 <PLATFORM_ROOT>/engines/known_virus_suite/）。
+
+    不写死向上层数：取同时含 vp/ 与 tools/ 的上级目录，换布局也不用改。
+    """
+    p = Path(__file__).resolve().parent
+    for _ in range(6):
+        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return Path(__file__).resolve().parent.parent.parent
 
 
 def find_java() -> Path | None:
@@ -490,6 +501,81 @@ def export_annotations(gbk_map: dict, out_dir, logger) -> dict:
             'dir': str(ann_dir)}
 
 
+# ── 单参考 FASTA 导出（virus-fasta/，对齐共识段契约）─────────────────
+# 共识段 kv_consensus.extract_virus_fastas 按 '>' 头把总参考库切成
+#     <out>/virus-fasta/ref_<acc>/ref_<acc>.ref.fasta   每病毒单序列
+# SNPGenie（kv_variant_evo._resolve_fasta）只认这个位置。stage=all 时共识段
+# 会写它；独立跑 stage=variant 时不会 —— 于是 SNPGenie 被判为「缺参考 FASTA」
+# 静默跳过（实测 n_snpgenie=0，且 manifest 里 skipped 为空，看不出是工具没跑）。
+# 这里补上同布局的导出，让 variant 段自洽。
+def export_ref_fastas(ref, accessions, out_dir, samtools=None, logger=None,
+                      env=None) -> dict:
+    """从参考库切出目标 accession 的单序列 FASTA。
+
+    ref:        参考 FASTA（可含多条序列）
+    accessions: 目标 accession（VCF / GenBank 里出现过的）
+    返回 {accession: Path(ref_fa)}；目录布局与 kv_consensus 一致。
+    """
+    out_dir = Path(out_dir)
+    want = {str(a) for a in (accessions or []) if a}
+    if not want:
+        return {}
+    # 版本号可能一侧有、一侧无（LC902918 vs LC902918.1），按主 accession 双向匹配
+    want_bare = {a.split('.')[0] for a in want}
+    # 与 kv_consensus 同一命名口径
+    try:
+        from kv_consensus import safe_name
+    except ImportError:                       # 独立调用时的兜底
+        def safe_name(s, max_len=100):
+            return str(s).replace('/', '_').replace('\\', '_')[:max_len]
+
+    d_fasta = out_dir / 'virus-fasta'
+    found: dict[str, Path] = {}
+    vid_cur = None
+    seq_buf: list[str] = []
+
+    def _flush():
+        if vid_cur is None or not seq_buf:
+            return
+        if vid_cur not in want and vid_cur.split('.')[0] not in want_bare:
+            return
+        folder = f'ref_{safe_name(vid_cur)}'
+        vdir = d_fasta / folder
+        vdir.mkdir(parents=True, exist_ok=True)
+        ref_fa = vdir / f'{folder}.ref.fasta'
+        if not ref_fa.exists():
+            ref_fa.write_text(f'>{vid_cur}\n' + ''.join(seq_buf) + '\n',
+                              encoding='utf-8')
+            if samtools and Path(str(samtools)).is_file():
+                try:
+                    subprocess.run([str(samtools), 'faidx', str(ref_fa)],
+                                   capture_output=True, env=env, check=False)
+                except OSError:
+                    pass
+        found[vid_cur] = ref_fa
+
+    try:
+        with open(ref, encoding='utf-8', errors='replace') as fh:
+            for line in fh:
+                line = line.rstrip()
+                if line.startswith('>'):
+                    _flush()
+                    vid_cur = line[1:].split()[0]
+                    seq_buf = []
+                else:
+                    seq_buf.append(line)
+        _flush()
+    except OSError as e:
+        if logger:
+            logger.warning('单参考 FASTA 导出失败（不影响变异段）: %s', e)
+        return {}
+
+    if logger:
+        logger.info('virus-fasta/ 导出 %d/%d 条单参考序列（供 SNPGenie 使用）',
+                    len(found), len(want))
+    return found
+
+
 # ── GenBank 获取 ────────────────────────────────────────────────────
 def fetch_gb(accession: str, gbk_dir: Path, logger, email=None,
              api_key=None) -> Path | None:
@@ -541,6 +627,8 @@ class VariantStage:
         self.cfg = cfg or {}
         # 注释导出统计（virus-annotations/），供调用方读取
         self._annotations: dict = {}
+        # 单参考 FASTA 导出（virus-fasta/），供调用方读取
+        self._ref_fastas: dict = {}
 
     def run(self) -> list[dict]:
         cfg = self.cfg
@@ -654,6 +742,19 @@ class VariantStage:
         except Exception as e:  # noqa: BLE001
             self.log.warning('virus-annotations 导出失败（不影响变异段）: %s', e)
             self._annotations = {}
+
+        # ── 2c. 导出 virus-fasta/（单参考 FASTA，SNPGenie 的唯一输入）──
+        # 共识段在 stage=all 时会写这个目录，独立跑 variant 时不会。
+        # 不补的话 kv_variant_evo._resolve_fasta 直接返回 None，
+        # SNPGenie 被静默跳过（0 结果 + skipped 为空，看不出原因）。
+        try:
+            self._ref_fastas = export_ref_fastas(
+                ref, [acc for acc, _ in targets], out_dir,
+                samtools=cfg.get('samtools'), logger=self.log,
+                env=cfg.get('env'))
+        except Exception as e:  # noqa: BLE001
+            self.log.warning('virus-fasta 导出失败（不影响变异段）: %s', e)
+            self._ref_fastas = {}
 
         genomes = {acc.split('.')[0]: f'kv_variant {acc}' for acc in gbk_map}
         runner.write_config(genomes)

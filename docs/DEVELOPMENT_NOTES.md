@@ -70,7 +70,7 @@
 ├─ webapp/
 │  ├─ templates/           页面模板（Jinja2）
 │  └─ static/              app.css / app.js / i18n.js / vendor/
-├─ databases/              kunpeng 库、taxonomy、virus_ref、acvirus_db、palmdb 等（大数据）
+├─ databases/              kunpeng 库、taxonomy、tree_db（plant_tree.db 植物病毒参考）、palmdb 等（大数据）
 ├─ results/<样品>/          每样品产物（00_prep … 09_genome_plots、logs）
 ├─ tool_runs/              工具箱独立运行产物
 ├─ logan/<查询名>/          LOGAN 溯源任务
@@ -123,7 +123,7 @@
   `minibwa_win_build/`，已合并）；构建说明在 `docs/minibwa-build/`。
 - **`tools/strawberry-perl/` 不要清理**：它是 SNPGenie 的 Perl 解释器
   （便携版 5.42.3，`perl/bin/perl.exe`），被
-  `known_virus_suite/kv_variant_evo.py::_snpgenie_exe()` 引用。
+  `engines/known_virus_suite/kv_variant_evo.py::_snpgenie_exe()` 引用。
   2026-09-09 曾因目录瘦身把它归档到 `_archive/`，导致 SNPGenie 链路断掉，
   现已恢复。使用要点见 `tools/snpgenie/DEPLOY_NOTE.md`（工作目录必须纯
   英文路径，且要显式传 `--workdir` 避开 MSYS 的 `pwd` 污染）。

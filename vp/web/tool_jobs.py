@@ -12,16 +12,11 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
-import time
-import uuid
 
-from flask import abort, jsonify, render_template, request, send_file, \
-    send_from_directory
+from flask import abort
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
+from vp.config import DIRS, PLATFORM_ROOT
+from vp.utils import (TaskLogger, check_path, safe_open)
 from vp.web.state import cfg, tool_runs_root as _tool_runs_root
 
 
@@ -144,8 +139,6 @@ def _tool_job_hostpredict(ctx):
     工具④ virus_classification.tsv（列名自动识别，后者归一为 ③ 口径），
     可选配套 viral_contigs.fasta。
     """
-    import csv
-    import shutil
     tsv = ctx.req('tsv', '病毒 contig 分类表 TSV')
     fa = ctx.opt('fasta')
 
@@ -155,31 +148,10 @@ def _tool_job_hostpredict(ctx):
                            must_exist=False, in_platform=True)
         os.makedirs(a_dir, exist_ok=True)
         prog('prep', 0.05, '整理输入')
-        norm = os.path.join(a_dir, 'virus_contigs.tsv')
-        with safe_open(tsv) as f:
-            header = f.readline().rstrip('\r\n').split('\t')
-        if 'kunpeng_taxid' in header:
-            shutil.copyfile(tsv, norm)
-        else:
-            cols = ['contig', 'length', 'kunpeng_flag', 'kunpeng_taxid',
-                    'kunpeng_species', 'blast_top_hit', 'blast_identity(%)',
-                    'blast_coverage_hsp(%)', 'blast_aln_len', 'blast_species',
-                    'blast_family']
-            with safe_open(tsv) as f, safe_open(norm, 'wt') as w:
-                w.write('\t'.join(cols) + '\n')
-                for r in csv.DictReader(f, delimiter='\t'):
-                    kt = str(r.get('taxid') or r.get('kunpeng_taxid')
-                             or '').strip()
-                    w.write('\t'.join([
-                        str(r.get('contig') or '').strip(),
-                        str(r.get('length') or '').strip(),
-                        'C' if kt.isdigit() and int(kt) > 0 else 'U',
-                        kt,
-                        str(r.get('taxon') or r.get('species') or '').strip(),
-                        '', '', '', '', '', '']) + '\n')
-        if fa:
-            shutil.copyfile(fa, os.path.join(a_dir, 'viral_contigs.fasta'))
-        from vp.host_analysis import predict_hosts
+        # 统一 11 列口径（含 blast_* 补算），见 host_analysis.normalize_contig_table
+        from vp.host_analysis import normalize_contig_table, predict_hosts
+        normalize_contig_table(tsv, a_dir, fasta=fa, threads=ctx.threads,
+                               logger=logger)
         prog('predict', 0.15, 'ICTV 宿主概率级联预测')
         res = predict_hosts(ctx.run_dir, threads=ctx.threads, logger=logger,
                             force=True)
@@ -204,7 +176,6 @@ def _tool_job_orf(ctx):
 
     def job(log, prog, cancel):
         import json as _json
-        import shutil
         logger = TaskLogger(callback=log)
         a_dir = check_path(os.path.join(ctx.run_dir, '03_assembly'),
                            must_exist=False, in_platform=True)
@@ -295,7 +266,6 @@ def _tool_job_genoplot(ctx):
         abort(400, '请选择 FASTA 或 GenBank 输入')
     if ann and str(ann).lower().endswith(('.gb', '.gbk', '.gbff', '.genbank')):
         fasta = None          # GenBank 自带序列与注释，FASTA 忽略
-    engine = ctx.p.get('engine') or 'auto'
     max_plots = max(1, min(int(ctx.p.get('max_plots') or 12), 200))
     # 绘图定制参数（透传 gbdraw CLI）：仅收集有值/True 的项
     gb_opts = {}
@@ -328,7 +298,6 @@ def _tool_job_genoplot(ctx):
 def _tool_job_primer(ctx):
     """引物设计（primer3）。plain=基因组/contigs 全长分窗；
     conserved=多序列比对 FASTA 保守区（输入需已比对，如 MAFFT aln.fasta）。"""
-    import shutil
     fasta = ctx.req('fasta', '输入 FASTA')
     mode = ctx.p.get('mode') or 'plain'
     if mode not in ('conserved', 'plain'):
@@ -462,7 +431,6 @@ def _tool_job_contigs(ctx):
         logger = TaskLogger(callback=log)
         from vp.assembly import filter_contigs
         from vp.kunpeng import classify, parse_classify_output
-        from vp.utils import run_cmd
         from vp.contig_annot import classify_rows, genus_avg_map, RANKS
 
         prog('genus_lens', 0.03, '统计属平均基因组长度（首跑需建缓存）')
@@ -835,10 +803,9 @@ def _tool_job_kvsuite(ctx):
     引擎 minibwa 替代 bowtie2，**其余一点不改**。
 
     caller 用 bcftools mpileup+call（freebayes/lofreq/ivar 在 Windows 上均不可得），
-    参数与阈值为实测定稿，详见 known_virus_suite/POSCOUNTS_REMOVAL_PLAN.md §4.2。
+    参数与阈值为实测定稿，详见 engines/known_virus_suite/POSCOUNTS_REMOVAL_PLAN.md §4.2。
     """
     import json
-    import subprocess
 
     # ── 输入：勾选样品 → 临时 sample-sheet TSV(name,r1,r2) ──
     # 变异段（variant）不吃 reads，只需 BAM 或 VCF，因此允许 samples 为空。
@@ -931,10 +898,11 @@ def _tool_job_kvsuite(ctx):
     max_aa_labels = _num(ctx.p.get('max_aa_labels'), 40, int, 0)
 
     def job(log, prog, cancel):
-        suite = os.path.join(PLATFORM_ROOT, 'known_virus_suite',
+        suite = os.path.join(PLATFORM_ROOT, 'engines', 'known_virus_suite',
                              'known_virus_suite.py')
         if not os.path.isfile(suite):
-            raise RuntimeError(f'未找到 known_virus_suite.py: {suite}')
+            raise RuntimeError(f'未找到 engines/known_virus_suite/'
+                               f'known_virus_suite.py: {suite}')
 
         out_dir = os.path.join(ctx.run_dir, 'kvsuite')
         os.makedirs(out_dir, exist_ok=True)
@@ -1037,11 +1005,18 @@ def _tool_job_kvsuite(ctx):
 
 
 def _tool_job_quicktree(ctx):
-    """快速建树：多条序列 MAFFT 全长比对 → NJ（纯 Python）/ FastTree。"""
+    """快速建树：多条序列 MAFFT 全长比对 → NJ（纯 Python）/ FastTree。
+
+    aligned=True 时输入已是比对好的 FASTA（如序列比对模块的
+    aln.fasta / aln.trim.fasta），跳过 MAFFT 直接建树——对已比对序列
+    重复比对会破坏列对应关系。
+    """
     seqs_fa = ctx.req('seqs', '序列 FASTA')
     method = (ctx.p.get('method') or 'nj').strip().lower()
     if method not in ('nj', 'fasttree'):
         abort(400, '建树方法仅支持 nj / fasttree')
+    aligned = str(ctx.p.get('aligned') or '').strip().lower() in (
+        '1', 'true', 'yes', 'on')
     max_n = max(3, min(int(ctx.p.get('max_n') or 100), 500))
 
     def _short(h, idx):
@@ -1075,9 +1050,16 @@ def _tool_job_quicktree(ctx):
                 for i in range(0, len(s), 70):
                     f.write(s[i:i + 70] + '\n')
 
-        prog('aln', 0.2, 'MAFFT 全长比对')
-        aln = _run_mafft(capped_fa, os.path.join(ctx.run_dir, 'aln.fasta'),
-                         threads=ctx.threads, logger=logger)
+        prog('aln', 0.2, '输入已比对，跳过 MAFFT' if aligned
+             else 'MAFFT 全长比对')
+        if aligned:
+            aln = capped_fa
+        else:
+            aln = _run_mafft(capped_fa, os.path.join(ctx.run_dir, 'aln.fasta'),
+                             threads=ctx.threads, logger=logger)
+        if aligned:
+            logger.log('aligned=True：输入视为已完成的多序列比对，'
+                       '直接建树（不重复 MAFFT）')
 
         prog('tree', 0.75, 'NJ 建树' if method == 'nj' else 'FastTree 建树')
         tree_name = 'nj.nwk' if method == 'nj' else 'tree.nwk'
@@ -1089,19 +1071,22 @@ def _tool_job_quicktree(ctx):
 
         prog('done', 1.0, '完成')
         logger.close()
-        return {'n_seqs': len(recs), 'method': method, 'tree': tree_name}
+        return {'n_seqs': len(recs), 'method': method, 'tree': tree_name,
+                'aligned': aligned}
     return job
 
 
 def _tool_job_align(ctx):
     """序列比对（独立模块）：MAFFT（auto/L-INS-i/fast）→ trimAl 清剪。
 
-    输入 FASTA（核酸或蛋白，自动判别；≥2 条）。产物：input.fasta /
-    aln.fasta / aln.trim.fasta（trimAl 关闭时无）/ summary.json，
-    可在「比对查看器」彩色浏览与编辑。
+    输入 FASTA（核酸或蛋白，自动判别；≥2 条）。可选 seqs_extra：
+    第二个 FASTA 文件，与 seqs 合并后一起参与比对（同名序列自动加 _2 后缀）。
+    产物：input.fasta / aln.fasta / aln.trim.fasta（trimAl 关闭时无）/
+    summary.json，可在「比对查看器」彩色浏览与编辑。
     """
     from vp.utils import iter_fasta, write_fasta_record
     seqs_fa = ctx.req('seqs', '序列 FASTA')
+    seqs_extra = ctx.opt('seqs_extra')
     strategy = (ctx.p.get('strategy') or 'auto').strip().lower()
     if strategy not in ('auto', 'linsi', 'fast'):
         abort(400, '比对策略仅支持 auto / linsi / fast')
@@ -1111,22 +1096,26 @@ def _tool_job_align(ctx):
     max_n = max(3, min(int(ctx.p.get('max_n') or 200), 500))
 
     def job(log, prog, cancel):
-        import shutil
         logger = TaskLogger(callback=log)
         from vp.phylo import _run_mafft, _run_trimal
         from vp.sdt_exact import detect_seqtype
         prog('read', 0.05, '读取与筛选序列')
         recs, seen = [], {}
-        for h, s in iter_fasta(seqs_fa):
-            name = re.split(r'[\s|]', (h or '').strip())[0][:60] or \
-                f'seq{len(recs) + 1}'
-            name = re.sub(r'[^A-Za-z0-9_\-.]', '_', name)
-            if name in seen:
-                seen[name] += 1
-                name = f'{name}_{seen[name]}'
-            else:
-                seen[name] = 0
-            recs.append((name, s.upper()))
+        _srcs = [seqs_fa] + ([seqs_extra] if seqs_extra else [])
+        for _si, _src in enumerate(_srcs):
+            for h, s in iter_fasta(_src):
+                name = re.split(r'[\s|]', (h or '').strip())[0][:60] or \
+                    f'seq{len(recs) + 1}'
+                name = re.sub(r'[^A-Za-z0-9_\-.]', '_', name)
+                if name in seen:
+                    seen[name] += 1
+                    name = f'{name}_{seen[name]}'
+                else:
+                    seen[name] = 0
+                recs.append((name, s.upper()))
+        if seqs_extra:
+            logger.log(f'额外序列文件已合并: {os.path.basename(seqs_extra)}'
+                       f'（合并后共 {len(recs)} 条）')
         if len(recs) < 2:
             raise RuntimeError('FASTA 中少于 2 条序列，无法比对')
         recs = recs[:max_n]

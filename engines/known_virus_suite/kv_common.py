@@ -50,6 +50,22 @@ def which_tool(name, extra_dirs=None):
     return None
 
 
+def platform_root() -> Path:
+    """平台根目录（本引擎位于 <PLATFORM_ROOT>/engines/known_virus_suite/）。
+
+    不写死向上层数：从本文件所在目录逐级上溯，取同时含 vp/ 与 tools/ 的那一层。
+    这样引擎换目录（engines/ 子目录、或退回旧的顶层布局）都无需再改这里。
+    """
+    p = Path(__file__).resolve().parent
+    for _ in range(6):
+        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
 class ToolRegistry:
     """
     记录本模块需要的所有外部工具，支持缺件降级判断。
@@ -90,7 +106,7 @@ class ToolRegistry:
 
     def probe(self, extra_dirs=None):
         # tools\ 在模块上一级；部分工具（如 minibwa）直接放在平台根下
-        root = Path(__file__).resolve().parent.parent
+        root = platform_root()
         base = root / 'tools'
         auto = []
         for name, (exe, sub) in self.TOOL_HINTS.items():

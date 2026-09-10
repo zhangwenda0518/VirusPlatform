@@ -7,21 +7,13 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
-import sys
-import threading
 import time
-import uuid
 
-from flask import (Blueprint, abort, jsonify, render_template, request,
-                   send_file, send_from_directory)
+from flask import (Blueprint, abort, jsonify, request)
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
-from vp.web.common import _safe_sample
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
+from vp.config import DIRS, PLATFORM_ROOT, db_path
+from vp.utils import (TaskLogger, check_path, fmt_size)
+from vp.web.state import cfg
 from vp.web.tasks import tm
 
 bp = Blueprint('build', __name__)
@@ -64,7 +56,8 @@ def api_dbs():
         rel = os.path.relpath(dp, base).replace('\\', '/')
         if rel in ('.', ''):
             continue
-        # 宿主分类库（host/classify）不列入病毒库下拉
+        # 宿主分类库不列入病毒库下拉（现已移出 databases/，放 host-db/，
+        # 此处保留 host/ 前缀跳过以兼容旧布局残留目录）
         if rel.startswith('host/'):
             continue
         try:
@@ -283,7 +276,7 @@ def api_build_taxonomy():
 
 @bp.route('/api/build_host_db', methods=['POST'])
 def api_build_host_db():
-    body = request.get_json(force=True)
+    body = request.get_json(force=True) or {}
     for k in ('genome', 'taxid'):
         if not body.get(k):
             abort(400, f'缺少参数 {k}')
@@ -394,8 +387,8 @@ def api_build_kv_index():
         threads = cfg.threads
 
     def job(log, prog, cancel):
-        from known_virus_suite.kv_common import ToolRegistry, setup_logger
-        from known_virus_suite.kv_engines import make_engine
+        from engines.known_virus_suite.kv_common import ToolRegistry, setup_logger
+        from engines.known_virus_suite.kv_engines import make_engine
         os.makedirs(out_dir, exist_ok=True)
         # kv_engines 的 logger 需是标准 logging.Logger（.info/.warning/.error）。
         # tag 带时间戳避免多次建库复用同一 logger 时 handler 累积。
@@ -508,7 +501,7 @@ def api_kv_index_list():
     base = DIRS['virus_src']
     out = {'base': base, 'libs': [], 'engines': {}}
     try:
-        from known_virus_suite.kv_common import ToolRegistry
+        from engines.known_virus_suite.kv_common import ToolRegistry
         reg = ToolRegistry()
         reg.probe()
         for e in ('minibwa', 'salmon'):
@@ -593,7 +586,7 @@ def api_build_universal_db():
 
 @bp.route('/api/build_virus_db', methods=['POST'])
 def api_build_virus_db():
-    body = request.get_json(force=True)
+    body = request.get_json(force=True) or {}
     for k in ('fasta', 'info'):
         if not body.get(k):
             abort(400, f'缺少参数 {k}')

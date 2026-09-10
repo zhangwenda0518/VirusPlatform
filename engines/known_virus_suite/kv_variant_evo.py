@@ -147,7 +147,22 @@ IMPACT_COLOR = {
 }
 IMPACT_ORDER = ['HIGH', 'MODERATE', 'LOW', 'MODIFIER']
 
-_PLATFORM_ROOT = Path(__file__).resolve().parent.parent
+def _find_platform_root() -> Path:
+    """平台根目录（本引擎位于 <PLATFORM_ROOT>/engines/known_virus_suite/）。
+
+    不写死向上层数：取同时含 vp/ 与 tools/ 的上级目录，换布局也不用改。
+    """
+    p = Path(__file__).resolve().parent
+    for _ in range(6):
+        if (p / 'vp').is_dir() and (p / 'tools').is_dir():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+_PLATFORM_ROOT = _find_platform_root()
 
 
 def safe_name(s) -> str:
@@ -239,7 +254,6 @@ def genbank_cds_to_gtf(gb_path: Path, gtf_path: Path, strain: str = 'reference',
             logger.warning(f'  {gb_path.name} 解析失败: {e}')
         return None, []
 
-    seq = str(rec.seq).upper()
     cds_list = []
     for f in rec.features:
         if f.type != 'CDS':
@@ -1478,14 +1492,45 @@ def plot_popgen(variants, genes, accession, genome_len, n_samples, out_dir,
 # ══════════════════════════════════════════════════════════════════
 # 编排入口
 # ══════════════════════════════════════════════════════════════════
-def _resolve_gbk(gbk_dir: Path, acc: str) -> Path | None:
+def _gbk_dirs(out_dir, gbk_dir=None) -> list[Path]:
+    """GenBank 查找目录，按优先级去重。
+
+    变异段把归一化后的注释导出到 <out>/virus-annotations/，而本段历史上只找
+    <out>/gbk_files/ —— 当用户用 --variant-gbk-dir 指向外部缓存时，变异段把
+    GB 读走却不在 <out>/gbk_files 落盘，本段就找不到注释：基因数为 0、
+    SNPGenie 被静默跳过。两处都找，并接受显式 gbk_dir 覆盖。
+    """
+    cands: list[Path] = []
+    if gbk_dir:
+        cands.append(Path(gbk_dir))
+    cands.append(Path(out_dir) / 'gbk_files')
+    cands.append(Path(out_dir) / 'virus-annotations')
+    out: list[Path] = []
+    seen: set[str] = set()
+    for c in cands:
+        key = str(c)
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
+    return out
+
+
+def _resolve_gbk(gbk_dir, acc: str) -> Path | None:
+    """在给定目录（单个或列表）里找 acc 的 GenBank 文件。"""
+    dirs = gbk_dir if isinstance(gbk_dir, (list, tuple)) else [gbk_dir]
     base = str(acc).split('.')[0]
-    for cand in (gbk_dir / f'{acc}.gb', gbk_dir / f'{base}.gb',
-                 gbk_dir / f'{acc}.gbk', gbk_dir / f'{base}.gbk'):
-        if cand.is_file() and cand.stat().st_size > 0:
-            return cand
-    cands = sorted(gbk_dir.glob(f'{safe_name(base)}*.gb*')) if gbk_dir.is_dir() else []
-    return cands[0] if cands else None
+    for d in dirs:
+        d = Path(d)
+        if not d.is_dir():
+            continue
+        for cand in (d / f'{acc}.gb', d / f'{base}.gb',
+                     d / f'{acc}.gbk', d / f'{base}.gbk'):
+            if cand.is_file() and cand.stat().st_size > 0:
+                return cand
+        cands = sorted(d.glob(f'{safe_name(base)}*.gb*'))
+        if cands:
+            return cands[0]
+    return None
 
 
 def _resolve_fasta(out_dir: Path, acc: str, gid: str) -> Path | None:
@@ -1521,18 +1566,20 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
                     accession_filter=None, run_snpgenie_stage=True,
                     snpgenie_workdir=None, snpgenie_timeout=900,
                     label_af_cutoff=AA_LABEL_AF_CUTOFF,
-                    max_aa_labels=MAX_AA_LABELS) -> dict:
+                    max_aa_labels=MAX_AA_LABELS, gbk_dir=None) -> dict:
     """为 out_dir 下所有有变异的参考跑扩展三模块并出图。
 
     label_af_cutoff: mutation landscape 标注氨基酸变化的 AF 下限
     max_aa_labels: 单张图标签数量上限
+    gbk_dir: GenBank 目录；缺省时依次找 <out>/gbk_files、<out>/virus-annotations
 
-    返回 {'n_accessions', 'n_plots', 'plots', 'snpgenie', 'skipped'}
+    返回 {'n_accessions', 'n_plots', 'plots', 'snpgenie', 'snpgenie_skipped',
+          'skipped'}
     """
     out_dir = Path(out_dir)
     vcf_dir = out_dir / 'vcf'
     ann_dir = out_dir / 'annotated'
-    gbk_dir = out_dir / 'gbk_files'
+    gbk_dirs = _gbk_dirs(out_dir, gbk_dir)
     plot_dir = out_dir / 'variant_plots'
     evo_dir = out_dir / 'variant_evo'
 
@@ -1544,7 +1591,8 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
     if not vcf_dir.is_dir():
         _log('warning', f'无 vcf 目录，跳过扩展变异分析: {vcf_dir}')
         return {'n_accessions': 0, 'n_plots': 0, 'plots': [],
-                'snpgenie': [], 'skipped': []}
+                'snpgenie': [], 'n_snpgenie': 0, 'snpgenie_skipped': [],
+                'skipped': []}
 
     # 参考清单：优先用 variant_summary.json，回退扫 VCF
     accessions: list[tuple[str, str]] = []   # (accession, gid)
@@ -1577,13 +1625,17 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
     if not accessions:
         _log('warning', '无可用参考，跳过扩展变异分析')
         return {'n_accessions': 0, 'n_plots': 0, 'plots': [],
-                'snpgenie': [], 'skipped': []}
+                'snpgenie': [], 'n_snpgenie': 0, 'snpgenie_skipped': [],
+                'skipped': []}
 
     workdir_en = Path(snpgenie_workdir) if snpgenie_workdir else (
         _PLATFORM_ROOT / 'kv_variant_test' / '_snpgenie_evo')
 
     plots: list[str] = []
     snpgenie_hits: list[dict] = []
+    # SNPGenie 工具级跳过原因（与 accession 级 skipped 区分：
+    # 以前只记 accession 级，导致 n_snpgenie=0 时看不出是工具根本没跑）
+    snpgenie_skipped: list[dict] = []
     skipped: list[str] = []
     n_acc = 0
 
@@ -1616,7 +1668,7 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
         # 基因与基因组长度
         genes: list[dict] = []
         genome_len = 0
-        gb = _resolve_gbk(gbk_dir, acc) if gbk_dir.is_dir() else None
+        gb = _resolve_gbk(gbk_dirs, acc)
         if gb is not None:
             genes, genome_len = load_genbank_genes(gb, logger)
         if not genome_len:
@@ -1645,21 +1697,43 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
         # ── 模块 C ──
         n_samples = _count_vcf_samples(vcf)
         prod_rows: list[dict] = []
-        if run_snpgenie_stage and gb is not None:
+        if not run_snpgenie_stage:
+            snpgenie_skipped.append({'accession': acc,
+                                     'reason': 'SNPGenie 段已被 --no-snpgenie 关闭'})
+        elif gb is None:
+            snpgenie_skipped.append({
+                'accession': acc,
+                'reason': '未找到 GenBank 注释（已查 %s）'
+                          % ', '.join(str(d) for d in gbk_dirs)})
+            _log('warning', f'  {acc}: 未找到 GenBank 注释，跳过 SNPGenie'
+                            f'（已查 {len(gbk_dirs)} 个目录）')
+        else:
             fasta = _resolve_fasta(out_dir, acc, gid)
             if fasta is None:
+                snpgenie_skipped.append({
+                    'accession': acc,
+                    'reason': '缺单参考 FASTA（%s/virus-fasta/ref_%s/ 不存在）'
+                              % (out_dir, safe_name(acc))})
                 _log('warning', f'  {acc}: 缺参考 FASTA，跳过 SNPGenie')
             else:
                 gtf = evo_dir / f'{safe_name(acc)}.gtf'
                 gtf, cds = genbank_cds_to_gtf(gb, gtf, safe_name(acc), logger)
                 if gtf is None or not cds:
+                    snpgenie_skipped.append({
+                        'accession': acc,
+                        'reason': 'GenBank 无完整 CDS（长度可被 3 整除的 CDS 为 0），'
+                                  'SNPGenie 无法计算 dN/dS'})
                     _log('info', f'  {acc}: 无完整 CDS（% 3 == 0），跳过 SNPGenie')
                 else:
                     sg_out = run_snpgenie(fasta, gtf, vcf, workdir_en,
                                           f'{safe_name(gid)}.snpgenie',
                                           logger, vcfformat=4,
                                           timeout=snpgenie_timeout)
-                    if sg_out is not None:
+                    if sg_out is None:
+                        snpgenie_skipped.append({
+                            'accession': acc,
+                            'reason': 'SNPGenie 执行失败（rc!=0，见日志）'})
+                    else:
                         prod_rows = read_snpgenie_product(sg_out)
                         # 把 file 列（format 4 下是内部清洗后的临时名
                         # temp_vcf4_SAMPLE.vcf）还原成对外稳定的 VCF 名，
@@ -1707,6 +1781,9 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
         'n_plots': len(plots),
         'plots': [os.path.basename(p) for p in plots],
         'snpgenie': snpgenie_hits,
+        'n_snpgenie': len(snpgenie_hits),
+        'snpgenie_skipped': snpgenie_skipped,
+        'gbk_dirs': [str(d) for d in gbk_dirs],
         'skipped': skipped,
     }
     try:
@@ -1730,6 +1807,11 @@ def run_variant_evo(out_dir, logger=None, formats=('png', 'pdf'),
 
     _log('info', f'扩展变异分析完成: {n_acc} 参考 / {len(plots)} 图 / '
                  f'{len(snpgenie_hits)} 个 SNPGenie 结果')
+    if snpgenie_skipped:
+        _log('warning', f'  SNPGenie 被跳过 {len(snpgenie_skipped)} 条（不是'
+                        f'「无多态」，是工具没跑；原因见 evo_manifest.json）:')
+        for s in snpgenie_skipped:
+            _log('warning', f'    {s["accession"]}: {s["reason"]}')
     return manifest
 
 
