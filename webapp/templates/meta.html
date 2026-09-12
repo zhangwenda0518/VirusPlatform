@@ -345,18 +345,14 @@
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
+  <script src="/static/app-compare.js?v={{ asset_v }}"></script>
 <script src="/static/examples.js?v={{ asset_v }}"></script>
 <script src="/static/plotly.min.js?v={{ asset_v }}"></script>
 <script>
 /* ═════════ 公共数据检索工作台（复刻 MMPV-RNA metadata_gui 双存储 8 标签） ═════════ */
 'use strict';
 
-async function jfetch(url, opts) {
-  const r = await fetch(url, opts);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-  return d;
-}
+/* jfetch 由 app.js 全局提供（本页原有一份逐字相同的实现，已收敛） */
 
 const MT = {
   project: '', colls: [],

@@ -215,6 +215,7 @@
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
+  <script src="/static/app-compare.js?v={{ asset_v }}"></script>
 <script src="/static/examples.js?v={{ asset_v }}"></script>
 <script>
 const PH_RE = /XXXX|YYYY|PRJNAXXXX|Country:Region|SAMNXXXXXXXX|XX\.\d+/i;
@@ -228,12 +229,7 @@ function isPh(v) {
   return PH_WORDS.has(s.toLowerCase()) || PH_RE.test(s);
 }
 
-async function jfetch(url, opts) {
-  const r = await fetch(url, opts);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-  return d;
-}
+/* jfetch 由 app.js 全局提供（本页原有一份逐字相同的实现，已收敛） */
 
 /* ── ① 项目列表 ── */
 async function refreshProjects() {

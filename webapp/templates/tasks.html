@@ -86,6 +86,7 @@
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
+  <script src="/static/app-compare.js?v={{ asset_v }}"></script>
 <script src="/static/examples.js?v={{ asset_v }}"></script>
 <script>
 /* 整个页面脚本包在 IIFE 里：顶层 let/const 不再与 app.js / i18n.js
@@ -107,13 +108,7 @@ let pollTimer = null;
 let archLoaded = false;  // 归档只在首次/手动/删除后刷新（避免每轮 IO）
 const LOG_TAIL = 300;    // 展开日志时拉取的行数
 
-function jf(url, opts) {
-  return fetch(url, opts).then(async r => {
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-    return d;
-  });
-}
+const jf = jfetch;   // 委托 app.js 全局 jfetch（行为口径一致）
 
 function fmtClock(ts) {
   if (!ts) return '';

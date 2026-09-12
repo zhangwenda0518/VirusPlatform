@@ -110,17 +110,6 @@ def _seqkit_filter(seqkit, r1, r2, out_r1, out_r2, ids, threads, work_dir,
         hdr, val = lines[0].split('\t'), lines[1].split('\t')
         return int(dict(zip(hdr, val))['num_seqs'])
 
-    def _count_grep_v(pat_i, path):
-        """seqkit grep -v -C 实测保留条数。"""
-        r = subprocess.run(
-            [seqkit, 'grep', '-v', '-C', '-f', str(pat_i),
-             '-j', str(threads or 4), check_path(path, must_exist=True)],
-            capture_output=True, text=True, encoding='utf-8',
-            errors='replace')
-        if r.returncode != 0:
-            raise RuntimeError(f"seqkit 计数失败: {r.stderr[-200:]}")
-        return int(r.stdout.strip().splitlines()[-1])
-
     srcs = ([(r1, out_r1), (r2, out_r2)] if r2 else [(r1, out_r1)])
     n_in1 = kept1 = dropped1 = kept2 = 0
     pats_made = []
@@ -144,12 +133,14 @@ def _seqkit_filter(seqkit, r1, r2, out_r1, out_r2, ids, threads, work_dir,
                      '-o', check_path(dst, must_exist=False,
                                       in_platform=True),
                      check_path(src, must_exist=True)], logger=logger)
+            # 保留数直接对**输出**统计：宿主 reads 通常占大头，输出远小于
+            # 输入——比原先再对输入跑一遍 grep -v -C 计数省一整遍大文件扫描
             if i == 0:
                 n_in1 = _count_total(src)
-                kept1 = _count_grep_v(pat_i, src)
+                kept1 = _count_total(dst)
                 dropped1 = n_in1 - kept1
             else:
-                kept2 = _count_grep_v(pat_i, src)
+                kept2 = _count_total(dst)
         if r2 and kept1 != kept2:
             raise RuntimeError(
                 f"R1/R2 kept 数不一致（{kept1} vs {kept2}），"
