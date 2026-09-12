@@ -70,11 +70,13 @@ def main():
         check(gone not in html, f'旧结构已移除: {gone}')
     for present in ('id="t-seqprep"', 'id="t-treebuild"', 'id="t-sdt"'):
         check(present in html, f'新模块存在: {present}')
-    # 比较基因组域（ictv/建树/MSA/SDT）2026-09-13 自 app.js 拆到
-    # app-compare.js：定义检查对两个文件取并集
+    # 前端按域拆为 app*.js（app.js 核心 + app-compare/runhistory/jobs/
+    # browse/batch/storage/compare）：定义检查对全部文件取并集，
+    # 后续再拆无需改这里
     _www = os.path.join(PLATFORM_ROOT, 'webapp', 'static')
-    js = ''.join(open(os.path.join(_www, _f), encoding='utf-8').read()
-                 for _f in ('app.js', 'app-compare.js'))
+    import glob as _glob
+    js = ''.join(open(_f, encoding='utf-8').read()
+                 for _f in sorted(_glob.glob(os.path.join(_www, 'app*.js'))))
     for fn in ('ictvCascadeRefetch', 'ictvPreview', 'ictvDownload', 'loadTbColls',
                'tbBuild', 'gbBuildTree', 'alignRun', 'alignLoad', 'alignRender',
                'alignEditToggle', 'alignSave', 'alignSend', 'tbSourceChanged',
@@ -285,9 +287,13 @@ def main():
     check("const KV_IDS = {" in hv and "const KVC_IDS = {" in hv
           and "renderKvsuite(d, KVC_IDS)" in hv,
           '一键全流程内联复用 kvsuite 渲染（KVC_IDS 独立容器）')
-    # 实时日志进卡片：app.js 的任务标签表要有这两张卡的键（缺了输出区永远为空）
-    _appjs = open(_os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
-                  encoding='utf-8').read()
+    # 实时日志进卡片：任务标签表要有这两张卡的键（缺了输出区永远为空）。
+    # TOOL_LABELS 定义在 app-jobs.js（2026-09-13 拆分），对全部 app*.js 取并集
+    import glob as _glob
+    _appjs = ''.join(
+        open(_f, encoding='utf-8').read()
+        for _f in sorted(_glob.glob(_os.path.join(
+            PLATFORM_ROOT, 'webapp', 'static', 'app*.js'))))
     _tl = _appjs.split('const TOOL_LABELS = {', 1)[-1].split('};', 1)[0]
     for _k, _lbl in (('kvchain', '病毒定量与共识·一键'),
                      ('kvsuite', '已知病毒识别与定量')):
