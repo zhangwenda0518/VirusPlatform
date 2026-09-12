@@ -41,6 +41,14 @@
       <option value="fastq" data-i18n="tk.cvOptFastq">FASTQ（仅 .sra 输入；FASTQ 输入时跳过）</option>
       <option value="fasta" data-i18n="tk.cvOptFasta">FASTA（.sra 或 .fastq 均可）</option>
     </select>
+    <label style="margin-top:12px" data-i18n="tk.cvDirLbl">⏩ 目录批量转换（📂 选 .sra 目录，逐文件提交）</label>
+    <div class="filerow">
+      <input id="cv_dir" type="text" placeholder="选择 .sra 文件夹（自动扫描全部 .sra）" data-i18n-ph="tk.cvDirPh">
+      <button class="btn small" onclick="browseDir('cv_dir')" title="选择目录">📂</button>
+    </div>
+    <div style="margin-top:6px">
+      <button class="btn" onclick="batchConvert(this)" data-i18n="tk.cvBatch">⏩ 批量转换目录内全部 .sra</button>
+    </div>
     <div style="margin-top:12px">
       <button class="btn primary" onclick="runTool('convert', this)" data-i18n="tk.runConvert">▶ 运行转换</button>
     </div>
@@ -73,6 +81,14 @@
     <div class="gp-item" style="margin-top:6px">
       <label data-i18n="c.threads">线程数</label>
       <input id="f_threads" type="number" min="1" placeholder="自动" data-i18n-ph="c.phAuto">
+    </div>
+    <label style="margin-top:12px" data-i18n="tk.batchSamplesLbl">⏩ 按样品批量（📋 多选，可按项目全选；自动取各样品登记的 R1/R2，单双端自动识别）</label>
+    <div class="filerow">
+      <input id="f_samples" type="text" placeholder="点右侧 📋 选样品（可多选）" data-i18n-ph="tk.batchSamplesPh">
+      <button class="btn small" onclick="kvPickSamples('f_samples')" data-i18n-title="tk.pickSamplesTitle">📋</button>
+    </div>
+    <div style="margin-top:6px">
+      <button class="btn" onclick="batchRunForSamples(this,'fastp','f_samples',(nm,d)=>Object.assign(_peParams(nm,d),{dedup:!!$('f_dedup').checked}))" data-i18n="tk.batchFastp">⏩ 批量质控（逐样品提交）</button>
     </div>
     <div style="margin-top:12px">
       <button class="btn primary" onclick="runTool('fastp', this)" data-i18n="tk.runFastp">▶ 运行质控</button>
@@ -132,6 +148,14 @@
     <p class="hint db-status" style="margin:6px 0 0"></p>
     <p class="hint" style="margin:2px 0 0" data-i18n="tk.swapDbHint">换库说明：分类与病毒序列提取使用所选库；
        BLAST 注释与属长缓存仍基于主病毒参考库（virus_db）。</p>
+    <label style="margin-top:12px" data-i18n="tk.batchSamplesLbl">⏩ 按样品批量（📋 多选，可按项目全选；自动取各样品登记的 R1/R2，单双端自动识别）</label>
+    <div class="filerow">
+      <input id="i_samples" type="text" placeholder="点右侧 📋 选样品（可多选）" data-i18n-ph="tk.batchSamplesPh">
+      <button class="btn small" onclick="kvPickSamples('i_samples')" data-i18n-title="tk.pickSamplesTitle">📋</button>
+    </div>
+    <div style="margin-top:6px">
+      <button class="btn" onclick="batchRunForSamples(this,'identify','i_samples',(nm,d)=>{const p=_peParams(nm,d);return {input:p.r1,input2:p.r2,input_type:p.r2?'pe':'single',confidence:+val('i_conf')||0,db_virus:val('i_vdb')||'virus'};})" data-i18n="tk.batchIdentify">⏩ 批量识别（逐样品提交，单双端自动判）</button>
+    </div>
     <div style="margin-top:12px">
       <button class="btn primary" onclick="runTool('identify', this)" data-i18n="tk.runIdentify">▶ 运行鉴定</button>
       <button class="btn small" onclick="openIdentReport(this)" title="桑基图 / 旭日图 / 分类表" data-i18n="tk.identReport" data-i18n-title="tk.identReportTitle">📊 分类报告</button>
@@ -190,7 +214,16 @@
     <p class="hint" data-i18n="tk.asHint">对识别/提取阶段得到的病毒 reads 做 de novo 组装
        （SPAdes，输入自动衔接上游：识别提取的 viral_sequences 或质控/去宿主
        reads）。低深度样品 metaviral 拼不出 contigs 时自动回退 rna 模式。</p>
-    <label>R1 FASTQ</label>
+    <label style="margin-top:12px" data-i18n="tk.batchSamplesLbl">⏩ 按样品批量（📋 多选，可按项目全选；自动取各样品登记的 R1/R2，单双端自动识别）</label>
+    <div class="filerow">
+      <input id="a_samples" type="text" placeholder="点右侧 📋 选样品（可多选）" data-i18n-ph="tk.batchSamplesPh">
+      <button class="btn small" onclick="kvPickSamples('a_samples')" data-i18n-title="tk.pickSamplesTitle">📋</button>
+    </div>
+    <div style="margin-top:6px">
+      <button class="btn" onclick="batchRunForSamples(this,'assemble','a_samples',(nm,d)=>{if(!d.r2) throw new Error('单端样品（组装需双端，单端请走全流程管道）');return {r1:d.r1,r2:d.r2,mode:$('a_mode').value,memory:+val('a_mem')||64,min_len:+val('a_minlen')||200};})" data-i18n="tk.batchAssemble">⏩ 批量组装（逐样品提交；单端样品自动跳过）</button>
+    </div>
+
+    <label style="margin-top:8px">R1 FASTQ</label>
     <div class="filerow">
       <input id="a_r1" type="text" placeholder="选择 .fastq[.gz]" data-i18n-ph="tk.fqPickPh">
       <button class="btn small" onclick="browse('a_r1')">📁</button>
@@ -512,7 +545,17 @@
     </div>
 
     <div style="margin-top:10px">
+      <label style="margin-top:12px;display:block" data-i18n="tk.batchSamplesLbl">⏩ 按样品批量（📋 多选，可按项目全选；自动取各样品登记的 R1/R2，单双端自动识别）</label>
+      <div class="filerow">
+        <input id="vc_samples" type="text" placeholder="点右侧 📋 选样品（可多选）" data-i18n-ph="tk.batchSamplesPh">
+        <button class="btn small" onclick="kvPickSamples('vc_samples')" data-i18n-title="tk.pickSamplesTitle">📋</button>
+      </div>
+      <div style="margin-top:6px">
+        <button class="btn" onclick="batchRunForSamples(this,'virchain','vc_samples',(nm,d)=>{const p=_peParams(nm,d);return {input:p.r1,input2:p.r2,run_identify:$('vc_run_identify').checked||undefined,do_verify:$('vc_do_verify').checked,mode:$('vc_mode').value,memory:+val('vc_memory')||64,min_len:+val('vc_min_len')||200,confidence:+val('vc_confidence')||0,combine:$('vc_combine').value,methods:$('vc_methods').value};})" data-i18n="tk.batchVirchain">⏩ 批量一键流程（逐样品提交 ②→③→④）</button>
+      </div>
+      <div style="margin-top:12px">
       <button class="btn primary" onclick="runVirchain(this)" data-i18n="tk.runVirchain">⚡ 一键运行（②→③→④）</button>
+      </div>
       <span class="hint" style="margin-left:8px" data-i18n="tk.vcRunHint">每步独立目录，汇总目录含符号链接与 _chain.json</span>
     </div>
 
@@ -538,21 +581,115 @@
 
 
   <!-- 已知病毒识别与定量（known_virus_suite 五段整合）
-       完全照搬 D:\桌面\延伸基因组\MMPV-RNA\virome_analysis_pipeline：
+       移植自 D:\桌面\延伸基因组\MMPV-RNA\virome_analysis_pipeline：
        鉴定 → 过滤 → 共识 → 深度绘图 → 变异注释。
-       minibwa 替代 bowtie2，caller 用 bcftools mpileup+call。 -->
+       引擎分工固定：定量 salmon（--writeBam 出映射 BAM），共识段内部 minibwa，
+       caller 用 bcftools mpileup+call。 -->
   <!-- 一键分析（全流程）：本组五段一次跑完，产物收拢到汇总目录。
        必须独立成卡（id=t-kvchain）：showModule() 只切换 <main> 的直接子元素，
-       此前它是 t-kvsuite 卡内的 <div>，点导航栏「一键分析（全流程）」会得到空白页。 -->
+       此前它是 t-kvsuite 卡内的 <div>，点导航栏「一键分析（全流程）」会得到空白页。
+       2026-09-11：本卡补齐**自有输入表单 + 输出区 + 结果面板**——此前参数寄居在
+       t-kvsuite 卡的 kv_* 字段上，单独进本页既看不到可填项、也没有 .toolrun 输出
+       容器（跑起来日志/产物无处落），用户实测「没有输入、没有输出、没有参数」。 -->
   <section class="card" id="t-kvchain">
     <h2 data-i18n="tk.kvChainTitle">⚡ 一键分析（全流程）</h2>
     <p class="hint" data-i18n="tk.kvChainHint">
-      鉴定 → 过滤 → 共识 → 深度绘图 → 变异注释，一次跑完；
-      参数沿用「已知病毒识别与定量」卡的表单，结果收拢到汇总目录（符号链接 + _chain.json）。
+      鉴定 → 过滤 → 共识 → 深度绘图 → 变异注释，一次跑完；结果收拢到汇总目录（符号链接 + _chain.json）。
     </p>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <p class="hint" style="margin:4px 0 0" data-i18n="tk.kvChainStages">
+      本入口固定跑全五段（没有「跑哪些段」选项）。参数口径与「已知病毒识别与定量」卡一致，
+      但<b>本页自带一整套表单</b>：留空即用默认值，不需要先去另一张卡填。想沿用那张卡里已调好的
+      参数，点「⤓ 取该卡参数」一键搬过来。
+    </p>
+
+    <label style="margin-top:10px" data-i18n="tk.kvSamplesLbl">样品（从「样品创建 / 批量导入」中选；可多选）</label>
+    <div class="filerow">
+      <input id="kvc_samples" type="text" placeholder="点右侧按钮选择样品，或直接填样品名（逗号分隔）" data-i18n-ph="tk.kvSamplesPh">
+      <button class="btn small" onclick="kvPickSamples('kvc_samples')" title="选择样品" data-i18n-title="tk.pickSamplesTitle">📋</button>
+    </div>
+
+    <label style="margin-top:10px" data-i18n="tk.kvReadsLbl">或：直接输入测序数据（与样品二选一；R2 留空按单端）</label>
+    <div class="filerow">
+      <input id="kvc_reads_r1" type="text" placeholder="R1 FASTQ" data-i18n-ph="tk.kvReadsR1Ph">
+      <button class="btn small" onclick="browse('kvc_reads_r1')" title="选择 R1 文件">📁</button>
+    </div>
+    <div class="filerow" style="margin-top:6px">
+      <input id="kvc_reads_r2" type="text" placeholder="R2 FASTQ（双端时选；单端留空）" data-i18n-ph="tk.kvReadsR2Ph">
+      <button class="btn small" onclick="browse('kvc_reads_r2')" title="选择 R2 文件">📁</button>
+    </div>
+
+    <!-- 参考库与引擎已唯一化（默认鉴定库 kv_index + salmon）：
+         缺省参考/注释/索引由后端 kv_stage.default_reference() 统一解析，不再暴露选择项 -->
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+      <div class="gp-item">
+        <label data-i18n="tk.kvMinCovLbl">覆盖率下限 %</label>
+        <input id="kvc_min_cov" type="number" min="0" max="100" step="1" value="10" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvMinDepthLbl">平均深度下限</label>
+        <input id="kvc_min_depth" type="number" min="0" step="0.1" value="0.5" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvMinReadsLbl">reads 下限</label>
+        <input id="kvc_min_reads" type="number" min="0" value="10" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvPoissonLbl">泊松置信度</label>
+        <input id="kvc_min_poisson" type="number" min="0" max="1" step="0.05" value="0.3" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvVarQualLbl">变异 QUAL 下限</label>
+        <input id="kvc_variant_qual" type="number" min="0" step="0.5" value="3.5" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvMinFreqLbl">次等位频率下限</label>
+        <input id="kvc_min_freq" type="number" min="0" max="1" step="0.01" value="0.05" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvEmailLbl">NCBI 邮箱</label>
+        <input id="kvc_email" type="text" placeholder="用于下载 GenBank 注释" style="width:180px" data-i18n-ph="tk.kvEmailPh">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="c.threads">线程数</label>
+        <input id="kvc_threads" type="number" min="1" placeholder="自动" style="width:80px" data-i18n-ph="c.phAuto">
+      </div>
+      <div class="gp-item">
+        <label title="跳过 GenBank 下载，绘图不带基因轨道" data-i18n="tk.kvNoGenesLbl" data-i18n-title="tk.kvNoGenesTitle">不下载注释</label>
+        <input id="kvc_no_genes" type="checkbox" style="width:auto">
+      </div>
+      <div class="gp-item">
+        <label title="分子突变谱 / 变异密度 / 群体遗传三模块成图（需有 GenBank 注释才能出基因轨道）" data-i18n="tk.kvEvoLbl" data-i18n-title="tk.kvEvoTitle">扩展变异分析</label>
+        <input id="kvc_evo" type="checkbox" style="width:auto" checked>
+      </div>
+      <div class="gp-item">
+        <label title="SNPGenie 计算 πN/πS 与 dN/dS（依赖 Perl，耗时略长）" data-i18n="tk.kvSnpgenieLbl" data-i18n-title="tk.kvSnpgenieTitle">SNPGenie 选择压力</label>
+        <input id="kvc_snpgenie" type="checkbox" style="width:auto" checked>
+      </div>
+      <div class="gp-item">
+        <label title="变异图上标注氨基酸变化的 AF 下限；设为 1 则关闭标签" data-i18n="tk.aaCutoffLbl" data-i18n-title="tk.aaCutoffTitle">氨基酸标签 AF 下限</label>
+        <input id="kvc_aa_label_cutoff" type="number" min="0" max="1" step="0.05" value="0.5" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label title="单张变异图的氨基酸标签数量上限，超限时优先保留高 AF 位点" data-i18n="tk.maxLabelsLbl" data-i18n-title="tk.maxLabelsTitle">标签数量上限</label>
+        <input id="kvc_max_aa_labels" type="number" min="0" step="1" value="40" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label title="勾选后变异图画全部变异位点；不勾则只画非同义（默认，与 246 参考脚本一致）" data-i18n="tk.allVariantsLbl" data-i18n-title="tk.allVariantsTitle">画全部变异</label>
+        <input id="kvc_all_variants" type="checkbox" style="width:auto">
+      </div>
+    </div>
+
+    <div style="margin-top:10px">
       <button class="btn primary" onclick="runKvchain(this)" data-i18n="tk.runKvchain">⚡ 一键运行（全流程）</button>
+      <button class="btn small" onclick="kvchainPullKvsuite()" title="把「已知病毒识别与定量」卡当前表单值复制到本页" data-i18n="tk.kvChainPull" data-i18n-title="tk.kvChainPullTitle">⤓ 取该卡参数</button>
       <button class="btn small" onclick="loadChainResult('kvchain')" title="读取最近一次一键运行的汇总" data-i18n="c.latestChain" data-i18n-title="c.latestChainTitle">📂 最近汇总</button>
+      <span class="hint" style="margin-left:8px" data-i18n="tk.kvChainRunHint">五段全跑；产物收拢到 tool_runs/kvchain_*/（符号链接 + _chain.json）</span>
+    </div>
+
+    <div class="tool-out">
+      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+      <div class="toolrun" id="toolrun-kvchain"></div>
     </div>
 
     <div id="kvChainResult" class="card" style="margin-top:12px;display:none">
@@ -560,11 +697,64 @@
         <b id="kvcTitle" data-i18n="tk.kvcTitle">一键全流程汇总</b>
         <button class="btn small" onclick="$('kvChainResult').style.display='none'">✕</button>
       </div>
-      <div id="kvcSteps" style="margin-top:8px"></div>
+      <div id="kvcSubRun" style="margin-top:8px"></div>
+      <div id="kvcSummary" style="margin-top:8px"></div>
       <details class="rpt-sec" open style="margin-top:10px">
+        <summary data-i18n="tk.kvChainStepsSec">流程各段</summary>
+        <div class="rpt-sec-body">
+          <div id="kvcSteps"></div>
+        </div>
+      </details>
+      <details class="rpt-sec" open>
         <summary data-i18n="tk.b.summaryDir">汇总目录（符号链接）</summary>
         <div class="rpt-sec-body">
           <div id="kvcEntries"></div>
+        </div>
+      </details>
+      <!-- 内联定量结果：复用 kvsuite 渲染（KVC_IDS 指向本卡的 kvc* 容器），
+           单看本页即可看到鉴定/过滤/共识/变异/图，不必再切到另一张卡。 -->
+      <details class="rpt-sec" open>
+        <summary data-i18n="tk.kvSecIdentify">鉴定结果（全量比对汇总）</summary>
+        <div class="rpt-sec-body">
+          <div class="scroll-md" id="kvcIdentifyTable"></div>
+        </div>
+      </details>
+      <details class="rpt-sec" open>
+        <summary data-i18n="tk.kvSecFiltered">通过过滤（确认存在）</summary>
+        <div class="rpt-sec-body">
+          <div class="scroll-md" id="kvcFilteredTable"></div>
+        </div>
+      </details>
+      <details class="rpt-sec">
+        <summary data-i18n="tk.kvSecConsensus">共识序列 QC</summary>
+        <div class="rpt-sec-body">
+          <div class="scroll-md" id="kvcConsensusTable"></div>
+        </div>
+      </details>
+      <details class="rpt-sec">
+        <summary data-i18n="tk.kvSecVariant">变异注释（bcftools + SnpEff）</summary>
+        <div class="rpt-sec-body">
+          <div class="scroll-md" id="kvcVariantTable"></div>
+        </div>
+      </details>
+      <details class="rpt-sec" open>
+        <summary data-i18n="tk.kvSecVarPlot">变异可视化</summary>
+        <div class="rpt-sec-body">
+          <div id="kvcVariantPlots"></div>
+        </div>
+      </details>
+      <details class="rpt-sec" open>
+        <summary data-i18n="tk.kvSecEvo">突变演化分析（分子谱 / 变异密度 / 群体遗传）</summary>
+        <div class="rpt-sec-body">
+          <div id="kvcEvoSummary" style="margin-bottom:10px"></div>
+          <div id="kvcEvoPlots"></div>
+          <div id="kvcEvoTables" style="margin-top:14px"></div>
+        </div>
+      </details>
+      <details class="rpt-sec">
+        <summary data-i18n="tk.kvSecDepthPlot">深度图</summary>
+        <div class="rpt-sec-body">
+          <div id="kvcPlots"></div>
         </div>
       </details>
     </div>
@@ -574,15 +764,12 @@
   <section class="card" id="t-kvsuite">
     <h2 data-i18n="tk.kvH2">🦠 已知病毒识别与定量</h2>
 
-    <p class="hint" data-i18n="tk.kvHint">把样品 reads <b>直接比对到已知病毒参考库</b>，一步跑完五段：
-       <b>鉴定</b>（比对 + 覆盖度 + 泊松打假）→ <b>过滤</b>（双轨阈值）→
-       <b>共识序列</b> → <b>深度绘图</b> → <b>变异注释</b>。<br>
-       做法完全对齐 MMPV-RNA 的 virome_analysis_pipeline：minibwa 替代 bowtie2，其余一点不改；
-       变异 caller 用 <b>bcftools mpileup + call</b>（freebayes/lofreq/ivar 在 Windows 上均不可得），
-       注释用 SnpEff 5.4c。<br>
-       产物：<b>identify/all_viruses.summary.tsv</b>、<b>filter/filtered.tsv</b>、
-       <b>consensus/consensus_qc.tsv</b>、<b>plots/&lt;样品&gt;/*_depth.{pdf,png}</b>、
-       <b>variant/variant_summary.json</b> + 逐基因组变异注释表。</p>
+    <p class="hint" data-i18n="tk.kvHint">把样品 reads <b>直接比对到已知病毒参考库</b>，本卡只做两段：
+       <b>识别/定量</b>（比对 + 覆盖度 + 泊松打假）→ <b>过滤</b>（双轨阈值复核）。<br>
+       共识序列、深度绘图、变异注释是<b>后续模块</b>的事（「共识序列分析」「病毒变异分析」），
+       或整条走「⚡ 一键分析（全流程）」——本卡不碰，也不提供这些段的开关。<br>
+       引擎分工固定：<b>定量 = salmon</b>（比对定量 + 映射 BAM）；共识段内部固定 minibwa。<br>
+       产物：<b>identify/all_viruses.summary.tsv</b>、<b>filter/filtered.tsv</b>、比对 <b>BAM</b>。</p>
 
     <label data-i18n="tk.kvSamplesLbl">样品（从「样品创建 / 批量导入」中选；可多选）</label>
     <div class="filerow">
@@ -590,47 +777,20 @@
       <button class="btn small" onclick="kvPickSamples()" title="选择样品" data-i18n-title="tk.pickSamplesTitle">📋</button>
     </div>
 
-    <label style="margin-top:10px" data-i18n="tk.kvRefLbl">参考序列库（默认平台病毒库 final.cluster.ref.fasta）</label>
+    <label style="margin-top:10px" data-i18n="tk.kvReadsLbl">或：直接输入测序数据（与样品二选一；R2 留空按单端）</label>
     <div class="filerow">
-      <input id="kv_ref" type="text" placeholder="留空则用 virus-db/final.cluster.ref.fasta" data-i18n-ph="tk.kvRefPh">
-      <button class="btn small" onclick="browse('kv_ref')">📁</button>
+      <input id="kv_reads_r1" type="text" placeholder="R1 FASTQ" data-i18n-ph="tk.kvReadsR1Ph">
+      <button class="btn small" onclick="browse('kv_reads_r1')" title="选择 R1 文件">📁</button>
+    </div>
+    <div class="filerow" style="margin-top:6px">
+      <input id="kv_reads_r2" type="text" placeholder="R2 FASTQ（双端时选；单端留空）" data-i18n-ph="tk.kvReadsR2Ph">
+      <button class="btn small" onclick="browse('kv_reads_r2')" title="选择 R2 文件">📁</button>
     </div>
 
-    <label style="margin-top:10px" data-i18n="tk.kvRefInfoLbl">参考注释 TSV（可选，列含 Accession/Taxid/Species/Segment）</label>
-    <div class="filerow">
-      <input id="kv_ref_info" type="text"
-             placeholder="留空则用 virus-db/final.cluster.ref_info.tsv（不存在则可缺省）" data-i18n-ph="tk.kvRefInfoPh">
-      <button class="btn small" onclick="browse('kv_ref_info')">📁</button>
-    </div>
-    <p class="hint" style="margin:4px 0 0" data-i18n="tk.kvRefInfoHint">注释表<b>不是必备</b>：缺省时物种名回退为 accession，
-      仅影响 ①物种名显示 ②多片段病毒的完整节段检出规则（单/自定义基因组不受影响）。
-      用单基因组或自定义参考时，把上两栏一起指过去即可（索引会临时建在本次 run 目录）。</p>
+    <!-- 参考库与引擎已唯一化（默认鉴定库 kv_index + salmon）：
+         缺省参考/注释/索引由后端 kv_stage.default_reference() 统一解析，不再暴露选择项 -->
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
-      <div class="gp-item">
-        <label data-i18n="tk.kvEngineLbl">比对引擎</label>
-        <select id="kv_engine">
-          <option value="minibwa" selected data-i18n="tk.optMinibwa">minibwa（替代 bowtie2）</option>
-          <option value="salmon" data-i18n="tk.optSalmon">salmon（定量为主）</option>
-        </select>
-      </div>
-      <div class="gp-item" style="min-width:240px">
-        <label data-i18n="tk.kvIndexLbl">鉴定库（对比索引复用）</label>
-        <select id="kv_index_dir" style="width:100%">
-          <option value="" data-i18n="tk.optUnspecified">不指定（默认/临时）</option>
-        </select>
-      </div>
-      <div class="gp-item">
-        <label data-i18n="tk.kvStageLbl">跑哪些段</label>
-        <select id="kv_stage">
-          <option value="all" selected data-i18n="tk.optStageAll">全部（鉴定→过滤→共识→绘图→变异）</option>
-          <option value="identify" data-i18n="tk.optStageIdentify">仅鉴定</option>
-          <option value="filter" data-i18n="tk.optStageFilter">仅过滤</option>
-          <option value="consensus" data-i18n="tk.optStageConsensus">仅共识序列</option>
-          <option value="plot" data-i18n="tk.optStagePlot">仅深度绘图</option>
-          <option value="variant" data-i18n="tk.optStageVariant">仅变异注释</option>
-        </select>
-      </div>
       <div class="gp-item">
         <label data-i18n="tk.kvMinCovLbl">覆盖率下限 %</label>
         <input id="kv_min_cov" type="number" min="0" max="100" step="1" value="10" style="width:80px">
@@ -648,6 +808,19 @@
         <input id="kv_min_poisson" type="number" min="0" max="1" step="0.05" value="0.3" style="width:80px">
       </div>
       <div class="gp-item">
+        <label data-i18n="c.threads">线程数</label>
+        <input id="kv_threads" type="number" min="1" placeholder="自动" style="width:80px" data-i18n-ph="c.phAuto">
+      </div>
+    </div>
+
+    <!-- 变异 / 绘图参数：本卡只跑「识别/定量 + 过滤」两段，这些字段用不到，
+         保留在这里只为「一键分析（全流程）」卡的「⤓ 取该卡参数」复用
+         （KVCHAIN_FIELD_MAP 会把 kv_* 抄成 kvc_*），故默认收起，不再混进两段口径。 -->
+    <details class="rpt-sec" style="margin-top:10px">
+      <summary data-i18n="tk.kvAuxParams">变异 / 绘图参数（本卡两段用不到；供「一键分析（全流程）」取用）</summary>
+      <div class="rpt-sec-body">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
+      <div class="gp-item">
         <label data-i18n="tk.kvVarQualLbl">变异 QUAL 下限</label>
         <input id="kv_variant_qual" type="number" min="0" step="0.5" value="3.5" style="width:80px">
       </div>
@@ -658,10 +831,6 @@
       <div class="gp-item">
         <label data-i18n="tk.kvEmailLbl">NCBI 邮箱</label>
         <input id="kv_email" type="text" placeholder="用于下载 GenBank 注释" style="width:180px" data-i18n-ph="tk.kvEmailPh">
-      </div>
-      <div class="gp-item">
-        <label data-i18n="c.threads">线程数</label>
-        <input id="kv_threads" type="number" min="1" placeholder="自动" style="width:80px" data-i18n-ph="c.phAuto">
       </div>
       <div class="gp-item">
         <label title="跳过 GenBank 下载，绘图不带基因轨道" data-i18n="tk.kvNoGenesLbl" data-i18n-title="tk.kvNoGenesTitle">不下载注释</label>
@@ -687,11 +856,13 @@
         <label title="勾选后变异图画全部变异位点；不勾则只画非同义（默认，与 246 参考脚本一致）" data-i18n="tk.allVariantsLbl" data-i18n-title="tk.allVariantsTitle">画全部变异</label>
         <input id="kv_all_variants" type="checkbox" style="width:auto">
       </div>
-    </div>
+        </div>
+      </div>
+    </details>
 
     <div style="margin-top:10px">
       <button class="btn primary" onclick="runKvsuite(this)" data-i18n="tk.runKvsuite">▶ 运行已知病毒识别与定量</button>
-      <span class="hint" style="margin-left:8px" data-i18n="tk.kvThresholdHint">阈值口径：鉴定段用覆盖率/深度/reads 三门槛 + 泊松打假；变异段用 QUAL/深度/AF/链支持四重过滤</span>
+      <span class="hint" style="margin-left:8px" data-i18n="tk.kvThresholdHint">阈值口径：覆盖率/平均深度/reads 三门槛 + 泊松打假（识别/定量段判定），过滤段按双轨阈值复核</span>
     </div>
 
     <div class="tool-out">
@@ -798,35 +969,17 @@
       </div>
     </div>
 
-    <label style="margin-top:10px" data-i18n="tk.csReadsLbl">回贴 reads（不填则按下方来源在样本目录内自动查找）</label>
+    <label style="margin-top:10px" data-i18n="tk.csReadsLbl">回贴 reads（R2 留空按单端；不填则默认用所选 kvsuite 运行输入的序列，contig 运行取去宿主后全量）</label>
     <div class="filerow">
-      <input id="cs_reads" type="text" placeholder="选择 reads 目录（如 01_host_removal）或 R1 文件；多个用逗号分隔" data-i18n-ph="tk.phReadsDir">
-      <button class="btn small" onclick="browseDir('cs_reads')" title="选择目录">📂</button>
-      <button class="btn small" onclick="browse('cs_reads')" title="选择文件">📁</button>
+      <input id="cs_reads_r1" type="text" placeholder="R1 FASTQ" data-i18n-ph="tk.kvReadsR1Ph">
+      <button class="btn small" onclick="browse('cs_reads_r1')" title="选择 R1 文件">📁</button>
+    </div>
+    <div class="filerow" style="margin-top:6px">
+      <input id="cs_reads_r2" type="text" placeholder="R2 FASTQ（双端时选；单端留空）" data-i18n-ph="tk.kvReadsR2Ph">
+      <button class="btn small" onclick="browse('cs_reads_r2')" title="选择 R2 文件">📁</button>
     </div>
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
-      <div class="gp-item">
-        <label data-i18n="tk.csMapModeLbl">映射模式</label>
-        <select id="cs_map_mode" onchange="csMapModeChanged()">
-          <option value="realign" selected data-i18n="tk.optRealign">重新比对（推荐，BAM 覆盖更全）</option>
-          <option value="reuse" data-i18n="tk.optReuse">复用 kvsuite BAM（快，有比对偏好性）</option>
-        </select>
-      </div>
-      <div class="gp-item" id="cs_reuse_wrap" style="display:none">
-        <label data-i18n="tk.csReuseBamLbl">复用 BAM</label>
-        <select id="cs_reuse_bam" style="min-width:240px">
-          <option value="" data-i18n="tk.optPickKvRunFirst">（先选 kvsuite 运行）</option>
-        </select>
-      </div>
-      <div class="gp-item">
-        <label data-i18n="tk.csReadsSrcLbl">reads 来源（未手动指定时）</label>
-        <select id="cs_reads_src">
-          <option value="host_removed" selected data-i18n="tk.optHostRemovedAll">去宿主后全量（推荐）</option>
-          <option value="viral" data-i18n="tk.optViralFiltered">病毒筛选后（快，低估变异）</option>
-          <option value="clean" data-i18n="tk.optCleanRaw">质控后原始（含宿主）</option>
-        </select>
-      </div>
       <div class="gp-item">
         <label data-i18n="tk.minBaseQualLbl">最小碱基质量</label>
         <input id="cs_min_qual" type="number" min="0" max="60" value="20" style="width:80px">
@@ -863,7 +1016,7 @@
 
     <div style="margin-top:10px">
       <button class="btn primary" onclick="runConsensus(this)" data-i18n="tk.runConsensus">▶ 运行共识与变异分析</button>
-      <span class="hint" style="margin-left:8px">深度不足处共识为简并符；iSNV 需次等位 ≥ 阈值且 ≥ 2 条 reads</span>
+      <span class="hint" style="margin-left:8px">双端 reads 按 _R1/_R2 配对回贴（固定重新比对）；深度不足处共识为简并符；iSNV 需次等位 ≥ 阈值且 ≥ 2 条 reads</span>
     </div>
 
     <div class="tool-out">
@@ -916,7 +1069,7 @@
 
     <label data-i18n="tk.vrRefLbl">参考序列库（必填，必须是变异所在参考）</label>
     <div class="filerow">
-      <input id="vr_ref" type="text" placeholder="留空则用 virus-db/final.cluster.ref.fasta" data-i18n-ph="tk.phVrRef">
+      <input id="vr_ref" type="text" placeholder="留空则用 databases/virusref_db/final.cluster.ref.fasta" data-i18n-ph="tk.phVrRef">
       <button class="btn small" onclick="browse('vr_ref')">📁</button>
     </div>
 
@@ -1131,21 +1284,31 @@
   <section class="card" id="t-seqprep">
     <h2 data-i18n="tk.seqprepH2">🧬 参考序列获取（ICTV 科 / 属 · accession · 检索式）</h2>
     <p class="hint" data-i18n="tk.seqprepHint">比较基因组分析的序列准备：按 <b>ICTV 科 / 属</b> 一键下载整科整属
-       参考基因组（databases/tax/ictv 谱系 + 本地序列优先，缺的经 NCBI 补齐），
+       参考基因组（databases/tree_db/ictv_tree.db 谱系 + 本地序列优先，缺的经 NCBI 补齐），
        或按 accession 列表 / Entrez 检索式下载。每次下载同时产出：
        <b>GenBank 集合</b>（保留 CDS 注释 → 进化树构建 / 共线性比较）与
        <b>FASTA 参考集</b>（样品流程建树追加参考）；也支持导入本机 .gb/.gbk。</p>
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
       <div class="gp-item">
-        <label data-i18n="tk.setNameLbl">集合名（必填，三种来源共用）</label>
-        <input id="s_name" type="text" placeholder="如 tobamo" data-i18n-ph="tk.phSetName">
+        <label data-i18n="tk.setNameLbl">集合名（留空自动生成，三种来源共用）</label>
+        <input id="s_name" type="text" placeholder="留空自动生成，如 tobamovirus_20260910" data-i18n-ph="tk.phSetName">
       </div>
       <button class="btn" onclick="seqPrepExample()" title="预填示例：ICTV 属选择 + 集合名" data-i18n="gn.fillExampleTitle">✨ 示例</button>
     </div>
 
     <h3 style="margin-top:16px" data-i18n="tk.ictvStep1H3">① ICTV 递进选参（界 → 门 → 纲 → 目 → 科 → 属 → 种，选得越深集合越聚焦）</h3>
-    <div id="spCascade" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:6px"></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:6px">
+      <div class="gp-item">
+        <label data-i18n="tk.dbLbl">参考库</label>
+        <select id="sp_db" onchange="ictvDbChanged()">
+          <option value="plant" selected data-i18n="tk.optDbPlant">植物病毒库 plant</option>
+          <option value="ictv" data-i18n="tk.optDbIctv">全病毒界库 ictv</option>
+        </select>
+      </div>
+      <span class="hint" style="padding-bottom:6px" data-i18n="tk.dbHint">库本身决定宿主范围：plant = 仅植物病毒；ictv = 全病毒界，不过滤宿主。</span>
+    </div>
+    <div id="spCascade" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px"></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
       <div class="gp-item">
         <label data-i18n="tk.genomeCompletenessLbl">基因组完整度</label>
@@ -1182,7 +1345,7 @@
       <button class="btn primary" onclick="ictvDownload(this)" data-i18n="tk.ictvDownloadBtn">⬇ 下载所选分类的全部序列</button>
       <span class="hint" id="spScope"></span>
     </div>
-    <p class="hint" data-i18n="tk.ictvCountHint">计数 = accession 条数（多分段已拆行）；预览列 Source：ictv_tree.db / plant_tree.db / gb_cache = 本地已有，ncbi = 需联网补齐。</p>
+    <p class="hint" data-i18n="tk.ictvCountHint">计数 = accession 条数（多分段已拆行）；预览列 Source：plant_tree.db / gb_cache = 本地已有，ncbi = 需联网补齐。</p>
     <div class="scroll-md" id="spPreview" style="margin-top:10px"></div>
 
     <h3 style="margin-top:18px" data-i18n="tk.accStep2H3">② accession 列表 / Entrez 检索式（二选一）</h3>
@@ -1209,7 +1372,7 @@
              placeholder="本机 .gb/.gbk 文件（逗号分隔路径，点 📂 选择）" data-i18n-ph="tk.phGbFiles"
              style="flex:2;min-width:280px">
       <button class="btn" onclick="browse('s_files')">📂</button>
-      <button class="btn" onclick="fillExample('s_files', EXAMPLE_SYNTENY_GBS); var n=$('s_name'); if(n && !n.value) n.value='example_synteny';" title="填入内置示例（3 条同属 .gb + 集合名，离线可导入比较）" data-i18n="tk.btnExampleGb">✨ 示例 .gb</button>
+      <button class="btn" onclick="fillExample('s_files', EXAMPLE_GB_TRIO); var n=$('s_name'); if(n && !n.value) n.value='example_synteny';" title="填入内置示例（3 条同属 .gb + 集合名，离线导入练习）" data-i18n="tk.btnExampleGb">✨ 示例 .gb</button>
       <button class="btn" onclick="gbImport(this)" data-i18n="tk.btnImport">📥 导入</button>
     </div>
     <div class="tool-out">
@@ -1221,49 +1384,8 @@
     <div id="gbCollectionsMgmt"><p class="hint" data-i18n="c.loading">加载中…</p></div>
     <div id="gbWarnings" style="margin-top:8px"></div>
 
-    <h3 style="margin-top:16px" data-i18n="tk.cdsPepH3">🧬 CDS / PEP 提取产物（PhyloSuite 布局：genome / CDS / PEP 分类分目录，按基因拆分）</h3>
-    <p class="hint" data-i18n="tk.cdsPepHint">对集合点「🧬 提取」后，这里列出提取产物：genome.fa（全基因组）、
-       CDS.fa / PEP.fa（汇总）、CDS/&lt;基因&gt;.fa 与 PEP/&lt;基因&gt;.fa（同源基因
-       每基因组一份，直接送序列比对或进化树构建做基因树）。</p>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0">
-      <select id="exColl" style="max-width:320px">
-        <option value="" data-i18n="tk.optPickCollExtract">（选择集合查看提取产物）</option>
-      </select>
-      <button class="btn small" onclick="gbExtractFilesLoad()" data-i18n="c.refreshBtn">↻ 刷新</button>
-    </div>
-    <div id="exFiles"><p class="hint" data-i18n="c.noData">暂无数据</p></div>
     <h3 style="margin-top:16px" data-i18n="tk.fastaRefSetH3">📦 FASTA 参考集（样品流程建树追加参考用）</h3>
     <div id="ncbiCollections"><p class="hint" data-i18n="c.loading">加载中…</p></div>
-  </section>
-
-  <!-- 同属共线性比较（LoVis4u） -->
-  <section class="card" id="t-synteny">
-    <h2 data-i18n="tb.synteny">🧬 同属共线性比较（LoVis4u）</h2>
-    <p class="hint" data-i18n="tk.syntenyHint">同属病毒基因组基因排列比较（LoVis4u 官方引擎，平台已修补其
-       Windows 兼容问题并指定内置 MMseqs2）：CDS 提取 → 蛋白聚类 →
-       <b>LoVis4u 出版级共线性 PDF</b>（按蛋白组相似度排序、可变基因高亮）；
-       同时输出基因家族清单与成对共享基因比例表。LoVis4u 不可用时自动回退
-       平台内置绘图（不影响结果表）。集合到「参考序列获取」卡准备；
-       多聚蛋白基因组（如马铃薯 Y 病毒属）自动改用成熟肽段做基因。</p>
-    <div style="margin-top:10px;display:flex;gap:16px;flex-wrap:wrap;align-items:end">
-      <div class="gp-item"><label data-i18n="tk.minIdentLbl">聚类最小一致性</label>
-        <input id="s_min_ident" type="number" step="0.05" value="0.30" min="0.05" max="0.95"></div>
-      <div class="gp-item"><label data-i18n="tk.minDualCovLbl">最小双侧覆盖度</label>
-        <input id="s_min_cov" type="number" step="0.05" value="0.50" min="0.05" max="1"></div>
-    </div>
-    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <button class="btn primary" id="synteny_run_btn" onclick="runCompareFor($('synColl').value, this)" data-i18n="tk.btnCompare">▶ 比较</button>
-      <select id="synColl" style="min-width:260px"><option value="" data-i18n="tk.optPickCollFirst">（请先到下方选择集合，或「参考序列获取」卡导入）</option></select>
-    </div>
-    <div class="tool-out">
-      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
-      <div class="toolrun" id="toolrun-synteny"></div>
-    </div>
-    <h3 style="margin-top:16px" data-i18n="tk.syntenyResultH3">📊 共线性结果（页内展示）</h3>
-    <div id="syntenyResult"><p class="hint" data-i18n="tk.syntenyResultHint">选集合点「▶ 比较」，完成后在此直接展示共线性图 / 成对共享表 / 基因家族</p></div>
-    <h3 style="margin-top:16px" data-i18n="tk.gbCollectionsMgmtH3">🧬 GenBank 集合（导入 / 管理）</h3>
-    <p class="hint" id="gbParamHint"></p>
-    <div id="gbCollections"><p class="hint" data-i18n="c.loading">加载中…</p></div>
   </section>
 
   <!-- 序列比对（MAFFT + trimAl + 可编辑查看器） -->
@@ -1274,14 +1396,44 @@
        （automated1 / gappyout / strict，可关）。产物在页内<b>彩色比对查看器</b>
        浏览（全列渲染、分页、核酸/蛋白配色），支持<b>✏️ 编辑</b>——改名、改序列、
        删行，保存为副本（&lt;原名&gt;.edit.fasta）后可直接送建树 / SDT。
+       查看器也可直接挑<b>样品流程</b>或<b>🧬 集合建树</b>的已有比对（不必手填路径）。
        输入可用内置示例、集合基因提取产物或任意比对 FASTA。</p>
 
     <h3 style="margin-top:14px" data-i18n="tk.runAlignH3">① 运行比对</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-bottom:8px">
+      <div class="gp-item" style="flex:2;min-width:260px">
+        <label data-i18n="tk.alCollLbl">集合</label>
+        <select id="alColl" style="max-width:360px">
+          <option value="" data-i18n="tk.optNoCollection">（暂无集合——先到「参考序列获取」下载）</option>
+        </select>
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.alSourceLbl">来源</label>
+        <select id="alSource" onchange="alSourceChanged()">
+          <option value="manual" selected data-i18n="tk.optSrcManual">手填 / 粘贴序列</option>
+          <option value="genome" data-i18n="tk.optSrcGenomeFull">全长序列</option>
+          <option value="selected" data-i18n="tk.optSrcSelected">挑选的序列集</option>
+        </select>
+      </div>
+      <div class="gp-item" id="alSelItem" style="display:none">
+        <label data-i18n="tk.tbSelectedLbl">挑选序列集分子</label>
+        <select id="alSelMol">
+          <option value="CDS" selected data-i18n="tk.optSelCds">CDS（nt）</option>
+          <option value="PEP" data-i18n="tk.optSelPep">PEP（aa）</option>
+        </select>
+      </div>
+      <button class="btn small" onclick="alFillFromSource()" data-i18n="tk.btnFillFromSource">↻ 填入</button>
+    </div>
     <div class="filerow">
       <input id="al_fa" type="text" placeholder="选择 .fasta/.fa/.fna 或粘贴序列（≥2 条）" data-i18n-ph="tk.phFa2Plus">
       <button class="btn small" onclick="browse('al_fa')">📁</button>
       <button class="btn small" onclick="pasteSeq('al_fa', '.fasta')" title="粘贴 FASTA 序列" data-i18n="tk.btnPaste" data-i18n-title="tk.pasteFastaTitle">📋</button>
       <button class="btn small" onclick="fillExample('al_fa', EXAMPLE_SET_FASTA)" title="填入内置示例（6 条同属基因组）" data-i18n="gn.fillExampleTitle">✨ 示例</button>
+    </div>
+    <div class="filerow" style="margin-top:8px">
+      <input id="al_fa_extra" type="text" placeholder="额外序列（可选；与上方输入合并参与比对）" data-i18n-ph="tk.phFaExtra">
+      <button class="btn small" onclick="browse('al_fa_extra')">📁</button>
+      <button class="btn small" onclick="pasteSeq('al_fa_extra', '.fasta')" title="粘贴 FASTA 序列" data-i18n="tk.btnPaste" data-i18n-title="tk.pasteFastaTitle">📋</button>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
       <div class="gp-item"><label data-i18n="tk.mafftStrategyLbl">MAFFT 策略</label>
@@ -1313,6 +1465,15 @@
       <button class="btn small" onclick="browse('alPath')">📁</button>
       <button class="btn small primary" onclick="alignLoad()" data-i18n="tk.btnOpen">📂 打开</button>
       <button class="btn small" onclick="alignEditToggle()" id="alEditBtn" data-i18n="tk.btnEditMode">✏️ 编辑模式</button>
+    </div>
+    <p class="hint" style="margin-top:8px" data-i18n="tk.alFromExisting">或直接选已有比对（样品流程 / 🧬 集合建树）：</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+      <div class="gp-item"><label data-i18n="tk.sampleOrCollLbl">样品 / 集合</label>
+        <select id="alSample" onchange="alPickGroups()" style="min-width:180px">
+          <option value="" data-i18n="c.loading">（加载中…）</option></select></div>
+      <div class="gp-item"><label data-i18n="tk.groupLbl">分组</label>
+        <select id="alGroup" onchange="alPickView()" style="min-width:220px">
+          <option value="" data-i18n="tk.optPickSampleFirst">（先选样品）</option></select></div>
     </div>
     <div class="hint" id="alMeta" style="margin-top:6px"></div>
     <div id="alNav" style="margin-top:8px;display:none">
@@ -1351,7 +1512,7 @@
        IQ-TREE，IQ-TREE 含 UFBoot+SH-aLRT 双支持值）→ ③ 页内查看树与比对，
        产物在结果中心以「🧬 集合」查看 / 导出。也可直接输入 FASTA 建树。</p>
 
-    <h3 style="margin-top:14px" data-i18n="tk.tbSecColl">① 集合建树（科 / 属级；可选全基因组 / 基因 CDS / 基因蛋白）</h3>
+    <h3 style="margin-top:14px" data-i18n="tk.tbSecColl">① 集合建树（科 / 属级；全基因组 / 挑选序列集 / 已比对）</h3>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
       <div class="gp-item" style="flex:2;min-width:260px">
         <label data-i18n="tk.gbCollectionLbl">GenBank 集合</label>
@@ -1360,17 +1521,24 @@
         </select>
       </div>
       <div class="gp-item">
-        <label data-i18n="tk.tbMoleculeLbl">建树分子</label>
-        <select id="tbMolecule" onchange="tbMolChanged()">
-          <option value="genome" selected data-i18n="tk.optGenomeNt">全基因组（nt）</option>
-          <option value="cds" data-i18n="tk.optGeneCdsNt">基因 CDS（nt，按关键词提取）</option>
-          <option value="pep" data-i18n="tk.optGenePepAa">基因蛋白 PEP（aa，按关键词提取）</option>
+        <label data-i18n="tk.tbSourceLbl">建树来源</label>
+        <select id="tbSource" onchange="tbSourceChanged()">
+          <option value="genome" selected data-i18n="tk.optSrcGenome">全基因组树</option>
+          <option value="selected" data-i18n="tk.optSrcSelected">挑选的序列集</option>
+          <option value="aligned" data-i18n="tk.optSrcAligned">比对好的</option>
         </select>
       </div>
-      <div class="gp-item" style="flex:1;min-width:200px">
-        <label data-i18n="tk.tbGeneKeywordLbl">基因 / 产物关键词（CDS·PEP 用）</label>
-        <input id="tbGene" type="text" placeholder="如 coat protein / RdRp" data-i18n-ph="tk.phGeneKeyword"
-               disabled>
+      <div class="gp-item" id="tbSelectedItem" style="display:none">
+        <label data-i18n="tk.tbSelectedLbl">挑选序列集分子</label>
+        <select id="tbSelectedMol">
+          <option value="CDS" selected data-i18n="tk.optSelCds">CDS（nt）</option>
+          <option value="PEP" data-i18n="tk.optSelPep">PEP（aa）</option>
+        </select>
+      </div>
+      <div class="gp-item" style="flex:1;min-width:200px;display:none" id="tbAlignedItem">
+        <label data-i18n="tk.tbAlignedLbl">已比对 FASTA</label>
+        <input id="tbAlignedPath" type="text" placeholder="如 tool_runs/align_…/aln.trim.fasta"
+               data-i18n-ph="tk.phAlignPath2">
       </div>
       <div class="gp-item">
         <label data-i18n="pp.tree_tool">建树工具</label>
@@ -1380,11 +1548,13 @@
           <option value="iqtree" data-i18n="tk.optIqtreeSlow">IQ-TREE（慢，含支持值）</option>
         </select>
       </div>
+      <button class="btn small" id="tbUseAlPath" onclick="tbUseAlPath()" style="display:none"
+              data-i18n="tk.btnUseAlPath">用刚才的比对</button>
       <button class="btn primary" onclick="tbBuild(this)" data-i18n="tk.btnBuildTree">🌳 建树</button>
     </div>
-    <p class="hint" id="tbMolHint" data-i18n="tk.tbMolHint">基因级模式从集合 .gb 的 CDS 注释提取同源基因
-    （product/gene/note 关键词匹配，每基因组取首个命中）——coat protein、
-    RNA-dependent RNA polymerase 等单拷贝基因适合属内基因树。</p>
+    <p class="hint" id="tbSrcHint" data-i18n="tk.tbSrcHint">全基因组树：集合内全基因组序列 MAFFT 比对
+    → 建树（产物 phylo/）。挑选的序列集：CDS / PEP 模块产物直接建树。
+    比对好的：已完成的比对 FASTA 跳过 MAFFT 直接建树。</p>
     <div class="tool-out">
       <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
       <div class="toolrun" id="toolrun-treebuild"></div>
@@ -1430,48 +1600,10 @@
     <div class="hint" id="tvMeta" style="margin-top:8px"></div>
     <div id="tvBox" style="margin-top:6px;height:72vh;overflow:hidden;background:#fff;border:1px solid #e2e8f0;border-radius:6px">
       <p class="hint" data-i18n="c.noData">暂无数据</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn small" onclick="tbSendToAlign()" data-i18n="tk.tbSendMsa">🧬 看建树比对（MSA 查看）</button>
+    </div>
 
-    <h3 style="margin-top:18px" data-i18n="tk.tbSecMsa">④ MSA 查看（建树比对 → SNP-only 变异热图）</h3>
-    <label data-i18n="tk.msaInputLbl">输入 FASTA（≥2 条，比对后页内查看）</label>
-    <div class="filerow">
-      <input id="ms_fa" type="text" placeholder="选择 .fasta/.fa/.fna 或粘贴序列" data-i18n-ph="tk.phFaOrPaste">
-      <button class="btn small" onclick="browse('ms_fa')">📁</button>
-      <button class="btn small" onclick="pasteSeq('ms_fa', '.fasta')" title="粘贴 FASTA 序列" data-i18n-title="tk.pasteFastaTitle">📋</button>
-      <button class="btn small" onclick="fillExample('ms_fa', EXAMPLE_SET_FASTA)" title="填入内置示例（6 条同属基因组）" data-i18n-title="tk.fillExample6Title">✨ 示例</button>
-    </div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
-      <div class="gp-item"><label data-i18n="tk.maxSeq200Lbl">最多序列数（3~200）</label>
-        <input id="ms_maxn" type="number" value="30" min="3" max="200"></div>
-      <button class="btn primary" onclick="msaRunAlign(this)" data-i18n="tk.msaRunAlign">▶ 运行比对并查看</button>
-    </div>
-    <div class="tool-out">
-      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
-      <div class="toolrun" id="toolrun-msa"></div>
-      
-    </div>
-    <p class="hint" style="margin-top:12px" data-i18n="tk.msaOrExisting">或查看已有比对（样品流程 / 🧬 集合建树）：</p>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
-      <div class="gp-item"><label data-i18n="tk.sampleOrCollLbl">样品 / 集合</label>
-        <select id="msSample" onchange="msaToolLoadGroups()" style="min-width:180px">
-          <option value="" data-i18n="c.loading">（加载中…）</option></select></div>
-      <div class="gp-item"><label data-i18n="tk.groupLbl">分组</label>
-        <select id="msGroup" onchange="msaToolView()" style="min-width:220px">
-          <option value="" data-i18n="tk.optPickSampleFirst">（先选样品）</option></select></div>
-      <div class="gp-item"><label data-i18n="rs.cols">每页列数</label>
-        <select id="msCols" onchange="msaToolRender()">
-          <option>60</option><option selected>100</option><option>150</option></select></div>
-      <label class="chk"><input type="checkbox" id="msCons" checked onchange="msaToolRender()"> <span data-i18n="tk.msaConsRow">共识行</span></label>
-      <label class="chk"><input type="checkbox" id="msDiv" checked onchange="msaToolRender()"> <span data-i18n="tk.msaDivBar">变异度柱</span></label>
-    </div>
-    <div style="margin-top:8px" id="msDl"></div>
-    <div class="hint" id="msMeta" style="margin-top:6px"></div>
-    <div id="msNav" style="margin-top:8px;display:none">
-      <button class="btn small" onclick="msaToolPage(-1)" data-i18n="rs.prev">◀ 上一页</button>
-      <span class="hint" id="msPageInfo"></span>
-      <button class="btn small" onclick="msaToolPage(1)" data-i18n="rs.next">下一页 ▶</button>
-    </div>
-    <div class="scroll-vh" id="msBox" style="margin-top:8px"><p class="hint" data-i18n="c.noData">暂无数据</p></div>
-  
     <div class="rh" id="rh-treebuild"></div>
   </section>
 
@@ -1571,17 +1703,7 @@
 </div>
 
 <!-- 文件/目录选择对话框（与其它页共用 app.js 逻辑） -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid #e8edf2;text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <!-- Archaeopteryx.js 进化树查看器（d3 v7 + sax + phyloxml + forester，全部本地离线；
      jspdf/svg2pdf 提供 PDF 导出，canvg（ESM）提供 PNG 导出） -->
@@ -2347,7 +2469,7 @@ function renderViralContigs() {
         const scCol = isNaN(sc) ? '#1f2d3d'
           : sc >= 0.9 ? '#15803d' : sc >= 0.5 ? '#b45309' : '#b91c1c';
         const scBg = (!isNaN(sc) && sc < 0.1) ? 'background:#fef2f2;' : '';
-        let tds = `<td style="font-family:monospace;font-size:11px;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:#1a5276;text-decoration:underline dotted" title="${esc(x.contig)}（点击复制序列）" onclick="copyContigSeq('${esc(x.contig)}')">⧉ ${esc(short)}</td>`;
+        let tds = `<td style="font-family:monospace;font-size:11px;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:#1a5276;text-decoration:underline dotted" title="${esc(x.contig)}（点击复制序列）" data-contig="${esc(x.contig)}" onclick="copyContigSeq(this.dataset.contig)">⧉ ${esc(short)}</td>`;
         tds += ['realm', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species'].map(k => {
           const v = x[k] || '';
           const strong = (k === 'genus' || k === 'species') ? ';font-weight:600' : '';
@@ -2360,7 +2482,7 @@ function renderViralContigs() {
         tds += `<td style="white-space:nowrap">${x.host ? esc(x.host) : '<span style="color:#ccc">-</span>'}</td>`;
         tds += `<td style="white-space:nowrap">${[
             ['cdd', '🧩 CDD'], ['blastn', '🧬 BLASTN'], ['blastx', '🧬 BLASTX'], ['primer', '🧪 Primer']].map(([a, lb]) =>
-          `<button class="btn small" style="margin:1px" title="跳转到病毒注释分析并运行 ${a.toUpperCase()}" onclick="anaJump('${a}','${esc(x.contig)}')">${lb}</button>`).join('')}</td>`;
+          `<button class="btn small" style="margin:1px" title="跳转到病毒注释分析并运行 ${a.toUpperCase()}" data-contig="${esc(x.contig)}" onclick="anaJump('${a}',this.dataset.contig)">${lb}</button>`).join('')}</td>`;
         return `<tr style="${style}">${tds}</tr>`;
       }).join('') + '</table>'
       + `<p class="hint">${t('tk.tblSummaryPre', '共')} ${sorted.length} ${t('tk.tblUnit', '条')}${hfV ? t('tk.tblFiltered', '（宿主=') + esc(hfV) + t('tk.tblFrom', ' 筛选自 ') + vcRows.length + t('tk.tblUnit2', ' 条）') : ''} · ${t('tk.perPagePre', '每页')} ${PER_PAGE} ${t('tk.perPageUnit', '行')} · ${t('tk.clickIdHint', '点 Contig ID 复制序列')} · ${t('tk.jumpAnaHint', '分析按钮跳转「病毒注释分析」')}</p>`
@@ -2667,14 +2789,16 @@ function anaResultHtml(action, res) {
       `<table style="${tblCss}"><thead><tr>
         <th style="${thCss}">#</th><th style="${thCss}">${t('tk.thPrimerPair', '引物对')}</th>
         <th style="${thCss}">Forward 5\'→3\' (Tm/GC)</th><th style="${thCss}">Reverse 5\'→3\' (Tm/GC)</th>
-        <th style="${thCss}">${t('tk.thProduct', '产物(bp)')}</th><th style="${thCss}">${t('tk.thPenalty', '罚分')}</th></tr></thead><tbody>` +
+        <th style="${thCss}">${t('tk.thProduct', '产物(bp)')}</th><th style="${thCss}">${t('tk.thPenalty', '罚分')}</th>
+        <th style="${thCss}">${t('tk.thQuality', '质量评分')}</th></tr></thead><tbody>` +
       ps.map((p, i) => `<tr ${trHover}>
         <td style="${tdCss}">${i + 1}</td>
         <td style="${tdCss};font-weight:600">${esc(p.name)}</td>
         <td style="${tdCss};font-family:monospace">${esc(p.F_seq)} ${copyBtn(p.F_seq, p.name + '-F')}<br><span class="hint">${esc(p.F_tm)}° / ${esc(p.F_gc)}%</span></td>
         <td style="${tdCss};font-family:monospace">${esc(p.R_seq)} ${copyBtn(p.R_seq, p.name + '-R')}<br><span class="hint">${esc(p.R_tm)}° / ${esc(p.R_gc)}%</span></td>
         <td style="${tdCss};text-align:right">${esc(p.product)}</td>
-        <td style="${tdCss};text-align:right">${esc(p.penalty)}</td></tr>`).join('') +
+        <td style="${tdCss};text-align:right">${esc(p.penalty)}</td>
+        <td style="${tdCss};text-align:right">${p.score !== undefined && p.score !== null && p.score !== '' ? esc(p.score) + ' <span class="hint">' + esc(p.recommendation || '') + '</span>' : '—'}</td></tr>`).join('') +
       '</tbody></table>';
   }
   if (action === 'cdd') {
@@ -2834,57 +2958,50 @@ setInterval(() => { loadCaRuns('cdd'); loadCaRuns('hom'); }, 30000);
 /* ---------------- 已知病毒识别与定量（t-kvsuite） ---------------- */
 let KV_DATA = null;
 
-async function kvPickSamples() {
-  // 拉样品列表 → 弹窗多选（复选框）
-  let list = [];
-  try {
-    const r = await fetch('/api/samples');
-    list = await r.json();
-  } catch (e) { alert('无法获取样品列表: ' + e); return; }
-  if (!list.length) { alert('尚无样品，请先到「样品创建 / 批量导入」创建'); return; }
-  const cur = new Set((val('kv_samples') || '').split(',').map(s => s.trim()).filter(Boolean));
-  const html = `
-    <div style="padding:4px 2px">
-      <p class="hint" style="margin:0 0 8px">${t('tk.pickSamplesHintPre', '勾选要分析的样品（已选 ')}${cur.size}）</p>
-      <div class="scroll-md" style="border:1px solid var(--line);border-radius:6px">
-        <table class="tbl" style="margin:0">
-          <thead><tr><th style="width:40px">${t('tk.thPick', '选')}</th><th>${t('tk.thSampleName', '样品名')}</th><th>${t('tk.thProject', '项目')}</th><th>${t('c.thStatus', '状态')}</th></tr></thead>
-          <tbody>${list.map((x, i) => `
-            <tr>
-              <td><input type="checkbox" class="kv-pick" value="${esc(x.name)}" ${cur.has(x.name) ? 'checked' : ''}></td>
-              <td class="mono">${esc(x.name)}</td>
-              <td>${esc(x.project || '')}</td>
-              <td>${esc((x.last_status || '') + ' ' + (x.done || 0) + '/' + (x.total || 0))}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div style="margin-top:10px;display:flex;gap:8px">
-        <button class="btn primary" id="kvPickOk">${t('c.ok', '确定')}</button>
-        <button class="btn" id="kvPickCancel">${t('c.cancel', '取消')}</button>
-        <button class="btn small" id="kvPickAll">${t('c.selectAll', '全选')}</button>
-        <button class="btn small" id="kvPickNone">${t('c.clearAll', '清空')}</button>
-      </div>
-    </div>`;
-  const box = document.createElement('div');
-  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center';
-  const panel = document.createElement('div');
-  panel.style.cssText = 'background:var(--bg-card,#fff);border-radius:10px;padding:16px;min-width:520px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.25)';
-  panel.innerHTML = html;
-  box.appendChild(panel);
-  document.body.appendChild(box);
-  const close = () => box.remove();
-  panel.querySelector('#kvPickCancel').onclick = close;
-  panel.querySelector('#kvPickAll').onclick = () =>
-    panel.querySelectorAll('.kv-pick').forEach(c => c.checked = true);
-  panel.querySelector('#kvPickNone').onclick = () =>
-    panel.querySelectorAll('.kv-pick').forEach(c => c.checked = false);
-  panel.querySelector('#kvPickOk').onclick = () => {
-    const picked = [...panel.querySelectorAll('.kv-pick:checked')].map(c => c.value);
-    $('kv_samples').value = picked.join(',');
-    close();
-  };
-  box.onclick = ev => { if (ev.target === box) close(); };
+/* kvsuite 结果的默认容器（t-kvsuite 卡）。一键全流程卡用 KVC_IDS
+   复用同一套渲染函数，两卡各自独立渲染、互不覆盖。 */
+const KV_IDS = {
+  summary: 'kvSummary', identify: 'kvIdentifyTable',
+  filtered: 'kvFilteredTable', consensus: 'kvConsensusTable',
+  variant: 'kvVariantTable', variantPlots: 'kvVariantPlots',
+  evoSummary: 'kvEvoSummary', evoPlots: 'kvEvoPlots',
+  evoTables: 'kvEvoTables', plots: 'kvPlots',
+};
+
+/* 样品多选弹窗。targetId 指定回填的输入框：
+   t-kvsuite 卡 = kv_samples（默认，兼容旧调用），一键全流程卡 = kvc_samples。 */
+/* 格式转换：目录批量（扫描全部 .sra → 逐文件提交转换任务） */
+async function batchConvert(btn) {
+  const dir = val('cv_dir');
+  if (!dir) { alert(t('tk.cvDirNeed', '请先选择 .sra 目录')); return; }
+  return withBtn(btn, async () => {
+    let d;
+    try {
+      d = await (await fetch('/api/browse?path=' + encodeURIComponent(dir)
+        + '&all=1')).json();
+    } catch (e) { alert(t('tk.cvDirFail', '无法读取目录: ') + e); return; }
+    const target = val('cv_target') || 'fastq';
+    const files = (d.files || []).map(f => f.name)
+      .filter(n => n.toLowerCase().endsWith('.sra'));
+    if (!files.length) { alert(t('tk.cvDirEmpty', '该目录下没有 .sra 文件')); return; }
+    let ok = 0, fail = 0;
+    for (const fn of files) {
+      const full = _joinBrowse(d.cwd, fn);
+      try {
+        const r = await fetch('/api/tool/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: 'convert',
+                                 params: { input: full, target } }) });
+        r.ok ? ok++ : fail++;
+      } catch (e) { fail++; }
+    }
+    if (typeof startPolling === 'function') startPolling();
+    toast(t('tk.batchDone', '批量提交'),
+      t('tk.cvBatchDone', '已提交 {n} 个转换任务（任务中心看进度）')
+        .replace('{n}', ok)
+      + (fail ? '；' + t('tk.cvBatchFail', '失败') + ' ' + fail : ''),
+      { ttl: 6000 });
+  }, t('tk.batchSubmitting', '⏳ 提交中…'));
 }
 
 /* ---------------- 病毒变异分析（t-variant，独立卡片）---------------- */
@@ -3063,31 +3180,36 @@ async function runVirchain(btn) {
   } catch (e) { alert('无法连接平台服务: ' + e); }
 }
 
-/* ---------- 一键分析：病毒定量与共识（kvsuite 全流程） ---------- */
+/* ---------- 一键分析：病毒定量与共识（kvsuite 全流程） ----------
+   本卡（t-kvchain）用的是自有的 kvc_* 表单：此前它读的是 t-kvsuite 卡的 kv_*
+   字段，而那张卡在别的模块页里，用户看不到也改不了（2026-09-11 实测
+   「没有输入、没有输出、没有参数」）。需要沿用那张卡的参数时走
+   kvchainPullKvsuite() 显式搬一次，避免两套表单静默漂移。 */
 async function runKvchain(btn) {
-  const samples = val('kv_samples');
-  if (!samples) { alert('请先在下方填写样品'); return; }
+  const samples = val('kvc_samples');
+  const reads = [val('kvc_reads_r1'), val('kvc_reads_r2')].filter(Boolean).join(',');
+  if (!samples && !reads) {
+    alert('请先选样品（📋 按钮可多选），或填入测序数据 R1（双端再填 R2）路径'); return;
+  }
   const params = {
-    samples,
-    reference: val('kv_ref') || undefined,
-    ref_info: val('kv_ref_info') || undefined,
-    index_dir: val('kv_index_dir') || undefined,
-    engine: $('kv_engine').value,
-    min_cov: +val('kv_min_cov'),
-    min_depth: +val('kv_min_depth'),
-    min_reads: +val('kv_min_reads'),
-    min_poisson: +val('kv_min_poisson'),
-    variant_qual: +val('kv_variant_qual'),
-    min_freq: +val('kv_min_freq'),
-    aa_label_cutoff: +val('kv_aa_label_cutoff'),
-    max_aa_labels: +val('kv_max_aa_labels'),
-    all_variants: $('kv_all_variants').checked || undefined,
-    ncbi_email: val('kv_email') || undefined,
-    no_genes: $('kv_no_genes').checked || undefined,
-    no_variant_evo: !$('kv_evo').checked || undefined,
-    no_snpgenie: !$('kv_snpgenie').checked || undefined,
+    samples: samples || undefined,
+    reads: reads || undefined,
+    // 参考库/引擎已唯一化（默认鉴定库 kv_index + salmon），缺省全交后端解析
+    min_cov: +val('kvc_min_cov'),
+    min_depth: +val('kvc_min_depth'),
+    min_reads: +val('kvc_min_reads'),
+    min_poisson: +val('kvc_min_poisson'),
+    variant_qual: +val('kvc_variant_qual'),
+    min_freq: +val('kvc_min_freq'),
+    aa_label_cutoff: +val('kvc_aa_label_cutoff'),
+    max_aa_labels: +val('kvc_max_aa_labels'),
+    all_variants: $('kvc_all_variants').checked || undefined,
+    ncbi_email: val('kvc_email') || undefined,
+    no_genes: $('kvc_no_genes').checked || undefined,
+    no_variant_evo: !$('kvc_evo').checked || undefined,
+    no_snpgenie: !$('kvc_snpgenie').checked || undefined,
   };
-  const threads = +val('kv_threads') || null;
+  const threads = +val('kvc_threads') || null;
   try {
     const r = await fetch('/api/tool/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3098,6 +3220,36 @@ async function runKvchain(btn) {
     startPolling();
     watchTaskBtn(d.task, btn, '⏳ 全流程运行中…', () => loadChainResult('kvchain', d.run));
   } catch (e) { alert('无法连接平台服务: ' + e); }
+}
+
+/* 一键全流程卡 ← 「已知病毒识别与定量」卡：把当前表单值整份搬过来。
+   两卡的字段名一一对应（kv_x → kvc_x），只缺「跑哪些段」（本入口固定 all）。 */
+const KVCHAIN_FIELD_MAP = [
+  ['kv_samples', 'kvc_samples'],
+  ['kv_reads_r1', 'kvc_reads_r1'], ['kv_reads_r2', 'kvc_reads_r2'],
+  ['kv_min_cov', 'kvc_min_cov'],
+  ['kv_min_depth', 'kvc_min_depth'], ['kv_min_reads', 'kvc_min_reads'],
+  ['kv_min_poisson', 'kvc_min_poisson'], ['kv_variant_qual', 'kvc_variant_qual'],
+  ['kv_min_freq', 'kvc_min_freq'], ['kv_aa_label_cutoff', 'kvc_aa_label_cutoff'],
+  ['kv_max_aa_labels', 'kvc_max_aa_labels'], ['kv_email', 'kvc_email'],
+  ['kv_threads', 'kvc_threads'], ['kv_no_genes', 'kvc_no_genes'],
+  ['kv_evo', 'kvc_evo'], ['kv_snpgenie', 'kvc_snpgenie'],
+  ['kv_all_variants', 'kvc_all_variants'],
+];
+
+function kvchainPullKvsuite() {
+  let n = 0;
+  for (const [src, dst] of KVCHAIN_FIELD_MAP) {
+    const a = $(src), b = $(dst);
+    if (!a || !b) continue;
+    if (a.type === 'checkbox') b.checked = a.checked;
+    else b.value = a.value;
+    n++;
+  }
+  if (typeof toast === 'function') {
+    toast(n ? `已取用「已知病毒识别与定量」卡参数（${n} 项）`
+            : '未找到可取的参数', '', { ttl: 2600 });
+  }
 }
 
 /* ---------- 汇总目录结果渲染 ---------- */
@@ -3117,7 +3269,8 @@ async function loadChainResult(chain, run) {
     $(box).style.display = 'block';
     $(btn).textContent = (isVc ? '一键分析结果' : '一键全流程汇总') + ' · ' + d.run;
     renderChainSteps($(steps), d.meta, d.run);
-    renderChainEntries($(ent), d.entries, d.run);
+    renderChainEntries($(ent), d.entries, d.run, d.out_dir);
+    if (!isVc) kvchainLoadInline(d);
   } catch (e) { alert('读取失败: ' + e); }
 }
 
@@ -3142,7 +3295,7 @@ function renderChainSteps(el, meta, run) {
     '<th style="padding:4px 8px">' + t('tl.thRunSummary') + '</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
-function renderChainEntries(el, entries, run) {
+function renderChainEntries(el, entries, run, outDir) {
   if (!entries || !entries.length) { el.innerHTML = '<p class="hint">' + t('c.emptyDir','（空目录）') + '</p>'; return; }
   const rows = entries.map(e =>
     '<tr><td style="padding:4px 8px">' + (e.is_dir ? '📁' : '📄') + ' ' +
@@ -3150,60 +3303,79 @@ function renderChainEntries(el, entries, run) {
     (e.is_link ? ' <span style="color:#2a7;font-size:11px">符号链接</span>' : '') +
     '</td><td style="padding:4px 8px;color:var(--fg-2,#666)">' +
     esc(e.size || '') + '</td></tr>').join('');
+  // 输出位置随结果明示：优先后端下发的绝对路径（含复制/打开），旧数据退回相对提示
+  const tail = outDir
+    ? '<p style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12.5px">' +
+      '<b>' + t('c.outdir','输出目录') + '</b>' +
+      '<code class="mono" style="user-select:all;word-break:break-all">' + esc(outDir) + '</code>' +
+      '<button class="btn small" style="padding:1px 8px" data-d="' + esc(outDir) + '" onclick="copyText(this.dataset.d)" title="' + t('c.copyPath','复制路径') + '">⧉</button>' +
+      '<button class="btn small" style="padding:1px 8px" data-d="' + esc(outDir) + '" onclick="openOutDir(this.dataset.d)" title="' + t('c.openDir','打开目录') + '">📂</button></p>' +
+      '<p class="hint" style="margin-top:2px">链接指向各步真实运行目录，可单独打开。</p>'
+    : '<p class="hint" style="margin-top:8px">汇总目录：tool_runs/' + esc(run) +
+      '（可直接在资源管理器打开，链接指向各步真实运行目录）</p>';
   el.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:13px">' +
-    '<tbody>' + rows + '</tbody></table>' +
-    '<p class="hint" style="margin-top:8px">汇总目录：tool_runs/' + esc(run) +
-    '（可直接在资源管理器打开，链接指向各步真实运行目录）</p>';
+    '<tbody>' + rows + '</tbody></table>' + tail;
 }
 
-/* 鉴定库下拉：数据源为 /api/kv_index_list（build 页建好的库） */
-async function loadKvIndexOptions() {
-  const sel = $('kv_index_dir');
-  if (!sel) return;
-  const keep = sel.value;
+/* ---------- 一键全流程：内联定量结果 ----------
+   汇总目录里第 1 步就是 kvsuite 子运行（_chain.json 的 steps[0].run），
+   直接复用 kvsuite 的渲染，只换一套 DOM id（KVC_IDS）——两卡各自独立，
+   在一键流程页就能看到鉴定/过滤/共识/变异/图，不必再切到另一张卡。 */
+const KVC_IDS = {
+  summary: 'kvcSummary', identify: 'kvcIdentifyTable',
+  filtered: 'kvcFilteredTable', consensus: 'kvcConsensusTable',
+  variant: 'kvcVariantTable', variantPlots: 'kvcVariantPlots',
+  evoSummary: 'kvcEvoSummary', evoPlots: 'kvcEvoPlots',
+  evoTables: 'kvcEvoTables', plots: 'kvcPlots',
+};
+
+async function kvchainLoadInline(chainResult) {
+  const note = $('kvcSubRun');
+  const steps = (chainResult.meta && chainResult.meta.steps) || [];
+  const hit = steps.find(s => s.key === 'kvsuite') || steps[0] || {};
+  const sub = hit.run;
+  if (!sub) {
+    if (note) note.innerHTML = `<p class="hint">${t('tk.kvChainNoSub',
+      '本次汇总里没有可内联的定量子运行，请展开上面的汇总目录查看产物。')}</p>`;
+    return;
+  }
+  if (note) {
+    note.innerHTML = '<span class="hint">' + t('tk.kvChainSubRunLbl', '本次定量子运行')
+      + '：<code>' + esc(sub) + '</code></span> '
+      + '<button class="btn small" onclick="kvchainOpenKvsuite(\'' + esc(sub) + '\')" '
+      + 'data-i18n="tk.kvChainOpenKv">📊 在「已知病毒识别与定量」卡中打开</button>';
+  }
   try {
-    const d = await (await fetch('/api/kv_index_list')).json();
-    const engs = d.engines || {};
-    const opts = [`<option value="">${t('tl.noIndexDir')}</option>`];
-    (d.libs || []).forEach(l => {
-      const mf = l.manifest || {};
-      const ref = mf.reference ? String(mf.reference).split(/[\\/]/).pop() : '';
-      const eng = [l.minibwa ? 'minibwa' : '', l.salmon ? 'salmon' : '']
-        .filter(Boolean).join('+');
-      const tail = [eng, ref].filter(Boolean).join(' · ');
-      opts.push(`<option value="${esc(l.path)}">${esc(l.name)}${tail ? '（' + esc(tail) + '）' : ''}</option>`);
-    });
-    sel.innerHTML = opts.join('');
-    if (keep && Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
-    // 引擎可用性提示
-    const miss = ['minibwa', 'salmon'].filter(e => !(engs[e] || {}).available);
-    if (miss.length) sel.title = '不可用引擎: ' + miss.join(', ');
-  } catch (e) {}
+    const r = await fetch('/api/tool/kvsuite_result?run=' + encodeURIComponent(sub));
+    if (!r.ok) return;
+    const d = await r.json();
+    renderKvsuite(d, KVC_IDS);
+  } catch (e) { /* 内联失败不打扰：汇总目录与子运行目录里仍有全部产物 */ }
+}
+
+function kvchainOpenKvsuite(run) {
+  /* 跳到 t-kvsuite 卡并按该 run 渲染完整结果（含交互图）。
+     走左侧二级模块条的点击路径，hash 与高亮由 renderModuleTree 统一维护。 */
+  const item = document.querySelector('.gt-item[data-item="t-kvsuite"]');
+  if (item) item.click(); else showModule('t-kvsuite');
+  loadKvsuiteResult(run);
 }
 
 async function runKvsuite(btn) {
   const samples = val('kv_samples');
-  if (!samples) { alert('请选择样品'); return; }
+  const reads = [val('kv_reads_r1'), val('kv_reads_r2')].filter(Boolean).join(',');
+  if (!samples && !reads) { alert('请选择样品，或填入测序数据 R1（双端再填 R2）'); return; }
   const params = {
-    samples,
-    reference: val('kv_ref') || undefined,
-    ref_info: val('kv_ref_info') || undefined,
-    index_dir: val('kv_index_dir') || undefined,
-    engine: $('kv_engine').value,
-    stage: $('kv_stage').value,
+    samples: samples || undefined,
+    reads: reads || undefined,
+    // 参考库/引擎已唯一化（默认鉴定库 kv_index + salmon），缺省全交后端解析
+    // 本卡固定两段：识别/定量 + 过滤（后端 KV_DEFAULT_STAGE）；
+    // 共识/绘图/变异不在这里，也不提供开关 —— 走「一键分析（全流程）」卡。
+    stage: 'identify+filter',
     min_cov: +val('kv_min_cov'),
     min_depth: +val('kv_min_depth'),
     min_reads: +val('kv_min_reads'),
     min_poisson: +val('kv_min_poisson'),
-    variant_qual: +val('kv_variant_qual'),
-    min_freq: +val('kv_min_freq'),
-    aa_label_cutoff: +val('kv_aa_label_cutoff'),
-    max_aa_labels: +val('kv_max_aa_labels'),
-    all_variants: $('kv_all_variants').checked || undefined,
-    ncbi_email: val('kv_email') || undefined,
-    no_genes: $('kv_no_genes').checked || undefined,
-    no_variant_evo: !$('kv_evo').checked || undefined,
-    no_snpgenie: !$('kv_snpgenie').checked || undefined,
   };
   const threads = +val('kv_threads') || null;
   try {
@@ -3242,7 +3414,10 @@ function kvTable(rows, cols, empty) {
   return `<table class="tbl"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
 }
 
-function renderKvsuite(d) {
+/* ids：结果容器映射。默认写 t-kvsuite 卡的 kv* 容器；
+   一键全流程卡传 KVC_IDS，把同一份结果渲染进自己的 kvc* 容器。 */
+function renderKvsuite(d, ids) {
+  ids = ids || KV_IDS;
   const s = d.summary || {};
   const vsum = s.variant || {};
   const nSkip = vsum.n_skipped || 0;
@@ -3260,7 +3435,7 @@ function renderKvsuite(d) {
   if (nSkip) {
     badges.push(`<span title="viroid 等无 CDS/gene 注释，SnpEff 不适用" style="padding:2px 10px;border-radius:10px;background:#fff3e0;font-size:11px;margin-right:6px">跳过注释 ${nSkip}</span>`);
   }
-  $('kvSummary').innerHTML = badges.join('');
+  $(ids.summary).innerHTML = badges.join('');
 
   // 列名必须与后端产物的真实表头一致：
   // identify/identify/all_viruses.summary.tsv（Sample/Accession/Species/
@@ -3272,18 +3447,18 @@ function renderKvsuite(d) {
     ['分子类型', 'Molecule_Type2'], ['长度', 'Length'], ['覆盖%', 'Coverage(%)'],
     ['平均深度', 'MeanDepth'], ['reads', 'Uniq_Reads'], ['EM reads', 'EM_Reads'],
     ['taxid', 'taxid']];
-  $('kvIdentifyTable').innerHTML = kvTable(d.identify, idCols, '无鉴定结果');
+  $(ids.identify).innerHTML = kvTable(d.identify, idCols, '无鉴定结果');
 
   const fCols = [['样品', 'Sample'], ['参考', 'Accession'], ['物种', 'Species'],
     ['片段', 'Segment'], ['分节段', 'is_segmented'], ['长度', 'Length'],
     ['覆盖%', 'Coverage(%)'], ['平均深度', 'MeanDepth'],
     ['reads', 'Uniq_Reads'], ['EM reads', 'EM_Reads']];
-  $('kvFilteredTable').innerHTML = kvTable(d.filtered, fCols, '无通过过滤的记录');
+  $(ids.filtered).innerHTML = kvTable(d.filtered, fCols, '无通过过滤的记录');
 
   const cCols = [['样品', 'Sample'], ['参考', 'Reference'], ['ORF', 'Feature'],
     ['基因', 'Gene'], ['长度', 'Length'], ['N 占比%', 'N_ratio(%)'],
     ['终止子', 'Stops'], ['QC', 'QC']];
-  $('kvConsensusTable').innerHTML = kvTable(d.consensus_qc, cCols, '无共识 QC 记录');
+  $(ids.consensus).innerHTML = kvTable(d.consensus_qc, cCols, '无共识 QC 记录');
 
   // 列名必须与 kv_variant.ANN_COLS 一致（CHROM/POS/REF/ALT/Gene_Name/
   // Annotation/Impact/HGVS_c/HGVS_p/AA/CDS/Feature_ID/Note），
@@ -3305,20 +3480,20 @@ function renderKvsuite(d) {
     }
     return o;
   });
-  $('kvVariantTable').innerHTML = kvTable(variantRows, vCols, '无变异注释记录');
+  $(ids.variant).innerHTML = kvTable(variantRows, vCols, '无变异注释记录');
 
-  renderKvVariantPlots(d);
-  renderKvEvo(d);
+  renderKvVariantPlots(d, ids);
+  renderKvEvo(d, ids);
 
   const plots = d.plots || [];
-  $('kvPlots').innerHTML = plots.length
+  $(ids.plots).innerHTML = plots.length
     ? plots.map(p => `<div style="margin-bottom:8px"><a href="/tool_runs/${encodeURIComponent(d.run)}/${p.split('/').map(encodeURIComponent).join('/')}" target="_blank" class="mono" style="font-size:11.5px">${esc(p)}</a></div>`).join('')
     : `<p class="hint">${t('tl.noDepthPlot')}</p>`;
 }
 
 /* 变异可视化图内联展示（点缩略图放大，或走 /tool_runs/<run>/<path> 下载） */
-function renderKvVariantPlots(d) {
-  const box = $('kvVariantPlots');
+function renderKvVariantPlots(d, ids) {
+  const box = $(ids ? ids.variantPlots : 'kvVariantPlots');
   if (!box) return;
   const run = d.run || '';
   const files = d.variant_plots || [];
@@ -3360,14 +3535,14 @@ function renderKvVariantPlots(d) {
 }
 
 /* 突变演化分析（三模块）图与表内联展示 */
-function renderKvEvo(d) {
-  const box = $('kvEvoPlots');
+function renderKvEvo(d, ids) {
+  const box = $(ids ? ids.evoPlots : 'kvEvoPlots');
   if (!box) return;
   const run = d.run || '';
   const files = d.evo_plots || [];
   const man = d.evo_manifest || {};
-  const sbadge = $('kvEvoSummary');
-  const tbox = $('kvEvoTables');
+  const sbadge = $(ids ? ids.evoSummary : 'kvEvoSummary');
+  const tbox = $(ids ? ids.evoTables : 'kvEvoTables');
   if (sbadge) {
     const snps = (man.snpgenie || []).length;
     const skipped = (man.skipped || []).length;
@@ -3573,27 +3748,6 @@ function csKvSelectAll(on) {
   document.querySelectorAll('.cs-kvref').forEach(x => { x.checked = !!on; });
   csKvCount();
 }
-function csMapModeChanged() {
-  const mode = ($('cs_map_mode') || {}).value || 'realign';
-  const wrap = $('cs_reuse_wrap');
-  if (wrap) wrap.style.display = (mode === 'reuse') ? '' : 'none';
-  if (mode === 'reuse') csFillBams();
-}
-async function csFillBams() {
-  const run = val('cs_kvrun');
-  const sel = $('cs_reuse_bam');
-  if (!sel) return;
-  if (!run) { sel.innerHTML = `<option value="">${t('tl.pickKvRun2')}</option>`; return; }
-  try {
-    const r = await fetch('/api/tool/kvsuite_refs?run=' + encodeURIComponent(run));
-    const d = await r.json();
-    const bams = d.bams || [];
-    sel.innerHTML = bams.length
-      ? bams.map(x => `<option value="${esc(x.path)}">${esc(x.name)} (${
-          x.size_mb != null ? x.size_mb + ' MB' : ''})</option>`).join('')
-      : `<option value="">${t('tl.noBam')}</option>`;
-  } catch (e) { sel.innerHTML = `<option value="">${t('tl.loadFail')}</option>`; }
-}
 document.addEventListener('change', function (e) {
   if (e.target && e.target.classList && e.target.classList.contains('cs-kvref')) csKvCount();
 });
@@ -3612,10 +3766,7 @@ async function runConsensus(btn) {
     fasta: fa || undefined,
     kv_run: kvrefs.length ? kvrun : undefined,
     kv_refs: kvrefs.length ? kvrefs.join(',') : undefined,
-    reuse_bam: (($('cs_map_mode') || {}).value === 'reuse')
-      ? (($('cs_reuse_bam') || {}).value || undefined) : undefined,
-    reads_src: $('cs_reads_src').value,
-    reads: val('cs_reads') || undefined,
+    reads: [val('cs_reads_r1'), val('cs_reads_r2')].filter(Boolean).join(',') || undefined,
     min_qual: +val('cs_min_qual') || 20,
     min_depth: +val('cs_min_depth') || 10,
     min_freq: +val('cs_min_freq') || 0.5,
@@ -3869,7 +4020,6 @@ function buildVerifyReport(rows) {
 loadVerifyRuns();
 loadConsensusRuns();
 loadKvsuiteRuns();
-loadKvIndexOptions();
 </script>
 </body>
 </html>

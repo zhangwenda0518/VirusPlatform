@@ -1,9 +1,16 @@
 # known_virus_suite 默认参数
-# 命令行参数优先级高于本文件；本文件只放"跑一次就想固定下来"的口径。
+# ⚠️⚠️ 重要：本文件目前【不会】被程序自动加载 —— 它只是参数文档快照！
+# 改这里的值不会生效。真正的默认值在 known_virus_suite.py 的 argparse
+# 定义里（当前数值与本文一致）。要改口径：① 命令行参数（一次性）；
+# ② 改 argparse 默认值（永久）。本文件的价值是让不读代码的人也能看懂
+# 全部参数、取值依据与出处；两处若出现分叉，以 argparse 为准。
+# 命令行参数优先级最高；本文件只放"跑一次就想固定下来"的口径（意图）。
 # 所有键名与 known_virus_suite.py 的 CLI 参数一一对应（下划线形式）。
 
 # ── 引擎 ──────────────────────────────────────────────
-engine: minibwa              # salmon | minibwa
+# 定量唯一引擎 salmon：quant.sf 出 EM 定量，--writeBam 出映射位点
+# （排序 BAM + pandepth 覆盖度/深度）。共识段内部固定 minibwa，不经此参数。
+engine: salmon
 
 # 覆盖度/深度统计后端。默认 pandepth：严格照原管线
 #   virome_analysis_pipeline/batch_virus_depth.py
@@ -24,7 +31,6 @@ min_tpm: 1.0                 # 最低 TPM
 min_cov: 10.0                # 覆盖率下限 %（A 轨）
 min_depth: 0.5               # 平均深度下限（A 轨）
 min_poisson: 0.3             # 最低泊松比值（泊松打假）
-min_ani: 0.0                 # 最低 ANI；salmon 伪比对下不可用，置 0 不参与
 
 # ── min_mapq 作用域 ───────────────────────────────────
 # ⚠ 只在 builtin / samtools 后端生效。
@@ -39,7 +45,6 @@ filter:
   min_depth: 0.5
   min_reads: 10
   min_tpm: 1.0
-  min_ani: 0.0
   min_poisson: 0.3
   gene_total_cov: 80.0       # B 轨基因总覆盖
   gene_avr_cov: 5.0          # B 轨基因平均覆盖
@@ -49,7 +54,7 @@ filter:
 # 完全照抄 virome_analysis_pipeline/batch_virus_variants.py
 # （仅 bowtie2 -> minibwa，awk 瘦身 -> Python 实现）
 consensus:
-  engine: minibwa            # 原管线为 bowtie2，本移植用 minibwa 替代
+  engine: minibwa            # 固定 minibwa（真比对出位点，共识/变异都吃它的 BAM）
   vc_qual: 20                # -q 碱基最低质量（原管线默认）
   vc_depth: 5                # -d 单碱基最低支持深度（原管线默认）
   vc_freq: 0.5               # -f 等位基因频率阈值（原管线默认）

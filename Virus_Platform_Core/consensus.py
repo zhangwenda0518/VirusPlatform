@@ -16,8 +16,9 @@ osx-64 / osx-arm64，无 win-64）。因此本模块：
   短读用 `-x sr`。2026-09-08 由 minimap2 换为 minibwa（同一作者 lh3 的
   下一代比对器，可单文件静态分发）；两者在 88x 深度下经本模块
   pileup + call_consensus 后的共识序列完全一致，对拍详情见
-  minibwa_win_build/README.md。注意 minibwa 映射前需先 `index` 建索引，
-  且 `map` 只接受单个 fastq（R1/R2 分次比对后合并 SAM）
+  minibwa_win_build/README.md。注意 minibwa 映射前需先 `index` 建索引；
+  双端 reads 用 `map 索引 R1 R2` 两个位置参数（实测输出带配对 FLAG
+  99/147、RNEXT=`、PNEXT 互相指向），R1/R2 分次比对会丢配对信息，不采用
 - **共识调用**：用 Python 重写 ViralConsensus 的算法（逐位置统计碱基，
   深度 ≥ min_depth 且频率 ≥ min_freq 才 call，否则给简并符）——
   与 sdt_exact.py 纯 Python 替代 SDTv1.3.exe 同一套路
@@ -130,24 +131,76 @@ def _write_fasta(path, records, width=70):
     return path
 
 
+# R1/R2 命名约定：`_R1` / `.R1` / `-R1` 三种分隔（如 samp_R1.fq.gz、
+# GQMIX.R1.fq.gz）——大小写不敏感，且必须紧跟 .fq/.fastq(.gz) 后缀，
+# 避免把名字里恰好含 "R1" 的其他文件误判成 reads。
+R1_RX = re.compile(r'^(.*?)([_.\-])R1(\.(?:fq|fastq)(?:\.gz)?)$', re.I)
+
+
+def _r1_mate_name(fn):
+    """R1 文件名 → 对应 R2 文件名；不是 R1 命名返回 None。"""
+    m = R1_RX.match(fn)
+    if not m:
+        return None
+    return m.group(1) + m.group(2) + 'R2' + m.group(3)
+
+
 def find_read_pairs(d):
-    """在目录下找 R1/R2 配对 reads（兼容 .fastq/.fq 与 .gz）。
+    """在目录下找 R1/R2 配对 reads，返回 [(r1, r2_or_None), ...]。
 
     工具入口与管道阶段共用：管道里 reads 固定在 01_host_removal 等层级目录，
-    文件名前缀不统一（kept_R1 / viral_R1 / fastp_R1），故按 `_R1` + 后缀识别。
+    文件名前缀不统一（kept_R1 / viral_R1 / fastp_R1），按 R1 命名约定识别
+    （见 R1_RX：`_R1` / `.R1` / `-R1` 均可）。只找到 R1 时按单端返回。
     """
     if not os.path.isdir(d):
         return []
-    rx = re.compile(r'\.(fq|fastq)(\.gz)?$', re.I)
     out = []
     for fn in sorted(os.listdir(d)):
-        if not rx.search(fn) or '_R1' not in fn:
+        mate = _r1_mate_name(fn)
+        if not mate:
             continue
         p1 = os.path.join(d, fn)
-        p2 = os.path.join(d, fn.replace('_R1', '_R2'))
-        out.append(p1)
-        if os.path.isfile(p2):
-            out.append(p2)
+        p2 = os.path.join(d, mate)
+        out.append((p1, p2 if os.path.isfile(p2) else None))
+    return out
+
+
+def pair_read_files(paths):
+    """把手动指定的 reads 文件列表配成 [(r1, r2_or_None), ...]。
+
+    R1 的伴侣只在给定列表内查找（R1/R2 两个框分别提交、R2 排在 R1 前
+    都能配上）；不自动到磁盘上找 R2——用户只给 R1 就是单端。
+    目录请用 find_read_pairs。
+    """
+    real = os.path.realpath
+    by_path = {}
+    for p in paths:
+        if p and os.path.isfile(p):
+            by_path.setdefault(real(p), p)
+    out, consumed = [], set()
+    # 第一遍：凡 R1 且列表内有 R2 伴侣的先配对
+    for p in paths:
+        if not p:
+            continue
+        rp = real(p)
+        if rp not in by_path or rp in consumed:
+            continue
+        mate = _r1_mate_name(os.path.basename(p))
+        if not mate:
+            continue
+        sib = os.path.join(os.path.dirname(p), mate)
+        rs = real(sib)
+        if rs in by_path and rs != rp and rs not in consumed:
+            consumed.update((rp, rs))
+            out.append((p, by_path[rs]))
+    # 第二遍：落单的保持单端
+    for p in paths:
+        if not p:
+            continue
+        rp = real(p)
+        if rp in by_path and rp not in consumed:
+            consumed.add(rp)
+            out.append((p, None))
     return out
 
 
@@ -195,14 +248,19 @@ def build_index(ref_fa, logger=None):
 
 def run_minimap2(ref_fa, reads, out_sam, threads=None, preset='sr',
                  logger=None):
-    """minibwa 回贴。reads 可为 1 或 2 个文件（R1/R2）。
+    """minibwa 回贴。reads 项为 str（单端）或 (r1, r2) 二元组（双端）。
 
     与 minimap2 的接口差异（实测确认，见 minibwa_win_build/README.md）：
 
     - **必须先用 index 建索引**，map 的输入是索引前缀而非 FASTA
-    - **map 只接受单个 fastq**，因此多文件（R1/R2）需逐个比对后合并 SAM
+    - **双端比对**：`map 索引 R1 R2` 两个位置参数，输出带配对 FLAG
+      （99/147、RNEXT=`、PNEXT 互相指向）；R1/R2 分次比对会丢配对信息，
+      旧版这里的「逐个比对后合并 SAM」写法已废弃
     - **preset 语系不同**：minimap2 的 map-ont/map-pb/map-hifi 均映射为 lr
     - `--secondary=no` 的等价物是 `-N 0`
+
+    多个样本/多个 read 对时逐个比对到临时 SAM 再合并（保留一份 header），
+    各样本 reads 汇入同一张覆盖统计——与旧版口径一致。
 
     注意：minibwa 的 stderr 是 GBK 编码，平台 run_cmd 已用
     errors='replace' 兜底（报错文本可能含替换符，进程不受影响）。
@@ -210,10 +268,18 @@ def run_minimap2(ref_fa, reads, out_sam, threads=None, preset='sr',
     exe = consensus_engine()
     if not exe:
         raise RuntimeError('未找到 minibwa（bin/），无法回贴')
-    if isinstance(reads, str):
-        reads = [reads]
-    reads = [r for r in reads if r and os.path.isfile(r)]
-    if not reads:
+    # 归一化成 [(r1, r2_or_None), ...]；容忍 None 项与缺失文件
+    units = []
+    for x in reads or []:
+        if not x:
+            continue
+        if isinstance(x, str):
+            r1, r2 = x, None
+        else:
+            r1, r2 = (list(x) + [None, None])[:2]
+        if r1 and os.path.isfile(r1):
+            units.append((r1, r2 if (r2 and os.path.isfile(r2)) else None))
+    if not units:
         raise RuntimeError('没有可用的 reads 文件')
 
     nthread = str(threads or get_config().threads or 4)
@@ -221,41 +287,49 @@ def run_minimap2(ref_fa, reads, out_sam, threads=None, preset='sr',
 
     idx = build_index(ref_fa, logger=logger)
     try:
-        if len(reads) == 1:
+        def _map_cmd(dst, r1, r2):
             cmd = [exe, 'map', '-x', preset_mb, '-N', '0', '-t', nthread,
-                   '-o', out_sam, idx, reads[0]]
-            run_cmd(cmd, logger=logger)
+                   '-o', dst, idx, r1]
+            if r2:
+                cmd.append(r2)
+            return cmd
+
+        if len(units) == 1:
+            r1, r2 = units[0]
+            run_cmd(_map_cmd(out_sam, r1, r2), logger=logger)
             return out_sam
 
-        # 多文件：逐个比对到临时 SAM，再合并（保留一份 header）
         parts = []
-        for i, rf in enumerate(reads):
-            part = '%s.part%d.sam' % (out_sam, i)
-            cmd = [exe, 'map', '-x', preset_mb, '-N', '0', '-t', nthread,
-                   '-o', part, idx, rf]
-            run_cmd(cmd, logger=logger)
-            parts.append(part)
+        try:
+            for i, (r1, r2) in enumerate(units):
+                part = '%s.part%d.sam' % (out_sam, i)
+                run_cmd(_map_cmd(part, r1, r2), logger=logger)
+                parts.append(part)
 
-        seen_header = False
-        with open(out_sam, 'w', encoding='utf-8', errors='replace') as fo:
-            for part in parts:
-                with open(part, 'r', encoding='utf-8', errors='replace') as fi:
-                    for line in fi:
-                        if line.startswith('@'):
-                            if not seen_header:
+            seen_header = False
+            with open(out_sam, 'w', encoding='utf-8', errors='replace') as fo:
+                for part in parts:
+                    with open(part, 'r', encoding='utf-8',
+                              errors='replace') as fi:
+                        for line in fi:
+                            if line.startswith('@'):
+                                if not seen_header:
+                                    fo.write(line)
+                            else:
                                 fo.write(line)
-                        else:
-                            fo.write(line)
-                seen_header = True
-        for part in parts:
-            try:
-                os.remove(part)
-            except OSError:
-                pass
+                    seen_header = True
+        finally:
+            # 清理放在 finally：第 2 个样本起比对失败时，已产出的
+            # part SAM（可达数 GB）不再残留 03c_consensus/
+            for part in parts:
+                try:
+                    os.remove(part)
+                except OSError:
+                    pass
         return out_sam
     finally:
         # 索引落在参考 FASTA 旁（.l2b/.mbw），比对完即清，
-        # 避免污染 run_dir 产物目录（minimap2 无此副作用）
+        # 避免污染 run_dir 产物目录
         for ext in ('.l2b', '.mbw'):
             try:
                 os.remove(ref_fa + ext)
@@ -264,93 +338,6 @@ def run_minimap2(ref_fa, reads, out_sam, threads=None, preset='sr',
 
 
 # ---------------------------------------------------------------- pileup
-def _samtools_exe():
-    """定位 samtools（复用 BAM 时才需要；缺失返回 None）。"""
-    cfg = get_config()
-    for name in ('samtools', 'samtools.exe'):
-        try:
-            p = cfg.tool(name)
-        except Exception:
-            p = None
-        if p and os.path.isfile(p):
-            return p
-    # 平台 bin/ 下常见位置兑底
-    for cand in ('3rd/bin/samtools.exe', '3rd/bin/samtools'):
-        p = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), *cand.split('/'))
-        if os.path.isfile(p):
-            return p
-    return None
-
-
-def _bam_to_sam(bam, out_sam, logger=None):
-    """BAM -> SAM 文本，复用既有 pileup 逐行解析逻辑。
-
-    不用 samtools 的 C API，只借 `samtools view` 一步转换；缺 samtools 时
-    明确报错（不静默降级到重新比对，否则用户以为用了旧 BAM）。
-    """
-    if not bam or not os.path.isfile(bam):
-        raise RuntimeError('复用 BAM 不存在：%s' % bam)
-    exe = _samtools_exe()
-    if not exe:
-        raise RuntimeError(
-            '复用 BAM 需要 samtools，未在平台配置中找到。'
-            '请改用「重新比对」模式，或在设置页指定 samtools 路径。')
-    # -h 保留 header（@SQ 供参考一致性校验）；-F 260 剔除未比对/次要比对
-    run_cmd([exe, 'view', '-h', '-F', '260', '-o', out_sam, bam],
-            logger=logger)
-    if not os.path.isfile(out_sam) or os.path.getsize(out_sam) == 0:
-        raise RuntimeError('BAM 转 SAM 失败或结果为空：%s' % bam)
-    return out_sam
-
-
-def _verify_bam_refs(sam, refs):
-    """校验 BAM 头部 @SQ 是否覆盖本次全部参考序列。
-
-    复用旧 BAM 的前提是它就是拿这批参考比出来的。序列名或长度对不上时
-    直接报错，避免静默算出无意义（甚至全为 0 覆盖）的结果。
-    返回 {ref_name: 0/N}，其中 N 为缺少的参考。
-    """
-    sq = {}
-    with open(sam, 'r', encoding='utf-8', errors='replace') as f:
-        for line in f:
-            if not line.startswith('@'):
-                break
-            if not line.startswith('@SQ'):
-                continue
-            name = length = None
-            for f2 in line.rstrip('\n').split('\t')[1:]:
-                if f2.startswith('SN:'):
-                    name = f2[3:]
-                elif f2.startswith('LN:'):
-                    try:
-                        length = int(f2[3:])
-                    except ValueError:
-                        length = None
-            if name:
-                sq[name] = length
-    if not sq:
-        raise RuntimeError(
-            'BAM 没有 @SQ 头部，无法校验参考一致性；'
-            '请改用「重新比对」模式。')
-
-    missing = [n for n in refs if n not in sq]
-    if missing:
-        raise RuntimeError(
-            'BAM 参考与本次参考不匹配：缺少 %d 条（如 %s）。'
-            '该 BAM 可能来自其它参考库，请改用「重新比对」模式。'
-            % (len(missing), ', '.join(missing[:3])))
-
-    mismatched = [(n, sq[n], len(refs[n])) for n in refs
-                  if sq.get(n) and sq[n] != len(refs[n])]
-    if mismatched:
-        n, bl, rl = mismatched[0]
-        raise RuntimeError(
-            'BAM 参考长度与本次不一致：%s（BAM %d bp / 参考 %d bp）。'
-            '请改用「重新比对」模式。' % (n, bl, rl))
-    return {n: 1 for n in refs}
-
-
 def pileup(sam_path, refs, min_qual=MIN_BASE_QUALITY, min_mapq=MIN_MAPQ,
            logger=None, progress=None):
     """逐位置统计碱基。返回 {ref: {'counts': [[A,C,G,T,N,-]...], 'ins': {pos: Counter}, 'nreads': int}}
@@ -575,13 +562,12 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
                            min_minor_count=MIN_MINOR_COUNT,
                            min_cov_pct=MIN_COV_PCT, preset='sr',
                            threads=None, logger=None, progress=None,
-                           keep_sam=False, reuse_bam=None):
+                           keep_sam=False):
     """回贴 reads → 共识序列 + 变异谱。产物落在 run_dir/<out_subdir>/。
 
     ref_fasta  参考序列（验证后的候选 contig），每条参考独立统计
-    reads      reads 文件路径或列表（R1/R2）；reuse_bam 给定时忽略
-    reuse_bam  复用已有 BAM（跳过本次比对）。注意旧 BAM 带比对偏好性，
-               且必须是用同一参考比出来的；默认走重新比对。
+    reads      [(r1, r2_or_None), ...]（find_read_pairs / pair_read_files 的
+               返回）；每对走 minibwa map 双位置参数双端比对
     返回摘要 dict（供任务引擎与前端展示）。
     """
     def _prog(stage, frac, msg):
@@ -601,16 +587,9 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
     _prog('load', 0.10, '参考 %d 条，共 %d bp' % (len(refs), total_len))
 
     sam = os.path.join(out_dir, 'aligned.sam')
-    if reuse_bam:
-        # 复用：BAM -> SAM 文本，后续 pileup 逻辑不变。
-        # 参考一致性校验：BAM 头部 @SQ 必须覆盖本次全部参考。
-        _prog('align', 0.15, '复用 BAM：%s' % os.path.basename(reuse_bam))
-        _bam_to_sam(reuse_bam, sam, logger=logger)
-        _verify_bam_refs(sam, refs)
-    else:
-        _prog('align', 0.15, 'minibwa 回贴 reads（preset=%s）' % preset)
-        run_minimap2(ref_fasta, reads, sam, threads=threads, preset=preset,
-                     logger=logger)
+    _prog('align', 0.15, 'minibwa 回贴 reads（preset=%s，双端配对）' % preset)
+    run_minimap2(ref_fasta, reads, sam, threads=threads, preset=preset,
+                 logger=logger)
     _prog('align', 0.40, '比对完成，统计位置计数')
 
     p = pileup(sam, refs, min_qual=min_qual, min_mapq=min_mapq,

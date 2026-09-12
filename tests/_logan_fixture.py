@@ -16,7 +16,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from vp.config import DIRS  # noqa: E402
+from Virus_Platform_Core.config import DIRS  # noqa: E402
 
 
 def _usable(sample):
@@ -48,9 +48,16 @@ def pick_sample(prefer=('REGRESS',)):
 
 
 def skip_if_none(sample, who):
-    """没有可用样品时打印 SKIP 并以 0 退出（数据依赖型测试的正确姿态）。"""
+    """没有可用样品时跳过（数据依赖型测试的正确姿态）。
+
+    两种运行环境都兼容：tests/_run_all.py 子进程里沿用打印 + exit(0)；
+    pytest 下 sys.exit 会炸成 INTERNALERROR，改用 pytest 模块级跳过。"""
     if sample:
         return False
-    print(f'[SKIP] {who}: 未找到含病毒 contigs 的样品'
-          f'（需要 results/<样品>/03_assembly/virus_contigs.tsv）')
+    msg = (f'[SKIP] {who}: 未找到含病毒 contigs 的样品'
+           f'（需要 results/<样品>/03_assembly/virus_contigs.tsv）')
+    if 'pytest' in sys.modules:
+        import pytest
+        pytest.skip(msg, allow_module_level=True)
+    print(msg)
     sys.exit(0)

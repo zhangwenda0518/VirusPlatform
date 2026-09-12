@@ -1,3 +1,11 @@
+# 植物病毒分析平台 运行时依赖
+# ⚠️ 平台要求 Python 3.12 + Windows（pyrodigal-rv / pyhmmer 等依赖的
+#    Windows cp312 wheel 生态即按此验证；其它版本组合未测试）。
+# 安装: python -m pip install -r requirements.txt
+# 开发/测试额外依赖见 requirements-dev.txt
+# 提示：本文件全部为 >= 下界约束；打包分发前建议以
+#   python -m pip freeze > requirements.lock
+# 固化一份实测快照（pyrodigal-rv 的版本漂移事故即由此而来）。
 flask>=3.0
 biopython>=1.80
 pandas>=2.0
@@ -10,24 +18,37 @@ urllib3>=1.26          # 公共数据检索（meta 引擎重试策略）
 PyYAML>=6.0            # NCBI 提交配置 .yaml 解析
 defusedxml>=0.7        # NCBI XML 安全解析（有手动兜底，属安全增强）
 plotly>=5.18
+kaleido>=0.2           # plotly 静态图导出引擎（无直接 import，属传递性运行时依赖）
 pycirclize>=1.0
-orfipy>=0.0.4
+orfipy>=0.0.4          # ORF 预测（platform.json 以 3rd/python/Scripts/orfipy.exe 调用）
 pyrodigal>=2.0
-pyrodigal-rv>=1.0; platform_system == "Windows"
+# ⚠️ PyPI 上 pyrodigal-rv 支持 Windows/Py3.12 的最新版就是 0.1.0（1.x 无 cp312
+# Windows wheel），声明 >=1.0 会让 pip 直接装不上（2026-09-11 嵌入版环境实测）。
+# 实际生产验证过的就是 0.1.0。模块名 pyrodigal_gv 来自下面新增的 pyrodigal-gv。
+pyrodigal-rv>=0.1.0; platform_system == "Windows"
+pyrodigal-gv>=0.3
 primer3-py>=2.0
 tqdm>=4.60
 kaleido>=0.2
 # ⑥b ORF 功能注释 HMM 层（层2；Windows 原生 wheel，自带 HMMER3 实现）
 pyhmmer>=0.11
+# 桌面独立窗口壳：app.py 启动优先用 pywebview 开原生窗口（无地址栏）；
+# 未安装时自动回退浏览器模式，功能不受影响
+pywebview>=4.0
 # LOGAN 溯源「一键批量提交」依赖（方式二；未安装时该功能灰显，手动方式不受影响）
 selenium>=4.15
 # 病毒基因组图（⑨ 基因组图阶段，DFV 备选引擎，纯 Python）
 dna_features_viewer>=3.1
+# 已知病毒识别与定量（kv_filter / kv_identify 在**模块级** import polars，
+# 无 try/except 兜底）。此前漏声明，导致打包 spec 误把它当"平台从不 import"
+# 的库排除掉，打包版该功能整段静默失效（2026-09-11 修复）。
+# 注意：polars 的 Rust 运行时在独立的 _polars_runtime_32 包里（约 174MB），
+# 打包时两者必须同进同出，spec 的 excludes 里不能出现这两个名字。
+polars>=1.0
 # ── 公共数据检索模块（meta_search，源自 MMPV-RNA public_metadata_pipeline）──
 requests>=2.28
 xmltodict>=0.13
 openpyxl>=3.1
-seaborn>=0.12
 # AI 元数据清洗（可选：仅 meta-search / meta-info 传 --deepseek-api 时需要）
 # openai>=1.30
 # 病毒基因组图（⑨ 基因组图阶段首选引擎，圈图更精美；PyPI 无包，从 GitHub 安装）
@@ -36,5 +57,7 @@ seaborn>=0.12
 # python -m pip install lovis4u
 # 共线性配色 / Krona 旭日图（distinctipy / taxburst，缺失时自动回退内置色板与 plotly 旭日图）
 # python -m pip install distinctipy taxburst
+# 变异热图标签防重叠（adjustText，缺失时退化为无防重叠排版的纯文本标签）
+# python -m pip install adjustText
 # 加速工具（可选，放平台根目录即可被自动探测）：crabz.exe（Rust 多线程 gzip）
 # https://github.com/sstadick/crabz/releases

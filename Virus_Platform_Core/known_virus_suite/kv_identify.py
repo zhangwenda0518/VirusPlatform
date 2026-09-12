@@ -13,7 +13,8 @@ process_sample / summarize_results_polars 核心逻辑
   - 泊松打假 λ = Reads × AvgReadLen / Length, Predicted_Support = 1-exp(-λ)
   - Poisson_Ratio = (Coverage/100) / Predicted_Support
   - 双轨过滤: A 轨全基因组泊松 + B 轨活跃转录区
-  - ANI 阈值分物种, is_segmented 判定
+  - is_segmented 判定（多段物种须全段检出）
+  （Avg_Read_ANI 列已移除：salmon 定量无 NM tag，该列恒为空）
 """
 
 import json
@@ -25,7 +26,7 @@ try:
 except ImportError:
     raise SystemExit("需要 polars: pip install polars")
 
-from kv_common import fmt_time, load_ref_lengths, load_ref_info, ref_lookup
+from .kv_common import fmt_time, load_ref_lengths, load_ref_info, ref_lookup
 
 
 # ── 平均读长探测（对齐原管线 get_average_read_length）────────
@@ -75,6 +76,9 @@ class IdentifyStage:
         self.tools = tools
         self.logger = logger
         self.out_dir = Path(out_dir)
+        # 比对/处理失败的样本必须留痕：否则失败样本在汇总表里 0 行，
+        # 与「真阴性」不可区分，是最危险的静默假阴性
+        self.failed_samples = []
 
         self.ref_lengths = load_ref_lengths(args.reference, logger)
         self.ref_info = load_ref_info(getattr(args, 'ref_info', None), logger)
@@ -88,6 +92,8 @@ class IdentifyStage:
             ar = self.engine.align(self.index_path, sample, self.out_dir)
         except Exception as e:
             self.logger.error(f"[{sname}] 比对失败: {e}")
+            self.failed_samples.append(
+                {'sample': sname, 'stage': 'align', 'error': str(e)[:300]})
             return []
 
         avg_len = self.avg_len_cache.get(sample['r1'])
@@ -95,7 +101,8 @@ class IdentifyStage:
             avg_len = average_read_length(sample['r1'])
             self.avg_len_cache[sample['r1']] = avg_len
 
-        # minibwa 的 refstats 直接来自 SAM；salmon 只有定量
+        # refstats 来自映射 BAM + pandepth（salmon --writeBam 出位点后与
+        # 真比对同源）；后端缺件时为空，覆盖度退到「reads×读长」估算
         refstats = ar.refstats or {}
         rows = []
         total_mapped = int(ar.mapped)
@@ -123,8 +130,6 @@ class IdentifyStage:
                 'MeanDepth': float(depth),
                 'EM_Reads': float(qreads),
                 'Uniq_Reads': int(qreads),
-                # ANI（只有真比对引擎能算；salmon 无比对位点，置 None）
-                'Avg_Read_ANI': st.get('Avg_Read_ANI'),
                 'Sample_Total_Mapped': int(total_mapped),
                 'Avg_Read_Len': float(avg_len),
             })
@@ -212,17 +217,9 @@ class IdentifyStage:
         if len(passed):
             passed = passed.unique(subset=['Sample', 'Accession'], keep='first')
 
-        # ── ANI 分流（minibwa 可算，salmon 置空）──
-        if 'Avg_Read_ANI' not in passed.columns:
-            passed = passed.with_columns(pl.lit(None).cast(pl.Float64).alias('Avg_Read_ANI'))
-
-        sp_thresh = self.args.ani_thresh
-        confirmed = passed.filter(
-            pl.col('Avg_Read_ANI').is_null() | (pl.col('Avg_Read_ANI') >= sp_thresh)
-        )
-        novel = passed.filter(
-            pl.col('Avg_Read_ANI').is_not_null() & (pl.col('Avg_Read_ANI') < sp_thresh)
-        )
+        # ── 确诊输出（ANI 列已移除：salmon 定量无 NM tag，该列恒为空，
+        #    分种确认由共识段之后的分析承担）──
+        confirmed = passed
 
         # is_segmented 判定
         seg_counts = {}
@@ -240,15 +237,12 @@ class IdentifyStage:
                 pl.col('Species').is_in(list(multi_seg)).alias('is_segmented'))
 
         confirmed = _add_seg_flag(confirmed)
-        novel = _add_seg_flag(novel)
 
-        if len(novel):
-            novel.write_csv(out / 'all_viruses.unclassified.tsv', separator='\t')
         if len(confirmed):
             confirmed.write_csv(out / 'all_viruses.best.summary.tsv', separator='\t')
 
-        self.logger.info(f"基础+双轨放行: {len(passed)} 行 -> 确诊 {len(confirmed)} / 疑似新种 {len(novel)}")
-        return df, confirmed, novel
+        self.logger.info(f"基础+双轨放行: {len(confirmed)} 行 -> 确诊")
+        return df, confirmed, pl.DataFrame()
 
     # ── 主流程 ───────────────────────────────────────────
     def run(self, samples, resume=True):
@@ -282,8 +276,23 @@ class IdentifyStage:
                     rows.extend(self.process_sample(s) or [])
                 except Exception as e:
                     self.logger.error(f"  [{s['name']}] 异常: {e}")
+                    self.failed_samples.append(
+                        {'sample': s['name'], 'stage': 'process',
+                         'error': str(e)[:300]})
             bfile.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
             all_rows.extend(rows)
+
+        if self.failed_samples:
+            try:
+                fpath = self.out_dir / 'failed_samples.json'
+                fpath.write_text(
+                    json.dumps(self.failed_samples, ensure_ascii=False, indent=1),
+                    encoding='utf-8')
+                self.logger.warning(
+                    f"⚠ {len(self.failed_samples)} 个样本处理失败（见 {fpath}）："
+                    f"这些样本没有进入结果表，不能当作阴性解读！")
+            except OSError as e:
+                self.logger.warning(f"失败样本清单写盘失败: {e}")
 
         self.logger.info(f"鉴定段总耗时 {fmt_time(time.time()-t0)}，命中记录 {len(all_rows)}")
         return self.summarize(all_rows)

@@ -7,7 +7,6 @@ import os
 import json
 import subprocess
 
-from .config import get_config
 from .utils import check_path, safe_open, iter_fastq_records, is_step_done, mark_step_done
 from .kunpeng import classify, parse_classify_output
 
@@ -103,7 +102,8 @@ def _seqkit_filter(seqkit, r1, r2, out_r1, out_r2, ids, threads, work_dir,
     def _count_total(path):
         r = subprocess.run(
             [seqkit, 'stats', '-T', check_path(path, must_exist=True)],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding='utf-8',
+            errors='replace')
         if r.returncode != 0:
             raise RuntimeError(f"seqkit stats 失败: {r.stderr[-200:]}")
         lines = r.stdout.strip().splitlines()
@@ -115,7 +115,8 @@ def _seqkit_filter(seqkit, r1, r2, out_r1, out_r2, ids, threads, work_dir,
         r = subprocess.run(
             [seqkit, 'grep', '-v', '-C', '-f', str(pat_i),
              '-j', str(threads or 4), check_path(path, must_exist=True)],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding='utf-8',
+            errors='replace')
         if r.returncode != 0:
             raise RuntimeError(f"seqkit 计数失败: {r.stderr[-200:]}")
         return int(r.stdout.strip().splitlines()[-1])
@@ -227,6 +228,12 @@ def filter_paired_fastq(r1, r2, out_r1, out_r2, ids, keep=False, logger=None,
             # 各读 3 行补齐 4 行记录
             l1 = [rec1] + [next(it1, '') for _ in range(3)]
             l2 = [rec2] + [next(it2, '') for _ in range(3)]
+            # 截断的 FASTQ（下载中断/尾部损坏）会补出空串并静默写出非法
+            # 记录；utils.iter_fastq_records 对同样输入是抛错的，口径要一致。
+            if not l1[3] or not l2[3]:
+                raise ValueError(
+                    f"FASTQ 记录不完整（{_norm_read_id(l1[0])}）："
+                    f"文件可能被截断或 gz 尾部损坏")
             total += 1
             rid = _norm_read_id(l1[0])
             hit = rid in ids
@@ -285,11 +292,28 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
             return json.load(f)
 
     cls_in = [p for p in (classify_r1 or r1, classify_r2 or r2) if p]
-    inputs = [p for p in (r1, r2) if p]
+    # 宿主库身份：记录 + 前置告警。
+    # 为什么要在这里查：库本体不记录物种，用错宿主去做宿主去除是**静默**的
+    # （历史事故：枸杞基因组建成了 taxid=4081 番茄库，map/taxo 长期带两个
+    # taxid）。这里把"本次实际用的库是谁"写进 stats.json，让结果可追溯；
+    # 身份不明或多 taxid 时明确告警，而不是照跑不误。
+    from .config import host_db_info
+    hdb = host_db_info(db_host)
     if logger:
+        who = (f"{hdb.get('species') or '?'} (taxid={hdb.get('taxid')})"
+               if hdb.get('taxid') else "身份未记录（无 host_db.json 清单）")
         logger.log(f"阶段① 宿主去除: kunpeng 宿主库分类"
                    f"（{'双端' if r2 else '单端'}，"
                    f"分类输入 {'FASTA' if classify_r1 else 'FASTQ'}）")
+        logger.log(f"  宿主库 = {hdb.get('name') or db_host} | 物种 = {who}"
+                   + (f" | ⚠ map 内含多个 taxid {hdb['taxids_in_map']}"
+                      if hdb.get('conflicted') else ""))
+        if hdb.get('conflicted'):
+            logger.log("⚠ 该宿主库的 seqid2taxid.map 含多个 taxid，元数据已被"
+                       "历史建库污染；若结果异常，请按物种目录重建宿主库", "WARN")
+        elif not hdb.get('has_manifest'):
+            logger.log("⚠ 该宿主库没有 host_db.json 清单，无法核对物种；"
+                       "重建后会自动生成", "WARN")
 
     def _cls_prog(pct, msg):
         if progress:
@@ -329,6 +353,17 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
         'input_r2': os.path.basename(str(r2)) if r2 else None,
         'kraken_out': os.path.basename(res['kraken']) if res['kraken'] else None,
         'kreport': os.path.basename(res['kreport']) if res['kreport'] else None,
+        # 宿主库溯源：谁被用来做宿主去除。原先 stats 里完全没有这项，
+        # 出问题时无法判断"是不是用错宿主库了"。
+        'host_db': {
+            'name': hdb.get('name'),
+            'path': hdb.get('path') or str(db_host),
+            'taxid': hdb.get('taxid'),
+            'species': hdb.get('species'),
+            'taxids_in_map': hdb.get('taxids_in_map'),
+            'conflicted': bool(hdb.get('conflicted')),
+            'has_manifest': bool(hdb.get('has_manifest')),
+        },
         'kept_r1': 'kept_R1.fastq.gz',
         'kept_r2': 'kept_R2.fastq.gz' if r2 else None,
         **filt,
@@ -336,13 +371,20 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
     }
     with safe_open(stats_file, 'wt') as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
-    mark_step_done(out_dir, step)
     if logger:
         logger.log(f"阶段① 完成: 保留 {filt['kept_pairs']:,}/{filt['total_pairs']:,} 对 "
                    f"(宿主占比 {stats['host_ratio'] * 100:.2f}%)")
+        # 0 条被去除 = 宿主库与样品宿主可能不匹配（也可能是纯化病毒样品，
+        # 所以只告警不报错）。原先这种情况完全静默，下游 ②b 会拿到满屏宿主 reads。
+        if filt['dropped_pairs'] == 0 and filt['total_pairs'] > 0:
+            logger.log("⚠ 没有任何 read 被判为宿主：请确认宿主库物种与样品宿主"
+                       "一致（纯化病毒/无宿主污染样品也会如此）", "WARN")
+    # 先校验再落断点标记：否则 0 reads 的失败态会留下 .done，重跑时
+    # 281-285 行直接返回 stats.json，阶段被当成"成功"并让 ②③ 吃空输入。
     if filt['kept_pairs'] == 0:
         raise RuntimeError(
             '宿主去除后 0 条 reads 保留——输入可能为空、R1/R2 不配对，'
             '或宿主库选错（如用细菌宿主库处理植物数据）。'
             '请核对输入文件与宿主库后重跑。')
+    mark_step_done(out_dir, step)
     return stats

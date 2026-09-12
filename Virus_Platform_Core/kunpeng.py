@@ -12,11 +12,76 @@ import glob
 import shutil
 import time
 
-from .config import get_config, DIRS
+from .config import get_config, DIRS, host_db_name, host_db_taxids, host_db_info
 from .utils import (check_path, safe_open, run_cmd,
-                    inject_taxid_to_fasta, inject_taxid_map,
+                    inject_taxid_map,
                     inject_taxid_chunked, est_decompressed, log_res_plan,
                     dir_size)
+
+MANIFEST_NAME = 'host_db.json'
+
+
+def write_host_db_manifest(db_dir, taxid, genome_fasta, n_seq, n_frag,
+                           logger=None):
+    """把"这个库是给谁建的"写成 <db_dir>/host_db.json。
+
+    为什么需要：库本体（hash_*.k2d / taxo.k2d / seqid2taxid.map）不记录物种，
+    历史上就出过事故——日志显示 2026-09-03 那次建库把 689 条序列（= 枸杞
+    Lycium barbarum 基因组的序列数）注成了 taxid=4081（番茄 Solanum
+    lycopersicum），此后该库的 map/taxo 长期带着两个 taxid，而用错宿主去做
+    ①宿主去除是**静默**的。清单让库身份从"反推"变成"声明"：①宿主去除、自检、
+    GUI 列表都能直接核对。
+
+    写清单失败不阻断建库（库本身已建成），但一定留 WARN —— 沉默正是问题根源。
+    """
+    import json
+    from .taxonomy import taxid_name
+    db_dir = os.path.normpath(os.path.abspath(db_dir))
+    genome = os.path.normpath(os.path.abspath(str(genome_fasta)))
+    try:
+        st = os.stat(genome)
+        g_size, g_mtime = st.st_size, int(st.st_mtime)
+    except OSError:
+        g_size, g_mtime = None, None
+    try:
+        hash_bytes = sum(os.path.getsize(p)
+                         for p in glob.glob(os.path.join(db_dir, 'hash_*.k2d')))
+    except OSError:
+        hash_bytes = None
+    data = {
+        'schema': 1,
+        'host_db_name': os.path.basename(db_dir),
+        'taxid': int(taxid),
+        'species': taxid_name(taxid),
+        'source_genome': genome,
+        'source_genome_size': g_size,
+        'source_genome_mtime': g_mtime,
+        'n_seq': n_seq,
+        'n_frag': n_frag,
+        'taxids_in_map': sorted(host_db_taxids(db_dir)),
+        'hash_bytes': hash_bytes,
+        'built_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'kunpeng': get_config().tool('kunpeng'),
+    }
+    p = os.path.join(db_dir, MANIFEST_NAME)
+    try:
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        if logger:
+            logger.log(f"宿主库清单写入失败（不影响库本身）: {p}: {e}", "WARN")
+        return data
+    if logger:
+        bad = [t for t in data['taxids_in_map'] if t != int(taxid)]
+        logger.log(f"宿主库清单: {p}")
+        logger.log(f"  物种 = {data['species'] or '(未查到学名)'} (taxid={taxid})，"
+                   f"源基因组 = {os.path.basename(genome)}，"
+                   f"序列 {n_seq} 条 → 片段 {n_frag} 个")
+        if bad:
+            logger.log(f"⚠ 库内 seqid2taxid.map 仍含其它 taxid {bad} —— "
+                       f"说明该目录混入了历史建库（元数据污染），"
+                       f"建议换新目录重建", "WARN")
+    return data
 
 
 def db_ready(db_dir):
@@ -55,8 +120,16 @@ def ensure_db_dirs(db_dir):
 
 
 def _clean_mid_files(db_dir):
-    """建库成功后清理中间产物（library/prep），只留 .k2d + taxonomy + 映射。"""
-    for sub in ('library', 'prep'):
+    """建库成功后清理中间产物（library/prep/taxonomy），只留 .k2d + 映射 + 清单。
+
+    taxonomy/ 是 ensure_db_dirs 从 databases/tax_db **复制**进来的
+    nodes/names/merged.dmp（实测 571 MB/库），只有 add-library/build-db 用得到：
+    实测把它挪走后 classify 仍成功，kreport 与基线逐字段一致（物种名来自已生成的
+    taxo.k2d）。所以它不是"运行期数据"，而是建库耗材——不需要为它做软链接
+    （链接还带绝对路径，换盘/拷贝即失效），删掉即可；重建时 ensure_db_dirs 会
+    自动再复制。
+    """
+    for sub in ('library', 'prep', 'taxonomy'):
         p = os.path.join(db_dir, sub)
         if os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
@@ -87,17 +160,34 @@ def build_db(db_dir, tagged_fasta, hash_capacity='256M', threads=None,
 
     # 替换语义：tagged_fasta 总是全量文件，清掉历史 library 与失败残留，
     # 否则 add-library 累积追加会让重试时数据翻倍（曾导致 3.6GB 重复 fna）
+    #
+    # ⚠ 这里必须连**元数据**一起清：kunpeng 的 add-library 是往
+    # seqid2taxid.map 追加的，早先只清 library/hash、漏了 map 与 taxo.k2d，
+    # 于是每次重建都把陈旧的 seqid→taxid 并进 map。实测宿主库 map 里因此长期
+    # 同时存在 4081（番茄）与 112863（枸杞）两个 taxid，taxo.k2d 也跟着带上
+    # 了 Solanum —— 库"是谁"变得无法判定。hash_config/opts 一并清，避免旧
+    # 容量/参数残留影响本次 build-db。
     lib_dir = os.path.join(d, 'library')
     stale = (glob.glob(os.path.join(lib_dir, 'library_*.fna'))
              + glob.glob(os.path.join(lib_dir, 'library_*.hllp_*.json'))
              + glob.glob(os.path.join(lib_dir, 'added.md5'))
-             + glob.glob(os.path.join(d, 'hash_*.k2d'))
-             + glob.glob(os.path.join(d, 'chunk_*.k2')))
+             + glob.glob(os.path.join(d, 'hash_*.k2d'))   # 已覆盖 hash_config.k2d
+             + glob.glob(os.path.join(d, 'chunk_*.k2'))
+             + glob.glob(os.path.join(d, 'seqid2taxid.map'))
+             + glob.glob(os.path.join(d, 'taxo.k2d'))
+             + glob.glob(os.path.join(d, 'opts.k2d')))
+    # 去重：glob 模式之间存在重叠（hash_*.k2d 同时命中 hash_1.k2d 与
+    # hash_config.k2d），重复项第二次删除会抛 FileNotFoundError（实测踩过）。
+    stale = list(dict.fromkeys(stale))
     if stale:
         if logger:
             logger.log(f"清理历史 library/残留文件 {len(stale)} 个（替换式重建）")
         for p in stale:
-            os.remove(check_path(p, must_exist=True, in_platform=True))
+            # 已被并发/上一轮删掉就跳过：这里的目标是"清干净"，不是"必须删到"
+            try:
+                os.remove(check_path(p, must_exist=True, in_platform=True))
+            except FileNotFoundError:
+                pass
 
     try:
         run_cmd([kunpeng, 'add-library', '--db', d, '-i',
@@ -132,8 +222,15 @@ def build_host_db(genome_fasta, taxid, db_dir=None, hash_capacity='256M',
     序列名自动规范化：取首空白前 token 作 ID、清理历史标签、空 ID 自动编号。
     kunpeng convert 阶段按 60 条/批读取且无字节上限，多条大染色体同批会触发
     数十 GB 内存分配（详见 inject_taxid_chunked 注释），故基因组一律分块。
+
+    db_dir=None 时**按物种建目录**：host-db/<taxid>_<源目录名>_host_db/
+    （如 host-db/112863_Lycium_barbarum_host_db）。旧行为是全部塞进单一固定
+    槽位 host-db/host/classify，导致多宿主无法共存、且库不记录物种（见
+    write_host_db_manifest 的背景说明）。显式传 db_dir 仍可覆盖。
+    建完在库目录写 host_db.json 清单。
     """
-    db_dir = db_dir or get_config().databases['host']
+    if db_dir is None:
+        db_dir = os.path.join(DIRS['host_src'], host_db_name(taxid, genome_fasta))
     try:
         taxid = int(taxid)
     except (TypeError, ValueError):
@@ -157,12 +254,15 @@ def build_host_db(genome_fasta, taxid, db_dir=None, hash_capacity='256M',
     tagged = check_path(os.path.join(work, 'host_tagged.fa'),
                         must_exist=False, in_platform=True)
     if logger:
-        logger.log(f"宿主库构建开始: taxid={taxid}")
-    inject_taxid_chunked(genome_fasta, tagged, taxid,
-                         chunk_bp=chunk_bp, logger=logger)
-    return build_db(db_dir, tagged, hash_capacity=hash_capacity,
-                    threads=threads, logger=logger, rebuild=rebuild,
-                    clean_mid=clean_mid)
+        logger.log(f"宿主库构建开始: taxid={taxid}（目录 {db_dir}）")
+    n_seq, n_frag = inject_taxid_chunked(genome_fasta, tagged, taxid,
+                                        chunk_bp=chunk_bp, logger=logger)
+    build_db(db_dir, tagged, hash_capacity=hash_capacity,
+             threads=threads, logger=logger, rebuild=rebuild,
+             clean_mid=clean_mid)
+    write_host_db_manifest(db_dir, taxid, genome_fasta, n_seq, n_frag,
+                           logger=logger)
+    return db_dir
 
 
 def parse_virus_info(info_tsv):
@@ -252,9 +352,10 @@ def _pick_chunk_dir(out_dir, inputs, logger=None, base=None):
             return chunk
     except OSError:
         pass
-    # 回退：其余盘按剩余空间从大到小
+    # 回退：其余盘按剩余空间从大到小（枚举全部盘符；原 'CDEFGH' 漏掉 I 之后的盘）
+    import string as _string
     best, best_free = None, 0
-    for drv in 'CDEFGH':
+    for drv in _string.ascii_uppercase:
         root = '%s:%s' % (drv, os.sep)
         if not os.path.isdir(root):
             continue
@@ -389,10 +490,19 @@ def classify(db_dir, inputs, out_dir, paired=False, threads=None,
 
     out = check_path(out_dir, must_exist=False, in_platform=True)
     os.makedirs(out, exist_ok=True)
+    # 清掉上一轮的固定名产物：kunpeng 在 0 条 C 行时不写 output 文件，
+    # 而末尾的 glob 只看"文件是否存在"——残留会被当成本次结果返回
+    # （实测 results/NX-6/01_host_removal 留有 output_1.kreport2 且无 .done）。
+    for _pat in ('output_*.txt', '*.kreport2', '_part*.txt',
+                 '_part*.kreport2'):
+        for _stale in glob.glob(os.path.join(out, _pat)):
+            try:
+                os.remove(_stale)
+            except OSError:
+                pass
 
     files = [check_path(p, must_exist=True) for p in inputs]
     need = sum(os.path.getsize(f) for f in files) * 16   # 经验系数（含余量）
-    need_hint = '%.0f GB' % (need / 1e9) if files else '?'
     # 内存预估：库 hash 表（实测文件大小）+ resolve(≈每条记录 190B) + 基础开销
     _decomp = est_decompressed(files)
     _est_reads = max(1, int(_decomp / (316 if paired else 158)))
@@ -456,88 +566,103 @@ def classify(db_dir, inputs, out_dir, paired=False, threads=None,
     chunk_name = os.path.basename(chunk)
     out_parts_txt, out_parts_kr = [], []
     _chunk_actual = 0          # 实测 chunk 磁盘占用（供日志核对预估）
-    while True:
-        try:
-            part_inputs_list = [classify_inputs]
-            if attempt > 1:
-                if conv_dir is None:
+    # conv_dir 是本次运行的 fq2fa 中间产物（可达数 GB）：无论成功、
+    # 内存失败还是其他异常，都必须在函数退出前清掉，否则永久残留在
+    # 阶段目录里（原实现只在"有 kreport"时删除）。
+    _chunk_dirs = []          # 本次创建的 chunk 目录（失败时也要清）
+    try:
+        while True:
+            try:
+                part_inputs_list = [classify_inputs]
+                if attempt > 1:
+                    if conv_dir is None:
+                        raise RuntimeError(
+                            f"输入 {total_in_gb:.1f} GB 较大且未安装 seqkit，"
+                            f"无法分片分类（resolve 需内存约 "
+                            f"{total_in_gb * 1.6:.0f} GB）。请将 seqkit.exe "
+                            f"放入平台目录后重试")
+                    srcs = classify_inputs
+                    if len(srcs) == 2:
+                        p1 = _split_fasta_gz(srcs[0], attempt, conv_dir, 'mate1')
+                        p2 = _split_fasta_gz(srcs[1], attempt, conv_dir, 'mate2')
+                        part_inputs_list = [[p1[j], p2[j]] for j in range(attempt)]
+                    else:
+                        part_inputs_list = [[p] for p in
+                                            _split_fasta_gz(srcs[0], attempt,
+                                                            conv_dir, 'se')]
+                    if logger:
+                        logger.log(f"输入 {total_in_gb:.1f} GB，分 {attempt} 片"
+                                   f"逐片分类（单片 resolve 内存≈1/{attempt}）")
+                out_parts_txt, out_parts_kr = [], []
+                for j, pin in enumerate(part_inputs_list):
+                    # 分片 chunk 目录位于 _pick_chunk_dir 选定的基目录下
+                    # （可能在平台外，如 E:\vp_chunk），无需再做平台内校验
+                    chunk_j = (chunk if attempt == 1 else
+                               os.path.join(chunk_base, f'{chunk_name}_p{j}'))
+                    os.makedirs(chunk_j, exist_ok=True)
+                    _chunk_dirs.append(chunk_j)
+
+                    def _watch(chunk_j=chunk_j, j=j):
+                        """看门狗：kunpeng 无进度输出，用 chunk 中间盘增长近似。"""
+                        if progress is None:
+                            return
+                        used = dir_size(chunk_j)
+                        frac = min(used / need, 0.95) if need else 0
+                        base = j / max(len(part_inputs_list), 1)
+                        span = 1 / max(len(part_inputs_list), 1)
+                        if progress:
+                            progress(base + frac * span,
+                                     f"分类中间数据已写 {used / 1e9:.1f} / "
+                                     f"预估 {need / 1e9:.0f} GB"
+                                     + (f"（分片 {j + 1}/{attempt}）"
+                                        if attempt > 1 else ''))
+
+                    cmd = [kunpeng, 'classify', '--db', d, '--chunk-dir', chunk_j,
+                           '--output-dir', out] + common + \
+                          ['--batch-size', '4'] + pin
+                    if attempt > 1 and logger:
+                        logger.log(f"分类分片 {j + 1}/{attempt} ...")
+                    try:
+                        run_cmd(cmd, logger=logger, monitor_fn=_watch if progress
+                                else None, monitor_interval=5)
+                    except RuntimeError as e:
+                        if '3221226505' in str(e) or 'memory allocation' in str(e):
+                            raise _MemFail(str(e)[:200])
+                        raise
+                    _chunk_actual += dir_size(chunk_j)
+                    o1 = os.path.join(out, 'output_1.txt')
+                    k1 = os.path.join(out, 'output_1.kreport2')
+                    if os.path.isfile(o1):
+                        dst = check_path(os.path.join(out, f'_part{j}_o.txt'),
+                                         must_exist=False, in_platform=True)
+                        shutil.move(o1, dst)
+                        out_parts_txt.append(dst)
+                    if os.path.isfile(k1):
+                        dst = check_path(os.path.join(out, f'_part{j}.kreport2'),
+                                         must_exist=False, in_platform=True)
+                        shutil.move(k1, dst)
+                        out_parts_kr.append(dst)
+                    if not keep_chunk:
+                        shutil.rmtree(chunk_j, ignore_errors=True)
+                break
+            except _MemFail as e:
+                if attempt >= 6:
                     raise RuntimeError(
-                        f"输入 {total_in_gb:.1f} GB 较大且未安装 seqkit，"
-                        f"无法分片分类（resolve 需内存约 "
-                        f"{total_in_gb * 1.6:.0f} GB）。请将 seqkit.exe "
-                        f"放入平台目录后重试")
-                srcs = classify_inputs
-                if len(srcs) == 2:
-                    p1 = _split_fasta_gz(srcs[0], attempt, conv_dir, 'mate1')
-                    p2 = _split_fasta_gz(srcs[1], attempt, conv_dir, 'mate2')
-                    part_inputs_list = [[p1[j], p2[j]] for j in range(attempt)]
-                else:
-                    part_inputs_list = [[p] for p in
-                                        _split_fasta_gz(srcs[0], attempt,
-                                                        conv_dir, 'se')]
+                        "kunpeng 分类内存不足（已自动分片+降 batch-size 重试仍"
+                        "失败）。建议：① 关闭占内存的程序后重跑；② 用「子采样」"
+                        "减小数据量。原始错误: " + str(e)[:200])
+                attempt = min(6, attempt * 2)
                 if logger:
-                    logger.log(f"输入 {total_in_gb:.1f} GB，分 {attempt} 片"
-                               f"逐片分类（单片 resolve 内存≈1/{attempt}）")
-            out_parts_txt, out_parts_kr = [], []
-            for j, pin in enumerate(part_inputs_list):
-                # 分片 chunk 目录位于 _pick_chunk_dir 选定的基目录下
-                # （可能在平台外，如 E:\vp_chunk），无需再做平台内校验
-                chunk_j = (chunk if attempt == 1 else
-                           os.path.join(chunk_base, f'{chunk_name}_p{j}'))
-                os.makedirs(chunk_j, exist_ok=True)
-
-                def _watch(chunk_j=chunk_j, j=j):
-                    """看门狗：kunpeng 无进度输出，用 chunk 中间盘增长近似。"""
-                    if progress is None:
-                        return
-                    used = dir_size(chunk_j)
-                    frac = min(used / need, 0.95) if need else 0
-                    base = j / max(len(part_inputs_list), 1)
-                    span = 1 / max(len(part_inputs_list), 1)
-                    if progress:
-                        progress(base + frac * span,
-                                 f"分类中间数据已写 {used / 1e9:.1f} / "
-                                 f"预估 {need / 1e9:.0f} GB"
-                                 + (f"（分片 {j + 1}/{attempt}）"
-                                    if attempt > 1 else ''))
-
-                cmd = [kunpeng, 'classify', '--db', d, '--chunk-dir', chunk_j,
-                       '--output-dir', out] + common + \
-                      ['--batch-size', '4'] + pin
-                if attempt > 1 and logger:
-                    logger.log(f"分类分片 {j + 1}/{attempt} ...")
-                try:
-                    run_cmd(cmd, logger=logger, monitor_fn=_watch if progress
-                            else None, monitor_interval=5)
-                except RuntimeError as e:
-                    if '3221226505' in str(e) or 'memory allocation' in str(e):
-                        raise _MemFail(str(e)[:200])
-                    raise
-                _chunk_actual += dir_size(chunk_j)
-                o1 = os.path.join(out, 'output_1.txt')
-                k1 = os.path.join(out, 'output_1.kreport2')
-                if os.path.isfile(o1):
-                    dst = check_path(os.path.join(out, f'_part{j}_o.txt'),
-                                     must_exist=False, in_platform=True)
-                    shutil.move(o1, dst)
-                    out_parts_txt.append(dst)
-                if os.path.isfile(k1):
-                    dst = check_path(os.path.join(out, f'_part{j}.kreport2'),
-                                     must_exist=False, in_platform=True)
-                    shutil.move(k1, dst)
-                    out_parts_kr.append(dst)
-                if not keep_chunk:
-                    shutil.rmtree(chunk_j, ignore_errors=True)
-            break
-        except _MemFail as e:
-            if attempt >= 6:
-                raise RuntimeError(
-                    "kunpeng 分类内存不足（已自动分片+降 batch-size 重试仍"
-                    "失败）。建议：① 关闭占内存的程序后重跑；② 用「子采样」"
-                    "减小数据量。原始错误: " + str(e)[:200])
-            attempt = min(6, attempt * 2)
-            if logger:
-                logger.log(f"分片分类仍内存不足，加密到 {attempt} 片重试 ...")
+                    logger.log(f"分片分类仍内存不足，加密到 {attempt} 片重试 ...")
+    finally:
+        if conv_dir and os.path.isdir(conv_dir):
+            shutil.rmtree(conv_dir, ignore_errors=True)
+        # 分片 chunk 目录可达数十 GB：正常路径已逐个删除，这里兜住
+        # 内存失败/异常退出时残留的目录（keep_chunk 为调试用途，保留）。
+        if not keep_chunk:
+            for _cd in _chunk_dirs:
+                if os.path.isdir(_cd):
+                    shutil.rmtree(_cd, ignore_errors=True)
 
     # 合并分片输出
     if logger:
@@ -564,8 +689,6 @@ def classify(db_dir, inputs, out_dir, paired=False, threads=None,
                 os.remove(pf)
             except OSError:
                 pass
-        if conv_dir:
-            shutil.rmtree(conv_dir, ignore_errors=True)
 
     kraken = None
     kreport = None
@@ -734,7 +857,16 @@ def convert_kraken2(k2_source, db_dir, hash_capacity='1G', logger=None):
         if logger:
             logger.log(f"解包 Kraken2 库包: {os.path.basename(src)}")
         with tarfile.open(src, 'r:*') as tf:
-            tf.extractall(tmp)
+            # Tar Slip 防护：库包可能来自第三方下载，先显式拒绝绝对路径、
+            # .. 段与盘符成员（给出明确报错），再以 filter='data' 解包
+            # （Python 3.12+ 拒绝绝对路径/外部链接成员，防写出平台目录之外）
+            for m in tf.getmembers():
+                name = m.name.replace('\\', '/')
+                head = name.split('/')[0]
+                if (name.startswith('/') or '..' in name.split('/')
+                        or (len(head) == 2 and head[1] == ':')):
+                    raise RuntimeError(f'Kraken2 库包含非法成员路径: {m.name}')
+            tf.extractall(tmp, filter='data')
         # 找到含 hash.k2d 的目录（可能嵌套一层）
         k2_dir = None
         for cur, _sub, fns in os.walk(tmp):
@@ -750,40 +882,41 @@ def convert_kraken2(k2_source, db_dir, hash_capacity='1G', logger=None):
             if not os.path.isfile(os.path.join(k2_dir, req)):
                 raise RuntimeError(f'Kraken2 库缺少 {req}（目录: {k2_dir}）')
 
-    if logger:
-        logger.log(f"kunpeng hashshard（就地转换）: {k2_dir} "
-                   f"(hash-capacity {hash_capacity})")
-    run_cmd([kunpeng, 'hashshard', '--db', k2_dir,
-             '--hash-capacity', hash_capacity], logger=logger)
+    try:
+        if logger:
+            logger.log(f"kunpeng hashshard（就地转换）: {k2_dir} "
+                       f"(hash-capacity {hash_capacity})")
+        run_cmd([kunpeng, 'hashshard', '--db', k2_dir,
+                 '--hash-capacity', hash_capacity], logger=logger)
 
-    # hashshard 输出在 k2 目录内（hash_*.k2d / hash_config.k2d），
-    # 把 kunpeng 运行所需文件搬到目标 db_dir
-    import shutil
-    need = [('hash_*.k2d', 'glob'), ('hash_config.k2d', 'file'),
-            ('opts.k2d', 'file'), ('taxo.k2d', 'file')]
-    moved = 0
-    for pat, kind in need:
-        if kind == 'glob':
-            for f in glob.glob(os.path.join(k2_dir, pat)):
-                shutil.move(f, os.path.join(db_dir, os.path.basename(f)))
-                moved += 1
-        else:
-            f = os.path.join(k2_dir, pat)
-            if os.path.isfile(f):
-                shutil.move(f, os.path.join(db_dir, pat))
-                moved += 1
-    if logger:
-        logger.log(f"移动 kunpeng 库文件 {moved} 个 → {db_dir}")
+        # hashshard 输出在 k2 目录内（hash_*.k2d / hash_config.k2d），
+        # 把 kunpeng 运行所需文件搬到目标 db_dir
+        import shutil
+        need = [('hash_*.k2d', 'glob'), ('hash_config.k2d', 'file'),
+                ('opts.k2d', 'file'), ('taxo.k2d', 'file')]
+        moved = 0
+        for pat, kind in need:
+            if kind == 'glob':
+                for f in glob.glob(os.path.join(k2_dir, pat)):
+                    shutil.move(f, os.path.join(db_dir, os.path.basename(f)))
+                    moved += 1
+            else:
+                f = os.path.join(k2_dir, pat)
+                if os.path.isfile(f):
+                    shutil.move(f, os.path.join(db_dir, pat))
+                    moved += 1
+        if logger:
+            logger.log(f"移动 kunpeng 库文件 {moved} 个 → {db_dir}")
 
-    # taxonomy dmp 也复制（classify 的 LCA 用，部分流程需要）
-    for dmp in ('nodes.dmp', 'names.dmp'):
-        f = os.path.join(k2_dir, dmp)
-        if os.path.isfile(f) and not os.path.isfile(os.path.join(db_dir, dmp)):
-            shutil.copyfile(f, os.path.join(db_dir, dmp))
-
-    # 清理解包临时目录
-    if tmp:
-        shutil.rmtree(tmp, ignore_errors=True)
+        # taxonomy dmp 也复制（classify 的 LCA 用，部分流程需要）
+        for dmp in ('nodes.dmp', 'names.dmp'):
+            f = os.path.join(k2_dir, dmp)
+            if os.path.isfile(f) and not os.path.isfile(os.path.join(db_dir, dmp)):
+                shutil.copyfile(f, os.path.join(db_dir, dmp))
+    finally:
+        # 清理解包临时目录（finally：hashshard/搬运中途失败也不残留数 GB 解包产物）
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     if not db_ready(db_dir):
         raise RuntimeError('hashshard 完成但库文件不齐全（db_ready 失败）')

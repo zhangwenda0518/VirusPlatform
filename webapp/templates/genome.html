@@ -170,17 +170,7 @@
 </div>
 
 <!-- 文件/目录选择对话框 -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -300,9 +290,16 @@ function gpPreview() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fasta: val('gp_fa'), ann: val('gp_ann'), mode: gp_mode, gb_opts: gpCollectOpts() })});
       const d = await r.json();
-      if (!r.ok) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + (d.error || r.status) + '</p>'; return; }
-      body.innerHTML = '<div style="overflow:auto;background:#fff;border-radius:8px;padding:10px">' + d.svg + '</div>';
-      _gpSvg = body.querySelector('svg');
+      if (!r.ok) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + esc(String(d.error || r.status)) + '</p>'; return; }
+      // SVG 来自用户自备 GenBank/GFF（基因名等字段完全可控），gbdraw 未必
+      // 对所有字段转义。不能 innerHTML 直插（onload/foreignObject 会执行）：
+      // 先 DOMParser 解析，剥掉脚本/foreignObject/use 与 on* 事件属性再入 DOM
+      const holder = document.createElement('div');
+      holder.style.cssText = 'overflow:auto;background:#fff;border-radius:8px;padding:10px';
+      holder.appendChild(_sanitizeGpSvg(d.svg));
+      body.innerHTML = '';
+      body.appendChild(holder);
+      _gpSvg = holder.querySelector('svg');
       if (_gpSvg) {
         _gpSvg.removeAttribute('width');       // 交给 gpZoom 控制宽度
         _gpSvg.removeAttribute('height');
@@ -310,8 +307,29 @@ function gpPreview() {
         if (zb) zb.style.display = 'flex';
         gpZoom(_gpZoomMode);
       }
-    } catch (e) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + e + '</p>'; }
+    } catch (e) { body.innerHTML = '<p class="hint">' + t('gn.previewFail', '预览失败: ') + esc(String(e)) + '</p>'; }
   }, 500);
+}
+
+/* 客户端 SVG 白名单消毒：剥 on* 事件属性、<script>/<foreignObject>/<use>、
+   javascript: href（gpPreview 专用，见上） */
+function _sanitizeGpSvg(txt) {
+  const doc = new DOMParser().parseFromString(txt, 'image/svg+xml');
+  const svg = doc.documentElement;
+  if (!svg || svg.nodeName.toLowerCase() !== 'svg' || svg.getElementsByTagName('parsererror').length) {
+    throw new Error('返回内容不是有效 SVG');
+  }
+  svg.querySelectorAll('script,foreignObject,use').forEach(n => n.remove());
+  svg.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => {
+      const n = a.name.toLowerCase();
+      const v = String(a.value).trim().toLowerCase();
+      if (n.startsWith('on') || (n === 'href' && v.startsWith('javascript:'))) {
+        el.removeAttribute(a.name);
+      }
+    });
+  });
+  return svg;
 }
 
 function runGenoplot(btn) {

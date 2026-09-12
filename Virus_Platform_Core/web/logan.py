@@ -2,25 +2,15 @@
 """LOGAN 溯源（自 app.py 拆出）。
 
 病毒序列 → Logan-Search → 物种/样本溯源；含 Selenium 批量提交。"""
-import json
 import os
-import re
-import shutil
-import subprocess
-import sys
-import threading
-import time
-import uuid
 
 from flask import (Blueprint, abort, jsonify, render_template, request,
-                   send_file, send_from_directory)
+                   send_file)
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
-from vp.web.tasks import tm
-from vp.web.common import _safe_sample
+from Virus_Platform_Core.utils import (TaskLogger, check_path)
+from Virus_Platform_Core.web.state import cfg
+from Virus_Platform_Core.web.tasks import tm
+from Virus_Platform_Core.web.common import _safe_sample
 
 bp = Blueprint('logan', __name__)
 
@@ -32,17 +22,24 @@ def page_logan():
 
 @bp.route('/logan/report/<name>/')
 def page_logan_report(name):
-    from vp.logan_trace import _job_dir
+    from Virus_Platform_Core.logan_trace import _job_dir
     p = os.path.join(_job_dir(name), 'trace_report.html')
     if not os.path.isfile(p):
         abort(404, '溯源报告尚未生成（请先导入结果文件）')
-    return send_file(check_path(p, must_exist=True, in_platform=True))
+    resp = send_file(check_path(p, must_exist=True, in_platform=True))
+    # 报告内容由样本数据（contig 名等）拼成，属于半可信输入：加 CSP 兜底，
+    # 即使未来某处转义遗漏，注入的脚本也无法读取平台 API 响应
+    resp.headers['Content-Security-Policy'] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'self'")
+    return resp
 
 
 @bp.route('/logan/report/<name>/<path:filename>')
 def page_logan_report_file(name, filename):
     """溯源报告目录内静态文件（plotly.min.js / 原始结果表 / 查询 FASTA）。"""
-    from vp.logan_trace import _job_dir
+    from Virus_Platform_Core.logan_trace import _job_dir
     p = check_path(os.path.join(_job_dir(name), filename),
                    must_exist=True, in_platform=True)
     return send_file(check_path(p, must_exist=True, in_platform=True))
@@ -51,32 +48,32 @@ def page_logan_report_file(name, filename):
 @bp.route('/api/logan/samples')
 def api_logan_samples():
     """可选来源样品：已有 ③组装 病毒 contigs 产出的样品。"""
-    from vp.logan_trace import list_query_samples
+    from Virus_Platform_Core.logan_trace import list_query_samples
     return jsonify(list_query_samples())
 
 
 @bp.route('/api/logan/contigs/<sample>')
 def api_logan_contigs(sample):
-    from vp.logan_trace import list_virus_contigs
+    from Virus_Platform_Core.logan_trace import list_virus_contigs
     return jsonify(list_virus_contigs(_safe_sample(sample)))
 
 
 @bp.route('/api/logan/jobs')
 def api_logan_jobs():
-    from vp.logan_trace import list_jobs
+    from Virus_Platform_Core.logan_trace import list_jobs
     return jsonify(list_jobs())
 
 
 @bp.route('/api/logan/job/<name>')
 def api_logan_job(name):
-    from vp.logan_trace import job_detail
+    from Virus_Platform_Core.logan_trace import job_detail
     return jsonify(job_detail(name))
 
 
 @bp.route('/api/logan/job/<name>/segment/<int:idx>')
 def api_logan_segment(name, idx):
     """片段序列（前端复制提交用）。"""
-    from vp.logan_trace import get_segment_fasta
+    from Virus_Platform_Core.logan_trace import get_segment_fasta
     header, seq = get_segment_fasta(name, idx)
     return jsonify({'header': header, 'seq': seq})
 
@@ -84,7 +81,7 @@ def api_logan_segment(name, idx):
 @bp.route('/api/logan/job/<name>/query')
 def api_logan_query_dl(name):
     """下载查询 FASTA（全部片段）。"""
-    from vp.logan_trace import _job_dir
+    from Virus_Platform_Core.logan_trace import _job_dir
     p = os.path.join(_job_dir(name), 'query_all.fasta')
     if not os.path.isfile(p):
         abort(404, '查询 FASTA 不存在')
@@ -94,8 +91,8 @@ def api_logan_query_dl(name):
 
 @bp.route('/api/logan/create', methods=['POST'])
 def api_logan_create():
-    from vp.logan_trace import create_job
-    body = request.get_json(force=True)
+    from Virus_Platform_Core.logan_trace import create_job
+    body = request.get_json(force=True) or {}
     name = (body.get('name') or '').strip()
     if not name:
         abort(400, '请填写查询名称')
@@ -116,7 +113,7 @@ def api_logan_create():
 @bp.route('/api/logan/job/<name>/import/<int:idx>', methods=['POST'])
 def api_logan_import(name, idx):
     """导入某片段的 Logan-Search 结果表（CSV/TSV），解析并自动生成报告。"""
-    from vp.logan_trace import import_result, MAX_UPLOAD_BYTES
+    from Virus_Platform_Core.logan_trace import import_result, MAX_UPLOAD_BYTES
     f = request.files.get('file')
     if not f:
         abort(400, '缺少结果文件')
@@ -133,7 +130,7 @@ def api_logan_import(name, idx):
 
 @bp.route('/api/logan/job/<name>/delete', methods=['POST'])
 def api_logan_delete(name):
-    from vp.logan_trace import delete_job
+    from Virus_Platform_Core.logan_trace import delete_job
     delete_job(name)
     return jsonify({'ok': True})
 
@@ -141,14 +138,14 @@ def api_logan_delete(name):
 @bp.route('/api/logan/batch_ready')
 def api_logan_batch_ready():
     """批量模式可用性（selenium 是否已安装）。"""
-    from vp.logan_trace import selenium_ready, GROUP_HINTS
+    from Virus_Platform_Core.logan_trace import selenium_ready, GROUP_HINTS
     return jsonify({'selenium': selenium_ready(), 'groups': GROUP_HINTS})
 
 
 @bp.route('/api/logan/job/<name>/batch', methods=['POST'])
 def api_logan_batch(name):
     """后台批量提交任务的全部未导入片段，完成后自动导入并生成报告。"""
-    from vp.logan_trace import batch_submit, _load_job
+    from Virus_Platform_Core.logan_trace import batch_submit, _load_job
     _jdir, meta, segs = _load_job(name)
     if not any(not s.get('imported') for s in segs):
         abort(400, '该任务所有片段均已导入结果')

@@ -7,23 +7,21 @@ import logging
 import os
 import re
 import shutil
-import subprocess
-import sys
 import threading
 import time
 import uuid
 
-from flask import (Blueprint, abort, jsonify, render_template, request,
-                   send_file, send_from_directory)
+from flask import (Blueprint, abort, jsonify, request,
+                   send_file)
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
-from vp.web.common import _safe_sample
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
-from vp.web.tasks import tm
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT
+from Virus_Platform_Core.utils import (TaskLogger, check_path, fmt_size,
+                                      resolve_sample_name, safe_open)
+from Virus_Platform_Core.web.common import _safe_sample
+from Virus_Platform_Core.web.state import cfg
+from Virus_Platform_Core.web.tasks import tm
 
-_log = logging.getLogger('vp.web.samples')
+_log = logging.getLogger('Virus_Platform_Core.web.samples')
 
 bp = Blueprint('samples', __name__)
 
@@ -38,6 +36,7 @@ class SampleQueue:
         self.lock = threading.RLock()
         self.items = []
         self.thread = None
+        self._worker_alive = False
         self._load()
 
     def _load(self):
@@ -84,20 +83,25 @@ class SampleQueue:
 
     def _ensure_worker(self):
         with self.lock:
-            if self.thread and self.thread.is_alive():
+            if self._worker_alive:
                 return
-            self.thread = threading.Thread(target=self._worker, daemon=True,
-                                           name='sample-queue')
-            self.thread.start()
+            self._worker_alive = True
+        threading.Thread(target=self._worker, daemon=True,
+                         name='sample-queue').start()
 
     def _worker(self):
         while True:
             with self.lock:
                 nxt = next((it for it in self.items
                             if it['status'] == 'queued'), None)
-            if not nxt:
-                return
-            nxt['status'] = 'running'
+                if not nxt:
+                    # 取件与退出标志清除必须在同一把锁内：否则「worker 判空
+                    # 退出」与「add() 入队后发现线程还活着不再起新 worker」
+                    # 交错时，新条目会永远没人消费（队列假死）
+                    self._worker_alive = False
+                    self.thread = None
+                    return
+                nxt['status'] = 'running'
             self._persist()
             try:
                 self._run_entry(nxt)
@@ -107,10 +111,10 @@ class SampleQueue:
             self._persist()
 
     def _run_entry(self, it):
-        from vp.pipeline import (load_sample_input, run_analysis,
-                                 _safe_sample_name, pipeline_overview,
-                                 STAGE_ORDER)
-        s = _safe_sample_name(it['sample'])
+        from Virus_Platform_Core.pipeline import (load_sample_input, run_analysis,
+                                 pipeline_overview, STAGE_ORDER)
+        # 队列项里的样品名是"已存在的样品"，按磁盘真实目录名解析
+        s = resolve_sample_name(it['sample'], DIRS['results'])
         sd = check_path(os.path.join(DIRS['results'], s),
                         must_exist=True, in_platform=True)
         r1, r2, _proj = load_sample_input(sd)
@@ -134,21 +138,32 @@ class SampleQueue:
         if not stages:
             raise RuntimeError(f'样品 {s} 没有需要运行的阶段（全部已完成）')
 
+        if not _sample_busy_register(s):
+            raise RuntimeError(
+                f'样品 {s} 已有任务在运行，队列项跳过（请勿重复入队）')
+
         def job(log, prog, cancel):
             logger = TaskLogger(callback=log)
-            run_analysis(sample=s, r1=r1, r2=r2, stages=stages,
-                         **_analysis_kwargs(it.get('params') or {}),
-                         logger=logger, progress=prog)
-            logger.close()
-            return sd
+            try:
+                run_analysis(sample=s, r1=r1, r2=r2, stages=stages,
+                             **_analysis_kwargs(it.get('params') or {}),
+                             logger=logger, progress=prog)
+                return sd
+            finally:
+                _sample_busy_release(s)
+                logger.close()
 
         q_log_dir = check_path(os.path.join(sd, 'logs'),
                                must_exist=False, in_platform=True)
         os.makedirs(q_log_dir, exist_ok=True)
-        tid = tm.start(cfg.tr(f'队列·{s}', f'Queue·{s}'), job,
-                       log_file=os.path.join(
-                           q_log_dir,
-                           f'queue_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+        try:
+            tid = tm.start(cfg.tr(f'队列·{s}', f'Queue·{s}'), job,
+                           log_file=os.path.join(
+                               q_log_dir,
+                               f'queue_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+        except BaseException:
+            _sample_busy_release(s)      # 任务没起来也要放掉占位
+            raise
         it['task'] = tid
         self._persist()
         while True:
@@ -182,10 +197,26 @@ class SampleQueue:
         self._persist()
         return True
 
+    def reset_all(self):
+        """清空批处理队列全部条目（全局重置用），返回被清掉的条数。
+
+        与 clear_finished 的差别：连 queued/running 条目一起清。
+        不在这里取消任务——任务取消由 TaskManager.cancel_all() 负责；
+        清空后 worker 取不到 queued 项会自行退出，正在跑的那条其
+        `_run_entry` 等待循环在任务进终态后正常返回（条目已不在列表里，
+        收尾的 _persist 只是把空列表再写一遍）。
+        不碰 results/ 下任何文件。
+        """
+        with self.lock:
+            n = len(self.items)
+            self.items = []
+        self._persist()
+        return n
+
 
 sample_queue = SampleQueue()
 # 注册到 state，供 download blueprint 的「转入分析流程」取用
-from vp.web import state as _web_state
+from Virus_Platform_Core.web import state as _web_state
 
 _web_state.set_sample_queue(sample_queue)
 
@@ -206,6 +237,31 @@ def _task_matches_sample(task_name, sample):
                          name))
 
 
+# ── 同样品并发防护（登记表） ─────────────────────────────────
+# 原先只靠「遍历 tm.list_all() 按任务名正则匹配」判定样品是否在跑：
+# ① 检查与 tm.start 之间有 TOCTOU 窗口（双击可同时通过）；
+# ② 工具页直接跑某样品阶段目录的任务名匹配不上那几条正则。
+# 两个任务并发写同一 results/<sample>/ 会互相覆盖 summary.json 与
+# .done 断点标记。这里用进程内登记表做权威判定：请求/入队时占位，
+# 任务 finally 释放（取消、异常都会走到）。
+_RUNNING_SAMPLES = set()
+_RUNNING_SAMPLES_LOCK = threading.Lock()
+
+
+def _sample_busy_register(sample):
+    """占位。返回 False 表示该样品已有任务占位（应拒绝新任务）。"""
+    with _RUNNING_SAMPLES_LOCK:
+        if sample in _RUNNING_SAMPLES:
+            return False
+        _RUNNING_SAMPLES.add(sample)
+        return True
+
+
+def _sample_busy_release(sample):
+    with _RUNNING_SAMPLES_LOCK:
+        _RUNNING_SAMPLES.discard(sample)
+
+
 @bp.route('/api/queue')
 def api_queue():
     return jsonify(sample_queue.snapshot())
@@ -217,24 +273,61 @@ def api_queue_add():
     samples = body.get('samples') or []
     if not samples:
         abort(400, '请提供样品列表')
-    from vp.pipeline import _safe_sample_name
     valid = []
     for s in samples:
-        sd = check_path(os.path.join(DIRS['results'], _safe_sample_name(s)),
+        # 入队的都是"已有样品"：按磁盘真实目录名解析后再校验 input.json，
+        # 否则手工/历史命名的样品会被字符转换改名而误判为"不存在"。
+        name = resolve_sample_name(s, DIRS['results'])
+        sd = check_path(os.path.join(DIRS['results'], name),
                         must_exist=False, in_platform=True)
         if not os.path.isfile(os.path.join(sd, '00_prep', 'input.json')):
             abort(400, f'样品 {s} 不存在或缺少输入记录（请先创建样品）')
-        valid.append(_safe_sample_name(s))
+        valid.append(name)
     stages = body.get('stages') or None       # None = 依次运行剩余步骤
     if stages:
-        from vp.pipeline import STAGE_ORDER
+        from Virus_Platform_Core.pipeline import STAGE_ORDER
         stages = [s for s in stages if s in STAGE_ORDER]
         if not stages:
             abort(400, 'stages 参数不合法')
     added = sample_queue.add(valid, stages,
                              body.get('params') or {},
                              project=str(body.get('project') or '') or None)
+    for it in added:
+        bind_queue_entry(it)
     return jsonify({'added': len(added)})
+
+
+def bind_queue_entry(it):
+    """把「排队中」的样品挂进任务中心（外部任务）。
+
+    为什么需要：队列条目只有在**真正开跑**时才在 samples.py 里 tm.start
+    出「队列·<样品>」任务，排队期间在任务中心完全看不见 —— 用户点了入队
+    却以为没生效。这里给排队态挂一张卡；一旦开跑/结束，provider 返回
+    None，卡片自动让位给真任务卡（不会重复两张）。
+    """
+    from Virus_Platform_Core.web.tasks import tm
+    eid = it.get('id')
+    sample = it.get('sample') or ''
+    if not eid:
+        return
+
+    def prov(eid=eid, sample=sample):
+        with sample_queue.lock:
+            cur = next((x for x in sample_queue.items if x['id'] == eid), None)
+            if not cur or cur.get('status') != 'queued':
+                return None          # 已开跑或已结束 → 交给 tm 的真任务卡
+            ahead = sum(1 for x in sample_queue.items
+                        if x['status'] == 'running')
+        return {'status': 'running', 'pct': 0.0, 'stage': '排队中',
+                'msg': cfg.tr(f'样品 {sample} 等待批处理名额'
+                              + (f'（前面有 {ahead} 个在跑）' if ahead else ''),
+                              f'Sample {sample} queued'),
+                'log': []}
+
+    tm.attach(f'排队·{sample}', prov,
+              on_cancel=lambda eid=eid: sample_queue.remove(eid),
+              link=f'/pipeline?sample={sample}', key=f'queue:{eid}',
+              weight='light')
 
 
 @bp.route('/api/queue/<entry_id>/remove', methods=['POST'])
@@ -318,55 +411,70 @@ def _analysis_kwargs(body):
 
 @bp.route('/api/analyze', methods=['POST'])
 def api_analyze():
-    body = request.get_json(force=True)
+    body = request.get_json(force=True) or {}
     if not body.get('r1'):
         abort(400, '缺少 R1')
     check_path(body['r1'], must_exist=True)
     if body.get('r2'):
         check_path(body['r2'], must_exist=True)
-    from vp.pipeline import DEFAULT_ANALYZE_STAGES
+    from Virus_Platform_Core.pipeline import DEFAULT_ANALYZE_STAGES
     stages = body.get('stages') or list(DEFAULT_ANALYZE_STAGES)
-    from vp.pipeline import _safe_sample_name
-    sample = _safe_sample_name(body.get('sample') or _default_sample_name(body['r1']))
+    # 同名样品已存在 → 认磁盘真实目录名（不然会另建一个规范化后的新目录，
+    # 把同一次分析拆成两个样品）；新名字则退回规范名，等同新建。
+    sample = resolve_sample_name(
+        body.get('sample') or _default_sample_name(body['r1']), DIRS['results'])
     for t in tm.list_all():
         if t.get('status') == 'running' and _task_matches_sample(t.get('name'), sample):
             abort(400, f'样品 {sample} 已有任务在运行（{t.get("name")}），'
                        f'请等它结束或先取消后再试')
+    if not _sample_busy_register(sample):
+        abort(400, f'样品 {sample} 已有任务在运行，请等它结束或先取消后再试')
 
     def job(log, prog, cancel):
-        from vp.pipeline import run_analysis
+        from Virus_Platform_Core.pipeline import run_analysis
         logger = TaskLogger(callback=log)
-        result_dir = run_analysis(
-            sample=sample, r1=body['r1'], r2=body.get('r2'),
-            stages=stages, **_analysis_kwargs(body),
-            logger=logger, progress=prog)
-        logger.close()
-        return result_dir
+        try:
+            return run_analysis(
+                sample=sample, r1=body['r1'], r2=body.get('r2'),
+                stages=stages, **_analysis_kwargs(body),
+                logger=logger, progress=prog)
+        finally:
+            _sample_busy_release(sample)
+            logger.close()
 
     log_dir = check_path(os.path.join(DIRS['results'], sample, 'logs'),
                          must_exist=False, in_platform=True)
     os.makedirs(log_dir, exist_ok=True)
-    tid = tm.start(cfg.tr(f'样品分析 {sample}', f'Sample analysis {sample}'),
-                   job,
-                   log_file=os.path.join(
-                       log_dir,
-                       f'analyze_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+    try:
+        tid = tm.start(cfg.tr(f'样品分析 {sample}', f'Sample analysis {sample}'),
+                       job,
+                       log_file=os.path.join(
+                           log_dir,
+                           f'analyze_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+    except BaseException:
+        _sample_busy_release(sample)     # 任务没起来也要放掉占位
+        raise
     return jsonify({'task': tid, 'sample': sample})
 
 
 def _sample_dir(sample):
-    from vp.pipeline import _safe_sample_name
-    from vp.config import DIRS
-    s = _safe_sample_name(sample)
+    """样品名 → (真实目录名, 绝对路径)；不存在则 404。
+
+    用 resolve_sample_name 而非纯字符转换：样品名来自 URL，可能是
+    /api/samples 返回的真实目录名（含手工创建/历史/中文命名），
+    字符转换会把它改成另一个名字而读不到。
+    """
+    from Virus_Platform_Core.config import DIRS
+    s = resolve_sample_name(sample, DIRS['results'])
     return s, check_path(os.path.join(DIRS['results'], s),
                          must_exist=True, in_platform=True)
 
 
 @bp.route('/api/samples')
 def api_samples():
-    from vp.pipeline import (pipeline_overview, load_sample_input,
+    from Virus_Platform_Core.pipeline import (pipeline_overview, load_sample_input,
                              load_project_manifest)
-    from vp.config import DIRS
+    from Virus_Platform_Core.config import DIRS
     out = []
     res = check_path(DIRS['results'], must_exist=False, in_platform=True)
     if os.path.isdir(res):
@@ -445,36 +553,119 @@ def _default_sample_name(path):
     return base or 'sample'
 
 
+@bp.route('/api/samples/scan_folder', methods=['POST'])
+def api_samples_scan_folder():
+    """扫描 FASTQ 文件夹 → 自动识别单/双端样本（零手填批量导入）。
+
+    - 双端：R1/R2 命名自动配对（`_R1`/`.R1`/`-R1` 三种分隔，大小写不敏感）；
+    - 单端：无 R1 标记的 FASTQ 各成一个样本；孤儿 R2（有 R2 没 R1）不当样本；
+    - 样本名：自动取 R1 文件名去掉 R1 标记与扩展名（GQMIX.R1.fq.gz → GQMIX）；
+    - 项目名：前端用文件夹名预填；
+    - 顶层没有 FASTQ 时自动下探一层子目录（按样本分文件夹的存放习惯）。
+    """
+    body = request.get_json(force=True) or {}
+    folder = str(body.get('folder') or '').strip()
+    if not folder:
+        abort(400, '请提供文件夹路径')
+    p = check_path(folder, must_exist=True)
+    if not os.path.isdir(p):
+        abort(400, '路径不是目录: %s' % folder)
+    from Virus_Platform_Core.consensus import (R1_RX, _r1_mate_name,
+                                               find_read_pairs)
+    r2_rx = re.compile(r'^(.*?)([_.\-])R2(\.(?:fq|fastq)(?:\.gz)?)$', re.I)
+    fq_ext = ('.fastq', '.fq', '.fastq.gz', '.fq.gz')
+
+    def _stem(fn):
+        m = R1_RX.match(fn) or r2_rx.match(fn)
+        if m:
+            return m.group(1)
+        return re.sub(r'\.(fq|fastq)(\.gz)?$', '', fn, flags=re.I)
+
+    out, seen = [], set()
+
+    def _unique(nm):
+        nm = re.sub(r'[^\w\-.]+', '_', nm).strip('_-.') or 'sample'
+        base, k = nm, 2
+        while nm in seen:
+            nm = '%s_%d' % (base, k)
+            k += 1
+        seen.add(nm)
+        return nm
+
+    def _scan_dir(d):
+        consumed = set()
+        for r1, r2 in find_read_pairs(d):
+            consumed.add(os.path.realpath(r1))
+            if r2:
+                consumed.add(os.path.realpath(r2))
+            out.append({'name': _unique(_stem(os.path.basename(r1))),
+                        'r1': r1, 'r2': r2 or ''})
+        for fn in sorted(os.listdir(d)):
+            fp = os.path.join(d, fn)
+            if (not os.path.isfile(fp)
+                    or not fn.lower().endswith(fq_ext)
+                    or os.path.realpath(fp) in consumed
+                    or _r1_mate_name(fn)          # R1 命名已被上面收（含 R2 缺失）
+                    or r2_rx.match(fn)):          # 孤儿 R2：不当独立样本
+                continue
+            out.append({'name': _unique(_stem(fn)), 'r1': fp, 'r2': ''})
+
+    _scan_dir(p)
+    if not out:
+        # 顶层没有 FASTQ：下探一层子目录（每子目录一个/多个样本）
+        for name in sorted(os.listdir(p)):
+            sub = os.path.join(p, name)
+            if os.path.isdir(sub):
+                _scan_dir(sub)
+    if not out:
+        abort(400, '该文件夹（含一层子目录）下未找到 FASTQ'
+                   '（.fastq/.fq/.gz；双端按 R1/R2 命名自动配对）')
+    return jsonify({'folder': p, 'project': os.path.basename(p),
+                    'samples': out})
+
+
 @bp.route('/api/pipeline/create', methods=['POST'])
 def api_pipeline_create():
-    body = request.get_json(force=True)
+    body = request.get_json(force=True) or {}
     if not body.get('r1'):
         abort(400, '缺少 R1')
     check_path(body['r1'], must_exist=True)
     if body.get('r2'):
         check_path(body['r2'], must_exist=True)
-    from vp.pipeline import _safe_sample_name, save_sample_input
-    from vp.config import DIRS
-    sample = _safe_sample_name(body.get('sample') or _default_sample_name(body['r1']))
+    from Virus_Platform_Core.pipeline import save_sample_input, _safe_sample_name
+    from Virus_Platform_Core.config import DIRS
+    typed = str(body.get('sample') or '').strip()
+    sample = _safe_sample_name(typed or _default_sample_name(body['r1']))
     sd = check_path(os.path.join(DIRS['results'], sample),
                     must_exist=False, in_platform=True)
     if os.path.isdir(sd) and any(os.scandir(sd)):
+        # 撞名时把"输入名 → 实际目录名"讲清楚，否则用户填「样品A」却被告知
+        # 「A 已存在」，完全不知道名字被规范化过（这类静默改名很难自查）。
+        if typed and typed != sample:
+            abort(400, f'样品名「{typed}」会被规范化为「{sample}」，'
+                       f'而「{sample}」已存在；请换一个样品名')
         abort(400, f'样品 {sample} 已存在，请换一个样品名')
     os.makedirs(sd, exist_ok=True)
     # 可选：创建时立即截取子样本作为管道输入（大样品先小规模验证）
     sub = int(body.get('subsample', 0) or 0)
     in1, in2 = body['r1'], body.get('r2')
     if sub > 0:
-        from vp.pipeline import subsample_fastq
+        from Virus_Platform_Core.pipeline import subsample_fastq
         in1, in2 = subsample_fastq(in1, in2, os.path.join(sd, '00_prep'), sub)
     save_sample_input(sd, in1, in2, sample,
                       project=str(body.get('project') or '') or None)
-    return jsonify({'sample': sample})
+    # note：名字被规范化过时明确回给前端提示（非 ASCII/空格会被折叠成 '_'，
+    # 因为样品名要当目录名进 SPAdes/BLAST 等不支持中文路径的工具）。
+    note = ''
+    if typed and typed != sample:
+        note = (f'样品名「{typed}」已按文件名安全规则登记为「{sample}」'
+                f'（目录名不能含中文/空格等字符）')
+    return jsonify({'sample': sample, 'typed': typed, 'note': note})
 
 
 @bp.route('/api/pipeline/<sample>')
 def api_pipeline(sample):
-    from vp.pipeline import pipeline_overview, load_sample_input
+    from Virus_Platform_Core.pipeline import pipeline_overview, load_sample_input
     s, sd = _sample_dir(sample)
     r1, r2, project = load_sample_input(sd)
     lang = request.args.get('lang') or None
@@ -484,14 +675,14 @@ def api_pipeline(sample):
 
 @bp.route('/api/pipeline/<sample>/run', methods=['POST'])
 def api_pipeline_run(sample):
-    body = request.get_json(force=True)
+    body = request.get_json(force=True) or {}
     s, sd = _sample_dir(sample)
     # 防重复：该样品已有运行中任务时拒绝（避免并发分类写爆磁盘）
     for t in tm.list_all():
         if t.get('status') == 'running' and _task_matches_sample(t.get('name'), s):
             abort(400, f'样品 {s} 已有任务在运行（{t.get("name")}），'
                        f'请等它结束或先取消后再试')
-    from vp.pipeline import load_sample_input, run_analysis, STAGE_ORDER, STAGE_NAMES
+    from Virus_Platform_Core.pipeline import load_sample_input, run_analysis, STAGE_ORDER
     r1, r2, _proj = load_sample_input(sd)
     if not r1:
         abort(400, '样品缺少输入记录（input.json），请重新创建样品')
@@ -500,13 +691,13 @@ def api_pipeline_run(sample):
     stages = [st for st in stages if st in STAGE_ORDER]
     # fastp 未安装时剔除（可选步骤）
     if 'fastp' in stages:
-        from vp.preprocess import fastp_available
+        from Virus_Platform_Core.preprocess import fastp_available
         if not fastp_available():
             stages = [st for st in stages if st != 'fastp']
     if not stages:
         # 未指定阶段 = 「依次运行剩余步骤」：所有未完成且可用的阶段
         try:
-            from vp.pipeline import pipeline_overview
+            from Virus_Platform_Core.pipeline import pipeline_overview
             ov = pipeline_overview(sd)['stages']
             done = {s['stage'] for s in ov if s['status'] == 'done'}
             stages = [s['stage'] for s in ov
@@ -518,23 +709,32 @@ def api_pipeline_run(sample):
     if not stages:
         abort(400, '没有需要运行的阶段（全部已完成；重跑请勾选「强制重跑」'
                    '并指定具体步骤）')
+    if not _sample_busy_register(s):
+        abort(400, f'样品 {s} 已有任务在运行，请等它结束或先取消后再试')
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        run_analysis(sample=s, r1=r1, r2=r2, stages=stages,
-                     **_analysis_kwargs(body), logger=logger, progress=prog)
-        logger.close()
-        return sd
+        try:
+            run_analysis(sample=s, r1=r1, r2=r2, stages=stages,
+                         **_analysis_kwargs(body), logger=logger, progress=prog)
+            return sd
+        finally:
+            _sample_busy_release(s)
+            logger.close()
 
-    from vp.pipeline import stage_name
+    from Virus_Platform_Core.pipeline import stage_name
     label = ' → '.join(stage_name(st, cfg.lang) for st in stages)
     log_dir = check_path(os.path.join(sd, 'logs'), must_exist=False,
                          in_platform=True)
     os.makedirs(log_dir, exist_ok=True)
-    tid = tm.start(f'{s} · {label}', job,
-                   log_file=os.path.join(
-                       log_dir,
-                       f'run_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+    try:
+        tid = tm.start(f'{s} · {label}', job,
+                       log_file=os.path.join(
+                           log_dir,
+                           f'run_{time.strftime("%Y%m%d_%H%M%S")}.log'))
+    except BaseException:
+        _sample_busy_release(s)          # 任务没起来也要放掉占位
+        raise
     return jsonify({'task': tid, 'sample': s})
 
 
@@ -558,7 +758,12 @@ def api_sample_file(sample, rel):
 
 
 def _sample_busy(safe):
-    """样品是否有正在运行的任务（删除/清除结果前拦截）。"""
+    """样品是否有正在运行的任务（删除/清除结果前拦截）。
+
+    登记表优先：任务名正则匹配不到的场景（工具页直跑某阶段）也能拦住。"""
+    with _RUNNING_SAMPLES_LOCK:
+        if safe in _RUNNING_SAMPLES:
+            return True
     for t in tm.list_all():
         if t.get('status') == 'running' and _task_matches_sample(
                 t.get('name'), safe):
@@ -573,7 +778,6 @@ def api_sample_clear(sample):
     与 delete 的区别：样品仍留在样品列表中，输入档案不丢，
     之后再跑管道即从第一步重新分析。样品有运行中任务时拒绝。
     """
-    import shutil
     safe = _safe_sample(sample)
     if _sample_busy(safe):
         abort(400, f'样品 {safe} 有任务在运行，请先取消再清除')
@@ -626,7 +830,7 @@ def api_sample_clear(sample):
     # 否则 project.json 会声称还有已完成的阶段（与卡片状态矛盾）。
     # 仅保留项目身份：project / input / params / schema / created。
     try:
-        from vp.pipeline import load_project_manifest, save_project_manifest
+        from Virus_Platform_Core.pipeline import load_project_manifest, save_project_manifest
         _m = load_project_manifest(d)
         if _m:
             for _k in ('stages_done', 'runs', 'last_status', 'last_stage',
@@ -646,7 +850,6 @@ def api_sample_delete(sample):
     仅允许平台 results/ 内的一级样品目录；样品有运行中任务时拒绝。
     只想清空结果、保留样品时用 /clear。
     """
-    import shutil
     safe = _safe_sample(sample)
     if _sample_busy(safe):
         abort(400, f'样品 {safe} 有任务在运行，请先取消再删除')
@@ -688,3 +891,15 @@ def api_sample_files(sample):
                         'size': fmt_size(os.path.getsize(full))})
     out.sort(key=lambda x: x['path'])
     return jsonify({'files': out})
+
+
+# 平台启动时把「已在排队」的条目补挂到任务中心：SampleQueue 会从
+# tasks/queue.json 恢复条目，但那时没有 attach 过 —— 不补挂的话，
+# 重启后任务中心看不到这些排队项（下载批次由 DownloadManager.add_listener
+# 走同一套补挂）。
+for _it in list(sample_queue.items):
+    if _it.get('status') == 'queued':
+        try:
+            bind_queue_entry(_it)
+        except Exception:
+            pass

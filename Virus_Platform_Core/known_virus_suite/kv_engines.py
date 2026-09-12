@@ -3,7 +3,10 @@
 """
 kv_engines.py — 引擎抽象层
 =========================
-把 salmon（伪比对）与 minibwa（真比对）统一到同一接口，上层不关心差异。
+定量（identify）唯一引擎是 salmon：quant.sf 出 EM 定量，--writeBam 出映射
+位点（排序 BAM + pandepth 覆盖度/深度，与旧 minibwa 路径同一后端与命名）。
+真比对只存在于共识段内部——kv_consensus 直接调 minibwa，不经本工厂
+（用户口径：定量用 salmon，共识用 minibwa，互不混用）。
 
 接口契约见 DESIGN.md 第三节。
 
@@ -24,8 +27,8 @@ from pathlib import Path
 @dataclass
 class AlignResult:
     """一次比对的统一返回结构"""
-    sam_path: Path = None            # 比对记录（minibwa 有，salmon 无）
-    quant_path: Path = None          # 定量文件（salmon 有）
+    sam_path: Path = None            # 比对记录（salmon 为排序后的映射 BAM）
+    quant_path: Path = None          # 定量文件（salmon quant.sf）
     reads: dict = field(default_factory=dict)      # {accession: 定量 reads}
     refstats: dict = field(default_factory=dict)   # {accession: {Coverage(%), MeanDepth, Mapped_Reads, Covered_Bases}}
     mapped: int = 0                  # 实际比对上的记录数/片段数
@@ -57,11 +60,22 @@ class VirusEngine:
 
 
 # ══════════════════════════════════════════════════════════
-# salmon —— 伪比对引擎
+# salmon —— 定量引擎（伪比对定量 + --writeBam 映射位点）
 # ══════════════════════════════════════════════════════════
 class SalmonEngine(VirusEngine):
     name = 'salmon'
-    supports_consensus = False   # 无比对位点
+    supports_consensus = False   # 映射 CIGAR 是伪的（无缺口）、无 NM/QUAL——
+                                 # 共识/变异的真实位点仍由共识段内部的 minibwa 提供
+
+    def __init__(self, exe, threads=8, logger=None, min_mapq=10,
+                 samtools=None, pandepth=None, coverage_tool='pandepth'):
+        super().__init__(exe, threads=threads, logger=logger, min_mapq=min_mapq)
+        # 覆盖度后端：默认 pandepth（与原 minibwa 路径同一口径：view -F 0x04
+        # 建 BAM + pandepth -a 无 -q）。两者齐全才出真实覆盖度/深度与比对 BAM，
+        # 缺失时退回「reads×读长」估算（引擎仍可用）。
+        self.samtools = samtools
+        self.pandepth = pandepth
+        self.coverage_tool = (coverage_tool or 'pandepth').lower()
 
     def build_index(self, ref_fasta, index_dir, threads=None):
         threads = threads or self.threads
@@ -88,8 +102,11 @@ class SalmonEngine(VirusEngine):
         quant_dir = out_dir / 'quant' / sname
         quant_dir.mkdir(parents=True, exist_ok=True)
 
+        # --writeBam：映射记录直接落 BAM（SEQ 为真、CIGAR 伪无缺口、无 QUAL）。
+        # 只含 mapped 记录（salmon 只写 per-mapping 记录，unmapped 不落盘）。
+        bam_raw = quant_dir / 'mappings.bam'
         cmd = [self.exe, 'quant', '-i', str(index_path), '-p', str(threads),
-               '-l', 'A', '-o', str(quant_dir)]
+               '-l', 'A', '-o', str(quant_dir), '--writeBam', str(bam_raw)]
         if sample.get('r2'):
             cmd += ['-1', sample['r1'], '-2', sample['r2']]
         else:
@@ -103,9 +120,9 @@ class SalmonEngine(VirusEngine):
         elapsed = time.time() - t0
 
         res = AlignResult(quant_path=quant_dir / 'quant.sf', elapsed=elapsed,
-                          has_positions=False)
+                          has_positions=True)
 
-        # 解析 quant.sf
+        # quant.sf → EM 定量（salmon 的核心口径：多映射 reads 经 EM 分摊）
         qf = res.quant_path
         if qf.exists():
             with open(qf, 'r', encoding='utf-8') as f:
@@ -120,8 +137,51 @@ class SalmonEngine(VirusEngine):
                     if n > 0:
                         res.reads[acc] = n
 
-        # 从日志提取比对率
-        res.total, res.mapped = self._parse_counts(logf, res.reads)
+        # 覆盖度/深度/逐位点深度表：与原 minibwa 路径同一后端（pandepth），
+        # 产物命名保持 <样本>_pandepth.* —— kv_plot 的深度表查找
+        # （<样本>_pandepth.pandepth.SiteDepth.gz）与管道②b 抽病毒 reads 的
+        # BAM 拾取（align/<样本>_pandepth.sorted.bam）都依赖这套名字。
+        if not (self.samtools and self.pandepth):
+            self.log('samtools/pandepth 不可用：不产出比对 BAM，覆盖度/深度退到'
+                     '「reads×读长」估算', level='warning')
+            res.total, res.mapped = self._parse_counts(logf, res.reads)
+            res.has_positions = False
+            try:
+                bam_raw.unlink()     # 不会再用；GB 级原始 BAM 不留盘
+            except OSError:
+                pass
+            return res
+
+        try:
+            backend = BamCoverageBackend(self.samtools, self.pandepth,
+                                         threads=max(1, min(threads, 8)),
+                                         logger=self.logger)
+            align_dir = out_dir / 'align'
+            name = f'{sname}_pandepth'
+            sorted_bam = backend.to_bam(bam_raw, align_dir, name=name,
+                                        strict_orig=True)
+            if self.coverage_tool == 'pandepth':
+                refstats = backend.coverage_pandepth(sorted_bam, align_dir,
+                                                     name=name)
+            else:
+                refstats = backend.coverage_samtools(sorted_bam, align_dir,
+                                                     name=name)
+            mapped_reads = backend.count_mapped_by_ref(sorted_bam)
+        finally:
+            # 原始未排序映射 BAM 无论成败都不留盘：成功则已转换，
+            # 失败则重跑本段会重新产出，残留在盘只会吃掉几十 GB
+            try:
+                bam_raw.unlink()
+            except OSError:
+                pass
+
+        for acc, st in refstats.items():
+            st['Mapped_Reads'] = mapped_reads.get(acc, 0)
+
+        res.sam_path = sorted_bam
+        res.refstats = refstats
+        res.mapped = sum(mapped_reads.values())
+        res.total = backend.count_records(sorted_bam)
         return res
 
     def _parse_counts(self, logf, reads):
@@ -129,6 +189,7 @@ class SalmonEngine(VirusEngine):
 
         返回 (total, mapped)。日志里解析不到这两个数时退到 reads 总和，
         但记 warning——否则日志会显示成 100% 比对率，误导排查。
+        （仅 samtools/pandepth 缺失、无 BAM 可统计时的兜底路径。）
         """
         total = mapped = 0
         try:
@@ -150,112 +211,6 @@ class SalmonEngine(VirusEngine):
             total = s or 1
             mapped = s
         return total, mapped
-
-
-# ══════════════════════════════════════════════════════════
-# minibwa —— 真比对引擎
-# ══════════════════════════════════════════════════════════
-class MinibwaEngine(VirusEngine):
-    name = 'minibwa'
-    supports_consensus = True    # 有比对位点
-
-    def __init__(self, exe, threads=8, logger=None, min_mapq=10,
-                 coverage_backend=None, coverage_tool='pandepth'):
-        super().__init__(exe, threads=threads, logger=logger, min_mapq=min_mapq)
-        # coverage_backend: BamCoverageBackend 实例（与 coverage_tool 配合使用）
-        self.coverage_backend = coverage_backend
-        self.coverage_tool = coverage_tool
-
-    def build_index(self, ref_fasta, index_dir, threads=None):
-        threads = threads or self.threads
-        index_dir = Path(index_dir)
-        idx_path = index_dir / 'minibwa'
-        if (idx_path.parent / (idx_path.name + '.mbw')).exists():
-            self.log(f"复用已有索引 -> {idx_path}")
-            return idx_path
-
-        index_dir.mkdir(parents=True, exist_ok=True)
-        self.log(f"构建索引 -> {idx_path}")
-        t0 = time.time()
-        cmd = [self.exe, 'index', '-t', str(threads), str(ref_fasta), str(idx_path)]
-        with open(index_dir / 'minibwa_index.log', 'w', encoding='utf-8') as fl:
-            subprocess.run(cmd, stdout=fl, stderr=subprocess.STDOUT, check=True)
-        self.log(f"索引完成 {time.time()-t0:.1f}s")
-        return idx_path
-
-    def align(self, index_path, sample, out_dir, threads=None):
-        threads = threads or self.threads
-        out_dir = Path(out_dir)
-        sname = sample['name']
-        align_dir = out_dir / 'align'
-        align_dir.mkdir(parents=True, exist_ok=True)
-        sam_path = align_dir / f'{sname}.sam'
-
-        # 注意：不加 minibwa 的 -y（copy FASTA/Q comments to output）。
-        # 实测：-y 会把 FASTQ header 的第二段（原始 read name）作为第 12 个
-        # 字段追加到 SAM 行末尾，samtools 严格解析报 aux_parse 失败；
-        # 该污染只出现在 unmapped reads 上（mapped 的 QNAME 为单段，无第二段）。
-        # mapped reads 的 SAM 内容与不带 -y 时完全一致（字段数、QNAME、比对结果）。
-        cmd = [self.exe, 'map', f'-t{threads}', '-u', '-o', str(sam_path)]
-        if sample.get('r2'):
-            cmd += [str(index_path), sample['r1'], sample['r2']]
-        else:
-            cmd += [str(index_path), sample['r1']]
-
-        t0 = time.time()
-        logf = out_dir / 'logs' / f'align_{sname}.log'
-        logf.parent.mkdir(parents=True, exist_ok=True)
-        with open(logf, 'w', encoding='utf-8') as fl:
-            subprocess.run(cmd, stdout=fl, stderr=subprocess.STDOUT, check=True)
-        elapsed = time.time() - t0
-
-        # 覆盖度与深度：严格照原管线，只走外部工具（pandepth，可选 samtools）。
-        # 原管线的这两个数字只有一条来源：pandepth 的 .chr.stat.gz。
-        # 本模块不再提供自研解析降级——工具缺失直接报错，避免平行口径静默漂移。
-        if not self.coverage_backend:
-            raise RuntimeError(
-                f"覆盖度后端不可用（coverage_tool={self.coverage_tool}）。"
-                "本模块不再回退到自研 SAM 解析，请先装好工具。")
-
-        name = f'{sname}_{self.coverage_tool}'
-        sorted_bam = self.coverage_backend.to_bam(
-            sam_path, align_dir, name=name, min_mapq=self.min_mapq,
-            strict_orig=True)
-        if self.coverage_tool == 'pandepth':
-            refstats = self.coverage_backend.coverage_pandepth(
-                sorted_bam, align_dir, name=name, min_mapq=None)
-        else:
-            refstats = self.coverage_backend.coverage_samtools(
-                sorted_bam, align_dir, name=name)
-
-        # Mapped_Reads：pandepth/samtools coverage 都不给这个逐参考读数，
-        # 用 samtools view -c 按参考统计（原管线在 traditional 分支用
-        # samtools view -c 拿总数，这里按参考细分，口径一致）。
-        mapped_reads = self.coverage_backend.count_mapped_by_ref(sorted_bam)
-        for acc, st in refstats.items():
-            st['Mapped_Reads'] = mapped_reads.get(acc, 0)
-
-        # ANI（NM tag 口径，照原管线 batch_virus_depth38.py:_compute_ani_pi_worker）。
-        # 与覆盖度同源：都读同一份 sorted BAM，不额外比对。
-        # 失败不阻断鉴定（置 None，由分流逻辑按「未测定」处理）。
-        try:
-            ani_map = self.coverage_backend.ani_by_ref(sorted_bam)
-        except Exception as e:  # noqa: BLE001
-            self.log(f"ANI 计算失败（置空）: {e}", level='warning')
-            ani_map = {}
-        for acc, st in refstats.items():
-            st['Avg_Read_ANI'] = ani_map.get(acc)
-
-        mapped = sum(mapped_reads.values())
-        total = self.coverage_backend.count_records(sorted_bam)
-
-        res = AlignResult(
-            sam_path=sam_path,
-            reads={acc: float(st['Mapped_Reads']) for acc, st in refstats.items() if st['Mapped_Reads'] > 0},
-            refstats=refstats, mapped=mapped, total=total,
-            elapsed=elapsed, has_positions=True,
-        )
-        return res
 
 
 # ══════════════════════════════════════════════════════════
@@ -375,65 +330,6 @@ class BamCoverageBackend:
             encoding='utf-8', errors='replace')
         return int((r.stdout or '0').strip() or 0)
 
-    def ani_by_ref(self, sorted_bam, max_reads=10000):
-        """逐参考的平均核酸一致性 ANI（NM tag 口径）
-
-        口径严格照原管线 batch_virus_depth38.py:_compute_ani_pi_worker：
-          ANI_read = (query_alignment_length - NM) / query_alignment_length
-          对每个参考最多取 max_reads 条比对记录，取算术平均后 ×100
-        区别只在实现方式：原管线用 pysam 逐记录读 NM，这里用
-        `samtools view` 的 SAM 文本逐行解析（避免新增 pysam 依赖），
-        两者的 query_alignment_length 与 NM 定义完全一致。
-
-        采样策略：原管线用 step = max(1, total//10000) 等距抽样。这里从盘上
-        流式读，按参考累计到 max_reads 就不再计入（前 N 条）。两种都只是
-        采样，同一条 BAM 上结果差异在小数第二位上随机波动，不影响阈值判定；
-        阈值 95% 与 99% ANI 的区分远大于此。
-
-        返回 {reference: ani_percent(2 位小数)}。
-        无 NM tag 的记录按 NM=0 计（原管线 `except KeyError: nm = 0` 同口径）。
-        """
-        r = subprocess.run(
-            [self.samtools, 'view', '-F', '0x904', str(sorted_bam)],
-            capture_output=True, text=True,
-            encoding='utf-8', errors='replace')
-        acc: dict = {}
-        if not r.stdout:
-            return {}
-        for line in r.stdout.splitlines():
-            if not line or line.startswith('@'):
-                continue
-            p = line.split('\t')
-            if len(p) < 11:
-                continue
-            ref = p[2]
-            if ref == '*':
-                continue
-            cur = acc.get(ref)
-            if cur is not None and cur[2] >= max_reads:
-                continue
-            aln_len = _cigar_query_aln_len(p[5])
-            if aln_len <= 0:
-                continue
-            nm = 0
-            for tag in p[11:]:
-                if tag.startswith('NM:i:'):
-                    try:
-                        nm = int(tag[5:])
-                    except ValueError:
-                        nm = 0
-                    break
-            if cur is None:
-                acc[ref] = [aln_len - nm, aln_len, 1]
-            else:
-                cur[0] += aln_len - nm
-                cur[1] += aln_len
-                cur[2] += 1
-        out = {}
-        for ref, (num, den, n) in acc.items():
-            out[ref] = round(num / den * 100.0, 2) if den > 0 else None
-        return out
-
     def coverage_samtools(self, sorted_bam, out_dir, name='coverage'):
         """samtools coverage -> refstats 格式"""
         out_dir = Path(out_dir)
@@ -520,61 +416,38 @@ def _to_float(v):
         return 0.0
 
 
-def _cigar_query_aln_len(cigar):
-    """CIGAR 串中消耗 query 的碱基数（= pysam 的 query_alignment_length）
-
-    消耗 query 的操作：M / I / = / X（samtools 的 S/H 是软/硬剪辑，
-    pysam query_alignment_length 不计；D/N 消耗 reference 而非 query）。
-    末段无长度数字（如 "*"）或解析失败时返回 0，由调用方跳过。
-    """
-    if not cigar or cigar == '*':
-        return 0
-    total = 0
-    num = ''
-    for ch in cigar:
-        if ch.isdigit():
-            num += ch
-            continue
-        if num and ch in 'MI=X':
-            total += int(num)
-        num = ''
-    return total
-
-
 def make_engine(name, tools, threads=8, logger=None, min_mapq=10,
                 coverage_tool='pandepth'):
     """
     按名字构造引擎。tools 是 ToolRegistry。
 
-    coverage_tool: pandepth | samtools
-      仅对 minibwa 生效（salmon 是伪比对，无位点）。
-      默认 pandepth：**严格照原管线**（virome_analysis_pipeline/batch_virus_depth.py
-      用 pandepth -a 出 Coverage(%)/MeanDepth，无 -q）。
-      samtools 仅供快速对拍；两条路径共用同一份 -F 0x04 BAM。
-      工具缺失直接 fail-fast，无内置降级。
+    定量引擎只有 salmon：quant.sf 出 EM 定量，--writeBam 出映射位点，
+    排序 BAM 交给 BamCoverageBackend（pandepth，默认）出覆盖度/深度。
+    真比对只在共识段内部直接调 minibwa（kv_consensus），不经本工厂；
+    这里再传 minibwa 直接报错，避免两条比对链路被混用。
+
+    coverage_tool: pandepth | samtools（覆盖度/深度统计后端，默认 pandepth，
+      严格照原管线：samtools view -F 0x04 建 BAM + pandepth -a，无 -q）。
+      samtools 仅供快速对拍；两条路径共用同一份 BAM。
     """
     name = (name or '').lower()
-    if name == 'salmon':
-        tools.require('salmon')
-        return SalmonEngine(tools.paths['salmon'], threads=threads, logger=logger,
-                            min_mapq=min_mapq)
-    if name == 'minibwa':
-        tools.require('minibwa')
-        tool = (coverage_tool or 'pandepth').lower()
-        if tool not in ('pandepth', 'samtools'):
-            raise ValueError(f"不支持的覆盖度后端: {tool}（可选 pandepth / samtools）")
-
-        # 工具缺失直接 fail-fast，不降级到自研解析。
-        tools.require('samtools')
-        if tool == 'pandepth':
-            tools.require('pandepth')
-
-        backend = BamCoverageBackend(
-            tools.paths['samtools'],
-            tools.paths.get('pandepth'),
-            threads=max(1, min(threads, 8)),
-            logger=logger)
-        return MinibwaEngine(tools.paths['minibwa'], threads=threads, logger=logger,
-                             min_mapq=min_mapq, coverage_backend=backend,
-                             coverage_tool=tool)
-    raise ValueError(f"不支持的引擎: {name}（可选 salmon / minibwa）")
+    if name != 'salmon':
+        raise ValueError(
+            f"不支持的引擎: {name}（定量引擎仅 salmon；共识段内部固定 minibwa，"
+            "不经本工厂）")
+    tools.require('salmon')
+    tool = (coverage_tool or 'pandepth').lower()
+    if tool not in ('pandepth', 'samtools'):
+        raise ValueError(f"不支持的覆盖度后端: {tool}（可选 pandepth / samtools）")
+    samtools = tools.paths.get('samtools')
+    pandepth = tools.paths.get('pandepth') if tool == 'pandepth' else None
+    if not samtools or (tool == 'pandepth' and not pandepth):
+        # 覆盖度后端缺件不阻断定量：SalmonEngine 退回估算口径并记 warning
+        if logger:
+            logger.warning(
+                "覆盖度后端缺件（samtools=%s pandepth=%s），定量照跑，"
+                "覆盖度/深度退到估算且无比对 BAM",
+                '有' if samtools else '缺', '有' if pandepth else '缺')
+    return SalmonEngine(tools.paths['salmon'], threads=threads, logger=logger,
+                        min_mapq=min_mapq, samtools=samtools,
+                        pandepth=pandepth, coverage_tool=tool)

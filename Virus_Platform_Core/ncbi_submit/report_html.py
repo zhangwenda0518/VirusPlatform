@@ -17,17 +17,18 @@ report_html.py — 交互式全表编辑报告 v2.0
 
 （移植自 MMPV-RNA virome_submission_pipeline/report_html.py；
  HTML 骨架移至 templates/submission_report.html 由 jinja2 渲染，
- HTML 写出走平台 vp.utils.safe_open，提交清单改为 Sequin/BankIt 流程）
+ HTML 写出走平台 Virus_Platform_Core.utils.safe_open，提交清单改为 Sequin/BankIt 流程）
 """
 
-import argparse, os, json, sys
+import argparse, os, sys
+import html
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from vp.utils import safe_open
+    from Virus_Platform_Core.utils import safe_open
     _TEMPLATE_DIR = Path(__file__).resolve().parent / 'templates'
 else:
     from ..utils import safe_open
@@ -41,8 +42,9 @@ _ENV = None
 def _jinja_env():
     global _ENV
     if _ENV is None:
-        # autoescape=False：src_header/topo_body 等本身是预生成的 HTML 片段，
-        # 与原始实现（字符串拼接）语义一致
+        # autoescape=False：src_header/topo_body/css/js 等本身是预生成的 HTML
+        # 片段。**不变式**：所有表格单元格与用户可控标量（run_title）必须在
+        # Python 侧先过 _esc() 再传入模板；新增模板变量时遵守同一约定。
         _ENV = Environment(autoescape=False,
                            loader=FileSystemLoader(str(_TEMPLATE_DIR)))
     return _ENV
@@ -232,11 +234,18 @@ def safe_row(row, cols, max_len=80):
     return cells
 
 
+def _esc(v):
+    """HTML 转义：表格单元格来自用户可编辑的元数据（organism/geo_loc_name/
+    note 等），含 < > & 时未转义会破坏报告结构甚至执行脚本。"""
+    return html.escape(str(v), quote=True)
+
+
 def table_html(headers, rows):
-    th = ''.join('<th>' + str(h) + '</th>' for h in headers)
+    th = ''.join('<th>' + _esc(h) + '</th>' for h in headers)
     body = ''
     for row in rows:
-        body += '<tr>' + ''.join('<td>' + str(c) + '</td>' for c in row) + '</tr>\n'
+        body += ('<tr>' + ''.join('<td>' + _esc(c) + '</td>' for c in row)
+                 + '</tr>\n')
     return th, body
 
 
@@ -308,12 +317,18 @@ def generate_html(csv_path, run_title, output_path, miuvig_path=None, asm_path=N
     # --- miuvig table ---
     miuvig_headers, miuvig_rows = load_table(miuvig_path)
     miuvig_header = '<th>Parameter</th><th>Value</th>'
-    miuvig_body_str = '\n'.join(f'<tr><td>{r[0]}</td><td>{r[1] if len(r)>1 else ""}</td></tr>' for r in miuvig_rows)
+    # 表格来自用户导入文件：模板关着 autoescape（*_body 是预生成 HTML 片段），
+    # 单元格必须在此先过 _esc，否则可注入脚本
+    miuvig_body_str = '\n'.join(
+        f'<tr><td>{_esc(r[0])}</td><td>{_esc(r[1]) if len(r)>1 else ""}</td></tr>'
+        for r in miuvig_rows)
 
     # --- assembly table ---
     asm_headers, asm_rows = load_table(asm_path)
     asm_header = '<th>Parameter</th><th>Value</th>'
-    asm_body_str = '\n'.join(f'<tr><td>{r[0]}</td><td>{r[1] if len(r)>1 else ""}</td></tr>' for r in asm_rows)
+    asm_body_str = '\n'.join(
+        f'<tr><td>{_esc(r[0])}</td><td>{_esc(r[1]) if len(r)>1 else ""}</td></tr>'
+        for r in asm_rows)
 
     # --- topology table ---
     topo_header = '<th>Contig</th><th>Taxonomy</th><th>Rule</th><th>Final</th><th>Length</th><th>DTR</th><th>Evidence</th>'
@@ -336,16 +351,16 @@ def generate_html(csv_path, run_title, output_path, miuvig_path=None, asm_path=N
                 topo = row.get('final_topology','').lower()
                 cls = 'filled' if 'linear' in topo else ('missing' if 'circular' not in topo else '')
                 dtr_flag = '&#10003;' if row.get('dtr_detected','False').lower() == 'true' else ''
-                topo_body_str += (
-                    f'<tr>'
-                    f'<td>{row.get("contig","")}</td>'
-                    f'<td>{row.get("taxonomy","")}</td>'
-                    f'<td>{row.get("rule_topology","")}</td>'
-                    f'<td class="{cls}">{row.get("final_topology","")}</td>'
-                    f'<td style="text-align:right">{row.get("seq_length","")}</td>'
-                    f'<td style="text-align:center">{dtr_flag}</td>'
-                    f'<td style="font-size:10px;color:#888">{row.get("evidence","")}</td>'
-                    f'</tr>\n')
+            topo_body_str += (
+                f'<tr>'
+                f'<td>{_esc(row.get("contig",""))}</td>'
+                f'<td>{_esc(row.get("taxonomy",""))}</td>'
+                f'<td>{_esc(row.get("rule_topology",""))}</td>'
+                f'<td class="{_esc(cls)}">{_esc(row.get("final_topology",""))}</td>'
+                f'<td style="text-align:right">{_esc(row.get("seq_length",""))}</td>'
+                f'<td style="text-align:center">{dtr_flag}</td>'
+                f'<td style="font-size:10px;color:#888">{_esc(row.get("evidence",""))}</td>'
+                f'</tr>\n')
 
     # --- checklist（平台流程：⑥b 注释 → 拓扑 → Sequin/BankIt 提交） ---
     chk = [
@@ -362,7 +377,8 @@ def generate_html(csv_path, run_title, output_path, miuvig_path=None, asm_path=N
     chk_html = '\n'.join(f'<li class="{c}">{check_mark if c=="done" else box} {t}</li>' for c, t in chk)
 
     html = _jinja_env().get_template('submission_report.html').render(
-        run_title=run_title,
+        # run_title 进入 <title> 与 <h1>；模板 autoescape=False，先转义
+        run_title=_esc(run_title),
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         pipeline='植物病毒分析平台 ③组装+⑥b ORF 注释 → Sequin 提交包',
         n_seqs=n_seqs, n_viruses=n_viruses,
@@ -384,7 +400,7 @@ def generate_html(csv_path, run_title, output_path, miuvig_path=None, asm_path=N
     if log:
         log.info("  → %s (%d seqs)", output_path, n_seqs)
     print(f"\n  Report: {output_path} | {n_seqs} seqs, {n_viruses} viruses")
-    print(f"  Double-click any cell to edit | All tables downloadable")
+    print("  Double-click any cell to edit | All tables downloadable")
 
     return output_path
 

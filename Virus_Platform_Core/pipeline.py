@@ -2,9 +2,14 @@
 """
 分析流程编排器：按阶段依赖链调度，支持断点续跑、加权总进度、
 预计剩余时间（历史耗时模型）与逐阶段资源预估日志（GUI 用）。
-阶段: subsample → ⓪fastp → ⓪b fq2fa → ①host → ②virus → ③assembly
+阶段: subsample → ⓪fastp → ⓪b fq2fa → ①host → ②b kvsuite → ③assembly
       → ④hostana → ⑥orf → ⑦phylo → ⑧primer
       → ⑨基因组图(gbdraw/DFV) → ⑩report
+
+②b 已知病毒识别与定量（kvsuite）自 2026-09-10 起取代原 ② 病毒筛查与提取：
+原先用 kraken2 把 reads 分类到 kunpeng 病毒库，现在把 reads 直接比对到
+已知病毒参考索引（salmon 定量，--writeBam 出映射 BAM），产出识别+定量结果并同样提取病毒 reads
+供 ③组装。原 ② 病毒筛查（kunpeng 分类）已整体退役，模块不再保留。
 """
 import os
 import re
@@ -13,19 +18,20 @@ import time
 
 from .config import DIRS
 from .utils import (check_path, safe_open, iter_fastq_records,
-                    log_res_plan, fmt_eta, is_step_done, mark_step_done)
+                    log_res_plan, fmt_eta, is_step_done, mark_step_done,
+                    resolve_sample_name, safe_sample_name)
 
-STAGE_ORDER = ['subsample', 'fastp', 'fq2fa', 'host', 'virus', 'assembly',
+STAGE_ORDER = ['subsample', 'fastp', 'fq2fa', 'host', 'kvsuite', 'assembly',
                'verify', 'consensus', 'hostana', 'orf', 'orfa', 'phylo',
                'primer', 'gbdraw', 'report']
 DEFAULT_ANALYZE_STAGES = [
-    'fq2fa', 'host', 'virus', 'assembly', 'verify', 'consensus', 'hostana',
+    'fq2fa', 'host', 'kvsuite', 'assembly', 'verify', 'consensus', 'hostana',
     'orf', 'orfa', 'phylo', 'primer', 'gbdraw', 'report',
 ]
 STAGE_NAMES = {
     'subsample': '预处理(子采样)', 'fastp': '⓪ Fastp 质控',
     'fq2fa': '⓪b 序列转换(FASTQ→FASTA)',
-    'host': '① 宿主去除', 'virus': '② 病毒筛查与提取',
+    'host': '① 宿主去除', 'kvsuite': '②b 已知病毒识别与定量',
     'assembly': '③ 组装·分类·提取', 'verify': '③b 候选序列验证',
     'consensus': '③c 共识序列与变异',
     'hostana': '④ 宿主预测(ICTV)',
@@ -38,7 +44,8 @@ STAGE_NAMES = {
 STAGE_NAMES_EN = {
     'subsample': 'Prep (subsample)', 'fastp': '⓪ Fastp QC',
     'fq2fa': '⓪b FASTQ→FASTA',
-    'host': '① Host removal', 'virus': '② Virus screening',
+    'host': '① Host removal',
+    'kvsuite': '②b Known virus ID & quantification',
     'assembly': '③ Assembly & extraction', 'verify': '③b Candidate verify',
     'consensus': '③c Consensus & variants',
     'hostana': '④ Host prediction (ICTV)',
@@ -51,7 +58,7 @@ STAGE_NAMES_EN = {
 # 管道按功能模块分组显示（PhyloSuite 风格）
 STAGE_GROUPS = [
     ('🧹 测序数据预处理', ['subsample', 'fastp', 'fq2fa', 'host']),
-    ('🦠 病毒鉴定', ['virus']),
+    ('🦠 病毒鉴定', ['kvsuite']),
     ('🧬 病毒组装', ['assembly', 'verify', 'consensus']),
     ('🧲 宿主预测', ['hostana']),
     ('🔬 下游分析', ['orf', 'orfa', 'phylo', 'primer', 'gbdraw']),
@@ -59,7 +66,7 @@ STAGE_GROUPS = [
 ]
 STAGE_GROUPS_EN = [
     ('🧹 Read preprocessing', ['subsample', 'fastp', 'fq2fa', 'host']),
-    ('🦠 Virus identification', ['virus']),
+    ('🦠 Virus identification', ['kvsuite']),
     ('🧬 Virus assembly', ['assembly', 'verify', 'consensus']),
     ('🧲 Host prediction', ['hostana']),
     ('🔬 Downstream analysis', ['orf', 'orfa', 'phylo', 'primer', 'gbdraw']),
@@ -75,16 +82,17 @@ def stage_name(stage, lang=None):
     table = STAGE_NAMES if lang == 'zh' else STAGE_NAMES_EN
     return table.get(stage) or STAGE_NAMES.get(stage) or stage
 
-# 阶段耗时权重（全局进度占比初值；有历史耗时后按实测覆盖）
-STAGE_WEIGHTS = {
-    'fastp': 3, 'fq2fa': 2, 'host': 22, 'virus': 18, 'assembly': 20,
-    'verify': 8, 'consensus': 6, 'hostana': 3, 'orf': 4, 'orfa': 5, 'phylo': 6,
-    'primer': 3, 'gbdraw': 2, 'report': 3,
-}
-# 无历史记录时的每阶段粗估：('gb', 秒/GB输入) 按输入量缩放，('plain', 秒) 固定
+# 无历史记录时的每阶段粗估：('gb', 秒/GB输入) 按输入量缩放，('plain', 秒) 固定。
+# 这张表就是"全局进度占比"的唯一来源（_RunState.est → _est_stage_sec）：
+# 有实测历史时用 stage_perf.json 的 EMA 覆盖，没有时用这里的初值，
+# 未登记的阶段回退 ('plain', 60)。因此每个 STAGE_ORDER 阶段都应在此登记，
+# 否则它只能用兜底值、ETA 会偏。
+# （2026-09-11 删除了同名的 STAGE_WEIGHTS：它是早期设计的遗留权重表，
+#   从未被任何代码读取，且漏了 subsample——真源就是本表。）
 DEFAULT_STAGE_EST = {
+    'subsample': ('plain', 60),
     'fastp': ('gb', 30), 'fq2fa': ('gb', 15), 'host': ('gb', 210),
-    'virus': ('gb', 170), 'assembly': ('plain', 600), 'hostana': ('plain', 60),
+    'kvsuite': ('gb', 200), 'assembly': ('plain', 600), 'hostana': ('plain', 60),
     'verify': ('plain', 240),
     'consensus': ('plain', 180),
     'orf': ('plain', 120), 'orfa': ('plain', 180),
@@ -131,8 +139,18 @@ def _est_stage_sec(perf, stage, input_bytes=0):
 
 
 def _safe_sample_name(name):
-    s = re.sub(r'[^A-Za-z0-9_\-.]+', '_', str(name)).strip('._-')
-    return s[:50] or 'sample'
+    """样品名 → 目录名（兼容别名；权威实现已上移到 utils.safe_sample_name）。
+
+    保留本名是因为 main.py / 各 web 模块 / 测试都从这里导入。
+    新建样品用它（纯转换，结果确定）；**识别已有样品**请用
+    utils.resolve_sample_name（先认磁盘上的真实目录名）。
+    """
+    return safe_sample_name(name)
+
+
+def _resolve_sample(sample):
+    """已有样品名 → results/ 下真实目录名（读路径统一入口）。"""
+    return resolve_sample_name(sample, DIRS['results'])
 
 
 def _load_done_summary(sample_dir, stage_dir, fname='summary.json'):
@@ -289,6 +307,9 @@ def _stage_subsample(C):
             reuse = False
     C.st.begin('subsample')
     if reuse:
+        # 复用时必须把下游输入切到 sub_*，否则 ①/②/③ 会偷偷用全量 reads
+        # （日志却显示"复用 00_prep/sub_*"）——首次运行与续跑结果不一致。
+        C.cur_r1, C.cur_r2 = sub1, sub2
         if C.logger:
             C.logger.log(f"子采样已完成（{C.subsample:,} 对），复用 00_prep/sub_*")
     else:
@@ -350,8 +371,13 @@ def _stage_host(C):
     st.end('host')
 
 
-def _stage_virus(C):
-    """② 病毒筛查（输入：去宿主后的 kept 或原始），并提取病毒 reads。"""
+def _stage_kvsuite(C):
+    """②b 已知病毒识别与定量（kvsuite，输入：去宿主后的 kept 或原始）。
+
+    取代原 ② 病毒筛查与提取（kunpeng/kraken2 分类）：reads 直接比对到已知
+    病毒参考索引（定量引擎 salmon），产出识别+定量结果，并抽病毒 reads
+    供 ③组装。产物落 <sample_dir>/02b_kvsuite/。
+    """
     st, logger = C.st, C.logger
     _adopt_qc(C)
     v_in1, v_in2 = C.cur_r1, C.cur_r2
@@ -360,15 +386,17 @@ def _stage_virus(C):
         v_in1 = os.path.join(hr, C.host_stats.get('kept_r1') or 'kept_R1.fastq.gz')
         kr2 = C.host_stats.get('kept_r2')
         v_in2 = os.path.join(hr, kr2) if kr2 else None
-    st.begin('virus')
-    from .virus_screen import screen_virus
-    C.vs = screen_virus(C.sample_dir, v_in1, v_in2, C.db_virus,
-                        threads=C.threads, confidence=C.confidence,
-                        logger=logger, force=C.force, chunk_dir=C.chunk_dir,
-                        allow_convert=C.do_fq2fa,
-                        progress=lambda p, m: st.prog('virus', p, m))
-    st.prog('virus', 1.0, f"检出物种 {len(C.vs['species_detected'])} 个")
-    st.end('virus')
+    st.begin('kvsuite')
+    from .kv_stage import STAGE_DIR, run_kvsuite_stage
+    out = os.path.join(C.sample_dir, STAGE_DIR)
+    C.vs = run_kvsuite_stage(
+        out, r1=v_in1, r2=v_in2, sample=os.path.basename(C.sample_dir),
+        threads=C.threads, force=C.force, logger=logger,
+        need_viral_reads=(C.assembly_input == 'virus'),
+        progress=lambda p, m: st.prog('kvsuite', p, m))
+    st.prog('kvsuite', 1.0,
+            f"检出物种 {len(C.vs.get('species_detected') or [])} 个")
+    st.end('kvsuite')
 
 
 def _assembly_inputs(C):
@@ -384,8 +412,8 @@ def _assembly_inputs(C):
     if C.assembly_input == 'raw':
         a_in1, a_in2, a_src = C.cur_r1, C.cur_r2, 'raw'
     elif C.assembly_input == 'virus':
-        vp1 = os.path.join(C.sample_dir, '02_virus_screen', 'viral_R1.fastq.gz')
-        vp2 = os.path.join(C.sample_dir, '02_virus_screen', 'viral_R2.fastq.gz')
+        vp1 = os.path.join(C.sample_dir, '02b_kvsuite', 'viral_R1.fastq.gz')
+        vp2 = os.path.join(C.sample_dir, '02b_kvsuite', 'viral_R2.fastq.gz')
         n_viral = (C.vs or {}).get('viral_pairs', 0)
         if os.path.isfile(vp1) and n_viral >= C.min_viral_pairs:
             a_in1, a_in2, a_src = vp1, (vp2 if os.path.isfile(vp2) else None), 'virus'
@@ -459,7 +487,7 @@ def _stage_consensus(C):
 
     参考 = 03_assembly/viral_contigs.fasta；
     reads = 01_host_removal（去宿主后全量）——未经过病毒相似度筛选，
-    变异与准种多样性检测无偏（02_virus_screen 会低估变异）。
+    变异与准种多样性检测无偏（②b 会低估变异）。
     """
     st, logger = C.st, C.logger
     st.begin('consensus')
@@ -510,8 +538,8 @@ def _stage_orf(C):
     st, logger = C.st, C.logger
     st.begin('orf')
     log_res_plan(logger, '⑥ ORF 预测', threads=C.threads, mem_gb=2.0,
-                 disk_gb=0.5, note="orfipy 多进程 + pyrodigal")
-    st.prog('orf', 0.1, 'orfipy + pyrodigal 基因预测')
+                 disk_gb=0.5, note="pyrodigal + pyrodigal_rv（orfipy 仅显式指定时运行）")
+    st.prog('orf', 0.1, 'pyrodigal + pyrodigal_rv 基因预测')
     from .orf import predict_orfs
     predict_orfs(C.sample_dir, min_aa=C.min_orf_aa, threads=C.threads,
                  logger=logger, force=C.force,
@@ -622,7 +650,7 @@ STAGE_REGISTRY = {
     'fastp':     {'deps': [],                    'fn': _stage_fastp},
     'fq2fa':     {'deps': [],                    'fn': _stage_fq2fa},
     'host':      {'deps': [],                    'fn': _stage_host},
-    'virus':     {'deps': [],                    'fn': _stage_virus},
+    'kvsuite':   {'deps': [],                    'fn': _stage_kvsuite},
     'assembly':  {'deps': [],                    'fn': _stage_assembly},
     'verify':    {'deps': ['assembly'],          'fn': _stage_verify},
     'consensus': {'deps': ['assembly'],          'fn': _stage_consensus},
@@ -632,10 +660,13 @@ STAGE_REGISTRY = {
     'phylo':     {'deps': ['assembly'],          'fn': _stage_phylo},
     'primer':    {'deps': ['assembly'],          'fn': _stage_primer},
     'gbdraw':    {'deps': ['assembly'],          'fn': _stage_gbdraw},
-    'report':    {'deps': ['virus'],              'fn': _stage_report},
+    'report':    {'deps': ['kvsuite'],            'fn': _stage_report},
 }
 
-# 兼容导出：依赖解锁表（管道页卡片）沿用旧名字
+# 兼容导出：依赖解锁表（管道页卡片）沿用旧名字。
+# 严格上游依赖（未列出的阶段可直接用原始/默认输入运行）；
+# 单一数据源：直接取自 STAGE_REGISTRY 的 deps，避免两处硬编码走神。
+# 注：subsample 与其余预处理阶段无硬依赖（都用原始/上轮输入）。
 STAGE_DEPS = {k: list(v['deps']) for k, v in STAGE_REGISTRY.items()}
 
 
@@ -647,8 +678,9 @@ def _stage_execution_order(selected, logger=None):
     """
     unknown = [s for s in selected if s not in STAGE_REGISTRY]
     if unknown and logger:
-        logger(f"忽略未知阶段名：{', '.join(unknown)}（"
-               f"可用阶段：{', '.join(STAGE_ORDER)}）")
+        _log = getattr(logger, 'log', None) or logger
+        _log(f"忽略未知阶段名：{', '.join(unknown)}（"
+             f"可用阶段：{', '.join(STAGE_ORDER)}）")
     sel = [s for s in selected if s in STAGE_REGISTRY]
     sel_set = set(sel)
     order, seen = [], set()
@@ -685,7 +717,15 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
     执行体来自 STAGE_REGISTRY：按已选阶段的稳定拓扑排序逐个运行；
     未选中阶段的上一轮产物摘要照常衔接（断点续跑）。
     """
-    stages = [s for s in STAGE_ORDER if s in stages]
+    # 未知阶段名必须留痕：原实现先按 STAGE_ORDER 过滤，未知项被静默丢弃，
+    # _stage_execution_order 里的告警分支永远走不到（用户拼错阶段名时
+    # 得到"什么都没跑也没报错"）。
+    _sel = [stages] if isinstance(stages, str) else list(stages or [])
+    _unknown = [s for s in _sel if s not in STAGE_REGISTRY]
+    if _unknown and logger:
+        logger.log(f"忽略未知阶段名：{', '.join(map(str, _unknown))}（"
+                   f"可用阶段：{', '.join(STAGE_ORDER)}）", "WARN")
+    stages = [s for s in STAGE_ORDER if s in _sel]
     # 可选步骤在工具缺失/用户关闭时静默剔除
     if 'fastp' in stages:
         from .preprocess import fastp_available
@@ -708,7 +748,9 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
                            'WARN')
             stages = [s for s in stages if s != 'verify']
 
-    sample = _safe_sample_name(sample)
+    # 识别已有样品（认磁盘真实目录名，兼容手工/历史/非规范命名）；
+    # 若是不存在的新名字，resolve 会退回规范名，等于新建——语义不变。
+    sample = _resolve_sample(sample)
     sample_dir = check_path(os.path.join(DIRS['results'], sample),
                             must_exist=False, in_platform=True)
     os.makedirs(sample_dir, exist_ok=True)
@@ -756,8 +798,8 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
     if 'host' not in selected:
         C.host_stats = _load_done_summary(sample_dir, '01_host_removal',
                                           'stats.json')
-    if 'virus' not in selected:
-        C.vs = _load_done_summary(sample_dir, '02_virus_screen')
+    if 'kvsuite' not in selected:
+        C.vs = _load_done_summary(sample_dir, '02b_kvsuite')
 
     # 项目清单：开始运行即登记本次输入/参数（复现依据），逐阶段追加进度
     _run_t0 = time.time()
@@ -889,7 +931,7 @@ def _fresh_converted(sample_dir, cur_r1, cur_r2):
 
 
 def run_report_only(sample, logger=None, force=False):
-    sample = _safe_sample_name(sample)
+    sample = _resolve_sample(sample)
     sample_dir = check_path(os.path.join(DIRS['results'], sample),
                             must_exist=True, in_platform=True)
     from .viz import build_report
@@ -905,9 +947,14 @@ PIPELINE_STAGES = [
     ('fastp', '⓪ Fastp 质控', '00_prep', 'fastp_report.json'),
     ('fq2fa', '⓪b 序列转换 (FASTQ→FASTA)', '00_prep', 'fq2fa.json'),
     ('host', '① 宿主去除', '01_host_removal', 'stats.json'),
-    ('virus', '② 病毒筛查与提取', '02_virus_screen', 'summary.json'),
+    ('kvsuite', '②b 已知病毒识别与定量', '02b_kvsuite', 'summary.json'),
     ('assembly', '③ 组装·分类·提取', '03_assembly', 'summary.json'),
     ('verify', '③b 候选序列验证', '03b_verify', 'summary.json'),
+    # ③c 曾漏在本表之外：它已在 STAGE_ORDER / STAGE_REGISTRY / STAGE_GROUPS /
+    # DEFAULT_ANALYZE_STAGES 里、也会写 03c_consensus/，但没有卡片条目 →
+    # pipeline_overview 不产出该卡、永不计入 stages_done、
+    # /api/samples 的 done/total 也漏算它（前端 PIPE_FANOUT 早就等着它）。
+    ('consensus', '③c 共识序列与变异', '03c_consensus', 'summary.json'),
     ('hostana', '④ 宿主预测 (ICTV)', '08_host_analysis', 'summary.json'),
     ('orf', '⑥ 编码区预测 ORF', '04_orf', 'summary.json'),
     ('orfa', '⑥b ORF 功能注释', '04b_orf_annot', 'summary.json'),
@@ -919,9 +966,11 @@ PIPELINE_STAGES = [
 PIPELINE_STAGE_NAMES_EN = {
     'subsample': 'Preprocess · subsample',
     'fastp': '⓪ Fastp QC', 'fq2fa': '⓪b FASTQ→FASTA',
-    'host': '① Host removal', 'virus': '② Virus screening & extraction',
+    'host': '① Host removal',
+    'kvsuite': '②b Known virus ID & quantification',
     'assembly': '③ Assembly & extraction',
     'verify': '③b Candidate verify',
+    'consensus': '③c Consensus & variants',
     'hostana': '④ Host prediction (ICTV)',
     'orf': '⑥ ORF prediction',
     'orfa': '⑥b ORF annotation', 'phylo': '⑦ Phylogeny & SDT',
@@ -943,11 +992,10 @@ _MISSING_TOOL_MSG = {
              'No DIAMOND / MMseqs2 / blastp found (any one suffices)'),
     'verify': ('未检测到 DIAMOND / MMseqs2（验证需 blastx 与 CDD）',
                'No DIAMOND / MMseqs2 found (verify needs blastx + CDD)'),
+    'consensus': ('未检测到 minibwa（3rd/bin/），无法回贴 reads 生成共识序列',
+                  'minibwa not found (3rd/bin/) — cannot align reads for '
+                  'consensus calling'),
 }
-# 严格上游依赖（未列出的阶段可直接用原始/默认输入运行）
-# 单一数据源：直接取自 STAGE_REGISTRY 的 deps，避免两处硬编码走神。
-# 注：subsample 与其余预处理阶段无硬依赖（都用原始/上轮输入）。
-STAGE_DEPS = {k: list(v['deps']) for k, v in STAGE_REGISTRY.items()}
 # 卡片摘要取值函数
 def _sum_subsample(s):
     n = s.get('n_pairs')
@@ -976,8 +1024,10 @@ def _sum_fq2fa(s):
 
 
 def _sum_host(s): return f"宿主占比 {s.get('host_ratio', 0) * 100:.2f}%，保留 {s.get('kept_pairs', 0):,} 对"
-def _sum_virus(s): return (f"检出物种 {len(s.get('species_detected', []))} 个，"
-                           f"提取病毒 reads {s.get('viral_pairs', 0):,} 对")
+def _sum_kvsuite(s):
+    return (f"检出物种 {len(s.get('species_detected', []))} 个"
+            f"（通过 {s.get('passed', 0)} / 剔除 {s.get('rejected', 0)}），"
+            f"病毒 reads {s.get('viral_reads', 0):,}")
 def _sum_asm(s): return (f"contigs {s.get('contigs', '?')} 条"
                          f"（病毒 {len(s.get('viral_contigs', []))} 条）")
 
@@ -1031,10 +1081,25 @@ def _sum_gbdraw(s):
     return (f"基因组图 {len(s.get('plots', []))} 张"
             f"（SVG，{eng.replace('dna_features_viewer', 'DFV')}，已嵌入报告）")
 
+
+def _sum_consensus(s):
+    """③c 摘要：共识条数 / 比对 reads / 变异位点 / 判定存在条数。
+
+    字段名与 consensus.py 的 summary.json 对齐（n_refs / n_mapped_reads /
+    n_variants / n_snv / n_isnv / present）。
+    """
+    present = len(s.get('present') or [])
+    return (f"共识 {s.get('n_refs', 0)} 条"
+            f"（判定存在 {present}），比对 reads {s.get('n_mapped_reads', 0):,}，"
+            f"变异位点 {s.get('n_variants', 0)}"
+            f"（SNV {s.get('n_snv', 0)} / iSNV {s.get('n_isnv', 0)}）")
+
+
 STAGE_SUMMARIES = {'subsample': _sum_subsample,
                    'fastp': _sum_fastp, 'fq2fa': _sum_fq2fa, 'host': _sum_host,
-                   'virus': _sum_virus,
+                   'kvsuite': _sum_kvsuite,
                    'assembly': _sum_asm, 'verify': _sum_verify,
+                   'consensus': _sum_consensus,
                    'hostana': _sum_hostana,
                    'orf': _sum_orf, 'orfa': _sum_orfa,
                    'phylo': _sum_phylo, 'primer': _sum_primer,
@@ -1062,9 +1127,10 @@ def _sum_host_en(s):
             f"{s.get('kept_pairs', 0):,} pairs kept")
 
 
-def _sum_virus_en(s):
-    return (f"{len(s.get('species_detected', []))} species detected, "
-            f"{s.get('viral_pairs', 0):,} viral read pairs extracted")
+def _sum_kvsuite_en(s):
+    return (f"{len(s.get('species_detected', []))} species "
+            f"({s.get('passed', 0)} passed / {s.get('rejected', 0)} filtered), "
+            f"{s.get('viral_reads', 0):,} viral reads")
 
 
 def _sum_asm_en(s):
@@ -1102,11 +1168,21 @@ def _sum_gbdraw_en(s):
     return (f"{len(s.get('plots', []))} genome plot(s) "
             f"(SVG, {eng.replace('dna_features_viewer', 'DFV')}, in report)")
 
+
+def _sum_consensus_en(s):
+    present = len(s.get('present') or [])
+    return (f"{s.get('n_refs', 0)} consensus seq(s) "
+            f"({present} present), {s.get('n_mapped_reads', 0):,} reads mapped, "
+            f"{s.get('n_variants', 0)} variant site(s) "
+            f"(SNV {s.get('n_snv', 0)} / iSNV {s.get('n_isnv', 0)})")
+
+
 STAGE_SUMMARIES_EN = {
     'subsample': _sum_subsample_en,
     'fastp': _sum_fastp_en, 'fq2fa': _sum_fq2fa_en, 'host': _sum_host_en,
-    'virus': _sum_virus_en, 'assembly': _sum_asm_en,
+    'kvsuite': _sum_kvsuite_en, 'assembly': _sum_asm_en,
     'verify': _sum_verify_en,
+    'consensus': _sum_consensus_en,
     'hostana': _sum_hostana_en,
     'orf': _sum_orf_en, 'orfa': _sum_orfa_en, 'phylo': _sum_phylo_en,
     'primer': _sum_primer_en, 'gbdraw': _sum_gbdraw_en,
@@ -1119,11 +1195,12 @@ STAGE_OUTPUTS = {
     'hostana': ['host_prediction.tsv', 'host_summary.tsv',
                 'sankey_host.html', 'sunburst_host.html'],
     'host': ['kept_R1.fastq.gz', 'kept_R2.fastq.gz', 'stats.json'],
-    'virus': ['virus_summary.tsv', 'viral_R1.fastq.gz', 'viral_R2.fastq.gz',
-              'summary.json'],
+    'kvsuite': ['summary.json', 'filter/filtered.tsv',
+                'identify/all_viruses.summary.tsv'],
     'assembly': ['contigs.filtered.fasta', 'virus_contigs.tsv',
                  'virus_classification.tsv', 'summary.json'],
     'verify': ['calls.tsv', 'summary.json'],
+    'consensus': ['consensus.fa', 'coverage.tsv', 'variants.tsv', 'summary.json'],
     'orf': ['*'],
     'orfa': ['orf_annotation.tsv', 'orf_function_summary.tsv',
              'orf_family_summary.tsv', 'contig_function_profile.tsv',
@@ -1141,9 +1218,10 @@ STAGE_VIEW = {
     'hostana': 'sankey_host.html',
     'orfa': 'orf_annotation.tsv',
     'primer': 'primers.tsv',
-    'virus': 'virus_summary.tsv',
+    'kvsuite': 'filter/filtered.tsv',
     'assembly': 'virus_contigs.tsv',
     'verify': 'calls.tsv',
+    'consensus': 'coverage.tsv',
     'host': 'stats.json',
 }
 
@@ -1190,6 +1268,11 @@ def pipeline_overview(sample_dir, lang=None):
         has_verify = bool(_ve.get('diamond') or _ve.get('mmseqs'))
     except Exception:
         has_verify = False
+    try:
+        from .consensus import consensus_engine
+        has_consensus = bool(consensus_engine())
+    except Exception:
+        has_consensus = False
     sum_tab = STAGE_SUMMARIES if lang == 'zh' else STAGE_SUMMARIES_EN
     ran_map, rows = {}, []
     for key, name, dirname, sfile in PIPELINE_STAGES:
@@ -1241,6 +1324,8 @@ def pipeline_overview(sample_dir, lang=None):
             missing_tool = _MISSING_TOOL_MSG['orfa']
         elif key == 'verify' and not has_verify:
             missing_tool = _MISSING_TOOL_MSG['verify']
+        elif key == 'consensus' and not has_consensus:
+            missing_tool = _MISSING_TOOL_MSG['consensus']
         if missing_tool:
             status = 'unavailable'
             summary_txt = missing_tool[0] if lang == 'zh' else missing_tool[1]
@@ -1291,13 +1376,21 @@ def load_sample_input(sample_dir):
 # 项目清单（project.json）：样品目录即项目根，清单记录「这次的输入、
 # 参数、已完成阶段、运行历史」，使一次运行可复现、可追溯。
 # 位置固定在样品目录下（不随阶段目录变动），老样品无此文件时读取端
-# 一律返回空 dict，由 ensure_project_manifest() 从既有产物回填。
+# 一律返回空 dict。
+#
+# 回填路径（把老样品的既有产物反推成清单）：backfill_manifest_from_products()。
+# 它是**显式维护动作**，挂在命令行上：
+#     python main.py samples-backfill            # 全部缺清单的样品
+#     python main.py samples-backfill --dry-run  # 只报告不写盘
+#     python main.py samples-backfill --sample X # 只处理一个
+# 刻意不在 GET /api/samples 里自动触发：读接口不应写盘，且回填会用目录名
+# 兜底出"项目名"，静默给所有老样品造出伪项目会污染项目筛选器。
 # ------------------------------------------------------------------
 MANIFEST_NAME = 'project.json'
 # 阶段键 → 实际断点标记文件名（部分阶段标记名与键不同）
 _DONE_ALIAS = {
     'host': '.host_removal.done',
-    'virus': '.virus_screen.done',
+    'kvsuite': '.kvsuite.done',
     'hostana': '.host_analysis.done',
 }
 # 需要落盘记录的分析参数（键与 run_analysis 形参同名，值是它的取值）
@@ -1414,7 +1507,7 @@ def update_project_manifest(sample_dir, *, sample=None, r1=None, r2=None,
     return m
 
 
-def backfill_manifest_from_products(sample_dir, r1=None, r2=None):
+def backfill_manifest_from_products(sample_dir, r1=None, r2=None, dry_run=False):
     """从既有产物回填清单（老样品无 project.json 时用）。
 
     只做事实推断，且状态口径与 pipeline_overview 保持一致：
@@ -1422,6 +1515,10 @@ def backfill_manifest_from_products(sample_dir, r1=None, r2=None):
       - 「跑过但无结果」(skipped：无病毒 contigs / 无引物 / 无基因组图)
         不计入，它们仍属待运行，与 GUI 卡片显示一致。
     输入来源优先级：00_prep/input.json > 调用方传入。
+
+    dry_run=True 时只算出将要写入的清单、**不落盘**（供
+    `python main.py samples-backfill --dry-run` 与测试用）。
+    返回 (manifest, changed) 形态见 backfill_all_manifests。
     """
     m = load_project_manifest(sample_dir)
     changed = False
@@ -1460,5 +1557,58 @@ def backfill_manifest_from_products(sample_dir, r1=None, r2=None):
         m.setdefault('schema', 1)
         m.setdefault('created', time.strftime('%Y-%m-%dT%H:%M:%S'))
         m.setdefault('backfilled', True)
-        save_project_manifest(sample_dir, m)
+        if not dry_run:
+            save_project_manifest(sample_dir, m)
     return m
+
+
+def backfill_all_manifests(dry_run=False, only=None):
+    """给缺清单的老样品批量回填 project.json。
+
+    为什么需要显式入口：project.json 由 update_project_manifest 在跑流程时写；
+    在它之前创建的样品（或手工拷进 results/ 的目录）没有清单，于是
+    项目名 / 输入路径 / stages_done 全缺，/api/samples 的项目筛选与
+    kvsuite 选样弹窗的"项目"列都只能显示空。
+    backfill_manifest_from_products 早就写好了这个反推逻辑，却从没有任何
+    调用点（死代码，全靠本入口接管）。
+
+    注意回填的边界（与该函数的既有契约一致）——只填这三样：
+      project / input / stages_done（+ schema、created、backfilled 标记）。
+    **不填 last_run / last_status**：它们描述的是"一次运行"，
+    而回填只能看到"产物现状"，凭产物猜运行结果属于臆测；
+    结果中心的"最近运行"列本来就改用目录 mtime，缺这两个字段不影响展示。
+
+    only: 只处理指定样品名（可迭代）；缺省处理 results/ 下全部非 '_' 开头的目录。
+    只填"缺清单或清单来自回填"的样品，已有真实清单的一律不动。
+    返回 {'total','backfilled','skipped','dry_run','items':[{sample, project,
+    stages_done, changed, wrote}]}，由 CLI 打印。
+    """
+    out = []
+    if only:
+        # 显式指定的名字：允许非规范命名，按磁盘真实目录名解析
+        names = [resolve_sample_name(n, DIRS['results']) for n in only]
+    else:
+        try:
+            names = sorted(n for n in os.listdir(DIRS['results'])
+                           if not n.startswith('_')
+                           and os.path.isdir(os.path.join(DIRS['results'], n)))
+        except OSError:
+            names = []
+    skipped = 0
+    for name in names:
+        sd = os.path.join(DIRS['results'], name)
+        if not os.path.isdir(sd):
+            skipped += 1
+            continue
+        m0 = load_project_manifest(sd)
+        # 已有真实（非回填）清单的样品不动
+        if m0.get('schema') and not m0.get('backfilled'):
+            skipped += 1
+            continue
+        m = backfill_manifest_from_products(sd, dry_run=dry_run)
+        out.append({'sample': name, 'project': m.get('project') or '',
+                    'stages_done': len(m.get('stages_done') or []),
+                    'changed': bool(m.get('backfilled')),
+                    'wrote': (not dry_run) and bool(m.get('backfilled'))})
+    return {'total': len(names), 'backfilled': len(out), 'skipped': skipped,
+            'dry_run': dry_run, 'items': out}

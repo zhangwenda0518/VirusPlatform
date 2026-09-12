@@ -12,7 +12,7 @@ Logan 序列查询提交自动化（kmviz 网页 DOM 直操作版）— 邮箱�
 本文件已并入植物病毒分析平台（vp 包）：单文件自包含，仅依赖
 标准库 + selenium（pip install selenium）+ 本机 Edge/Chrome，
 可独立拷出平台任意目录使用；平台「LOGAN 溯源」批量模式由
-vp.logan_trace.batch_submit 以子进程方式调用本脚本。
+Virus_Platform_Core.logan_trace.batch_submit 以子进程方式调用本脚本。
 (并入时修复: result.csv 的 vis_url 引用未定义变量 sid 的 NameError;
  结果文件名统一 safe_stem 安全化 + _in_base 路径包含校验, 防穿越;
  关键节点输出机器可读进度行 "PROGRESS {json}" 供平台实时抓取)
@@ -27,7 +27,6 @@ import re
 import sys
 import time
 import json
-from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------- 输入解析
@@ -156,7 +155,6 @@ SEL_GROUP_WRAP = ".kmviz-dmc-select-input-root .mantine-MultiSelect-wrapper"
 def submit_one(driver, wait, acc: str, seq, retries: int, log, group=DEFAULT_GROUP, email=None):
     """返回 (status, message, session_url, session_time)。"""
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.common.keys import Keys
     from selenium.webdriver.support import expected_conditions as EC
 
     sub_clicked = False
@@ -172,7 +170,10 @@ def submit_one(driver, wait, acc: str, seq, retries: int, log, group=DEFAULT_GRO
 
             ta = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, SEL_TEXTAREA)))
             ta.clear()
-            ta.send_keys(f">{acc}\n{sanitize_seq(seq)}")
+            # seq 可能为 None（纯 accession 行 / 头部无序列）：sanitize_seq
+            # 内部 re.sub(seq) 会抛 TypeError，被外层 except 吞成"第 N 次尝试
+            # 失败"——先归一成空串，让 Logan-Search 按 accession 自己取序列。
+            ta.send_keys(f">{acc}\n{sanitize_seq(seq or '')}")
 
             for b in modal.find_elements(By.TAG_NAME, "button"):
                 if b.text.strip() == "Load":
@@ -308,7 +309,7 @@ def wait_and_download(session_url_or_id, out_dir: Path, acc: str, log,
     while time.time() < deadline:
         try:
             r = subprocess.run(
-                ["curl.exe", "-k", "-s", "-o", "NUL", "-w", "%{http_code}", "-I", "-L", url],
+                ["curl.exe", "-s", "-o", "NUL", "-w", "%{http_code}", "-I", "-L", url],
                 capture_output=True, text=True, timeout=60)
             code = r.stdout.strip()
         except Exception as e:
@@ -318,7 +319,7 @@ def wait_and_download(session_url_or_id, out_dir: Path, acc: str, log,
             _cb(stage='downloading', sid=sid)
             log.info("%s 就绪 (HTTP 200), 开始下载", sid)
             try:
-                r = subprocess.run(["curl.exe", "-k", "-L", "--fail",
+                r = subprocess.run(["curl.exe", "-L", "--fail",
                                     "-o", zip_p, url],
                                    capture_output=True, timeout=600)
                 if r.returncode != 0:
@@ -382,8 +383,9 @@ def main():
     ap.add_argument("--group", default=DEFAULT_GROUP,
                     choices=["All", "All_No_viral_human", "Fast", "Fast_No_human", "Fast_No_RefSeq",
                              "Transcriptomic", "Metatranscriptomic", "Metagenomic", "GenBank_RefSeq"])
-    ap.add_argument("--email", default="3221020746@stu.cpu.edu.cn",
-                    help="通知邮箱, 逗号分隔多个则轮换 (默认单教育邮箱)")
+    ap.add_argument("--email", default="",
+                    help="通知邮箱, 逗号分隔多个则轮换（必填；不再内置"
+                         "任何个人默认邮箱）")
     ap.add_argument("--email-rotate", type=int, default=5,
                     help="每提交 N 条轮换到下一个邮箱 (默认 5, 单邮箱时无效)")
     ap.add_argument("--first-wait", type=int, default=300)

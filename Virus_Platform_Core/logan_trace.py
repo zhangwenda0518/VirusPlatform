@@ -10,7 +10,7 @@ LOGAN 溯源模块（独立功能模块，与「公共病毒组」同级）。
 工作流（两种方式，平台自身不向外部发任何请求）：
   方式一 · 手动半自动：①平台切片 → ②用户复制序列到 logan-search.org 提交
            → ③导入官方结果表 → ④聚合出报告
-  方式二 · 批量自动（vp/logan_submit.py）：Selenium 驱动本机 Edge/Chrome
+  方式二 · 批量自动（Virus_Platform_Core/logan_submit.py）：Selenium 驱动本机 Edge/Chrome
            批量提交全部片段、自动轮询并下载结果表、回收导入（支持邮箱池
            轮换/断点续跑/补漏轮），一键完成 ②③ 两步
 
@@ -36,9 +36,11 @@ import re
 import sys
 import json
 import time
+import html as _htmlmod
 
 from .config import DIRS
-from .utils import (check_path, safe_open, iter_fasta, write_fasta_record)
+from .utils import (check_path, safe_open, iter_fasta, write_fasta_record,
+                    resolve_sample_name)
 
 LOGAN_SEARCH_URL = 'https://logan-search.org/dashboard'
 LOGAN_CITE = ('Chikhi et al. 2025, Logan: Planetary-Scale Genome Assembly '
@@ -102,7 +104,7 @@ def list_query_samples():
 
 def list_virus_contigs(sample):
     """解析 03_assembly/virus_contigs.tsv（保持文件顺序=长度优先）。"""
-    tsv = check_path(os.path.join(DIRS['results'], safe_name(sample),
+    tsv = check_path(os.path.join(resolve_dir(sample),
                                   '03_assembly', 'virus_contigs.tsv'),
                      must_exist=True, in_platform=True)
     rows = []
@@ -125,8 +127,25 @@ def list_virus_contigs(sample):
     return rows
 
 
+def resolve_dir(sample):
+    """样品名 → results/ 下真实存在的样品目录。
+
+    与 utils.resolve_sample_name 同一口径：先认磁盘上的真实目录名
+    （手工创建/历史遗留/中文名都能命中），未命中再退回规范名。
+    本模块原先把 safe_name 的"逐字符替换"直接拼路径，与建目录用的
+    "折叠+截断"口径不一致，非规范名会读不到。
+    """
+    return os.path.join(DIRS['results'], resolve_sample_name(sample))
+
+
 def safe_name(sample):
-    return re.sub(r'[^A-Za-z0-9_\-.]', '_', str(sample))
+    """样品名 → 目录名（兼容别名；权威实现见 utils.safe_sample_name）。
+
+    只做纯转换，不查磁盘——CLI/外部调用方要"推导一个新名字"时用它；
+    要"找到已有样品"请用 resolve_dir / utils.resolve_sample_name。
+    """
+    from .utils import safe_sample_name
+    return safe_sample_name(sample)
 
 
 def _iter_pasted(pasted):
@@ -159,7 +178,7 @@ def _load_source_fasta(sample=None, contig_ids=None, pasted=None):
         if not recs:
             raise ValueError('粘贴内容未解析出序列（请提供 FASTA 或纯序列）')
         return recs
-    fa = check_path(os.path.join(DIRS['results'], safe_name(sample),
+    fa = check_path(os.path.join(resolve_dir(sample),
                                  '03_assembly', 'viral_contigs.fasta'),
                     must_exist=True, in_platform=True)
     wanted = set(contig_ids or [])
@@ -242,7 +261,9 @@ def create_job(name, sample=None, contig_ids=None, pasted=None, n_seg=2):
 
     meta = {
         'name': safe_job_name(name),
-        'sample': safe_name(sample) if sample else '',
+        # 存"磁盘上的真实目录名"（而非字符替换结果）：后面 _host_cross 要拿它
+        # 回查 results/<样品>/08_host_analysis，存规范名会漏掉非规范命名的样品。
+        'sample': resolve_sample_name(sample) if sample else '',
         'created': time.strftime('%Y-%m-%d %H:%M:%S'),
         'contigs': contig_infos,
         'n_segments': len(segments),
@@ -387,8 +408,15 @@ def parse_result_table(raw):
                          '的结果表而非网页截图。')
 
     rows = []
-    for ln in lines[1:]:
-        p = ln.split(delim)
+    # 用 csv.reader 而不是 split(delim)：Logan 结果表里 organism/location
+    # 常被引号包裹且含逗号，split 会让后续列整体右移、数值列变 None，
+    # 且无任何告警就写进 result_s*_parsed.json。
+    import csv as _csv
+    import io as _io
+    data_rows = list(_csv.reader(_io.StringIO('\n'.join(lines)), delimiter=delim))
+    for p in data_rows[1:]:
+        if not any((c or '').strip() for c in p):
+            continue
         row = {k: '' for k in _COLMAP}
         for ci, field in col2field.items():
             v = p[ci].strip() if ci < len(p) else ''
@@ -430,7 +458,7 @@ def import_result(name, seg_index, filename, raw):
 
 
 # ------------------------------------------------------------------
-# 批量自动提交（方式二：vp/logan_submit.py，Selenium 驱动本机 Edge/Chrome）
+# 批量自动提交（方式二：Virus_Platform_Core/logan_submit.py，Selenium 驱动本机 Edge/Chrome）
 # ------------------------------------------------------------------
 BATCH_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             'logan_submit.py')
@@ -456,7 +484,7 @@ def batch_prepare(name):
     if not pending:
         raise ValueError('该任务所有片段均已导入结果，无需批量提交')
     if not getattr(sys, 'frozen', False) and not os.path.isfile(BATCH_SCRIPT):
-        raise RuntimeError('缺少 vp/logan_submit.py（批量提交脚本）')
+        raise RuntimeError('缺少 Virus_Platform_Core/logan_submit.py（批量提交脚本）')
     if not selenium_ready():
         raise ValueError('未安装 selenium：python -m pip install selenium')
     in_path = check_path(os.path.join(jdir, 'batch_input.fa'),
@@ -496,7 +524,7 @@ def batch_collect(name, acc2seg=None):
 
 
 def safe_stem_name(acc):
-    """与 vp/logan_submit.safe_stem 同口径的文件名安全化。"""
+    """与 Virus_Platform_Core/logan_submit.safe_stem 同口径的文件名安全化。"""
     s = re.sub(r"[^A-Za-z0-9._\-]", "_", str(acc))
     s = re.sub(r"\.{2,}", ".", s).strip(".")
     return s or "query"
@@ -520,7 +548,7 @@ def batch_submit(name, emails, group='Fast_No_human', headless=True,
     if logger:
         logger.log(f'批量输入已生成: {n_pending} 个片段 '
                    f'（{", ".join(sorted(acc2seg))}）')
-    from vp.config import engine_cmd
+    from Virus_Platform_Core.config import engine_cmd
     cmd = engine_cmd(BATCH_SCRIPT, str(in_path), '-o', str(out_dir),
            '--email', ','.join(emails), '--group', group,
            '--first-wait', str(int(first_wait)), '--max-wait', str(int(max_wait)))
@@ -653,7 +681,7 @@ def _host_cross(meta, contig_ids):
     """查询来自平台样品时，取 ④宿主预测 对应行做交叉对照。"""
     if not meta.get('sample'):
         return []
-    p = os.path.join(DIRS['results'], meta['sample'], '08_host_analysis',
+    p = os.path.join(resolve_dir(meta['sample']), '08_host_analysis',
                      'host_prediction.tsv')
     if not os.path.isfile(p):
         return []
@@ -684,6 +712,11 @@ def _fmt(v, suf=''):
     if isinstance(v, float):
         return f'{v:g}{suf}'
     return f'{v}{suf}'
+
+
+def _esc_html(v):
+    """报告表格单元格转义（字段来自外部结果表/用户导入文件）。"""
+    return _htmlmod.escape(str(v), quote=True)
 
 
 def _kmer_disp(v):
@@ -778,7 +811,7 @@ def build_report(name):
                 ('kmer_cov', '共享 k-mer'), ('ani', 'ANI(%)'),
                 ('assay_type', '测序类型'), ('study', 'Study'),
                 ('biosample', 'BioSample'), ('location', '地点')]
-        thead = ''.join(f'<th>{label}</th>' for _, label in cols)
+        thead = ''.join(f'<th>{_esc_html(label)}</th>' for _, label in cols)
         body = []
         for r in rows[:300]:
             tds = []
@@ -786,26 +819,31 @@ def build_report(name):
                 v = r.get(f)
                 if f == 'kmer_cov':
                     v = _kmer_disp(v)
-                tds.append(f"<td>{_fmt(v)}</td>")
+                # 结果表字段来自外部（Logan-Search 表 / 用户导入文件），
+                # 未转义会破坏报告结构甚至注入脚本。
+                tds.append(f"<td>{_esc_html(_fmt(v))}</td>")
             body.append('<tr>' + ''.join(tds) + '</tr>')
         accs = [r.get('acc') for r in rows if r.get('acc')]
-        acc_txt = ', '.join(accs[:500])
+        acc_txt = _esc_html(', '.join(accs[:500]))
         extra = (f"<details><summary>复制 Run 列表（{len(accs)} 条）</summary>"
                  f"<textarea readonly class='acc-list'>{acc_txt}</textarea>"
                  f"</details>") if accs else ''
-        more = f"<p class='hint'>仅显示前 300 行，完整结果见导入的原始文件。</p>" \
+        more = "<p class='hint'>仅显示前 300 行，完整结果见导入的原始文件。</p>" \
             if len(rows) > 300 else ''
         return (f"<table class='rtable'><thead><tr>{thead}</tr></thead>"
                 f"<tbody>{''.join(body)}</tbody></table>{extra}{more}")
 
     seg_sections = ''.join(
-        f"<h3>片段 s{s['index']} · {s['contig']} "
+        f"<h3>片段 s{s['index']} · {_esc_html(s['contig'])} "
         f"({s['start']:,}-{s['end']:,} / {s['length']:,}bp)</h3>"
         + _seg_table(s) for s in segs)
 
+    # contig 名来自样品 FASTA 头（用户可控），与结果表字段一样必须转义，
+    # 否则报告内联渲染在 127.0.0.1 源下会执行任意脚本
     contig_lines = ''.join(
-        f"<tr><td>{c['contig']}</td><td>{c['length']:,}</td>"
-        f"<td>{c.get('species') or '—'}</td><td>{c.get('family') or '—'}</td></tr>"
+        f"<tr><td>{_esc_html(c['contig'])}</td><td>{c['length']:,}</td>"
+        f"<td>{_esc_html(c.get('species') or '—')}</td>"
+        f"<td>{_esc_html(c.get('family') or '—')}</td></tr>"
         for c in meta.get('contigs', []))
 
     cross_html = ''
@@ -813,10 +851,13 @@ def build_report(name):
         rows = []
         for c in cross:
             rows.append(
-                f"<tr><td>{c['contig']}</td><td>{c['species'] or '—'}</td>"
-                f"<td>{c['family'] or '—'}</td><td>{c['final_host'] or '—'}"
-                f"（ICTV: {c['host_ictv'] or '—'}, 置信 {c['confidence'] or '—'}）</td>"
-                f"<td>{'、'.join(cross_top.get(c['contig'], [])) or '—'}</td></tr>")
+                f"<tr><td>{_esc_html(c['contig'])}</td>"
+                f"<td>{_esc_html(c['species'] or '—')}</td>"
+                f"<td>{_esc_html(c['family'] or '—')}</td>"
+                f"<td>{_esc_html(c['final_host'] or '—')}"
+                f"（ICTV: {_esc_html(c['host_ictv'] or '—')}, "
+                f"置信 {_esc_html(c['confidence'] or '—')}）</td>"
+                f"<td>{_esc_html('、'.join(cross_top.get(c['contig'], [])) or '—')}</td></tr>")
         cross_html = (
             "<h2 class='sec'>交叉对照：平台 ④ICTV 宿主预测 × LOGAN 实测物种</h2>"
             "<p>左侧为本平台基于分类学的宿主预测，右侧为 LOGAN 在公共样本中"
@@ -838,7 +879,7 @@ def build_report(name):
                   'done': '结果齐全'}.get(meta.get('status'), '')
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
-<title>LOGAN 溯源报告 · {meta['name']}</title>
+<title>LOGAN 溯源报告 · {_esc_html(meta['name'])}</title>
 {js_tag}
 <style>
  body {{ font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
@@ -865,11 +906,11 @@ def build_report(name):
  details {{ margin: 8px 0; font-size: 13px; }}
  a {{ color: #1565c0; }}
 </style></head><body><div class="wrap">
-<h1>🌐 LOGAN 溯源报告 · {meta['name']}</h1>
+<h1>🌐 LOGAN 溯源报告 · {_esc_html(meta['name'])}</h1>
 <p class="meta">
- 来源：{('样品 ' + meta['sample']) if meta.get('sample') else '粘贴序列'}
- ｜ 状态：{status_txt} ｜ 创建：{meta.get('created', '')}
- ｜ 查询引擎：<a href="{meta.get('submit_url', '')}" target="_blank">Logan-Search</a>
+ 来源：{('样品 ' + _esc_html(meta['sample'])) if meta.get('sample') else '粘贴序列'}
+ ｜ 状态：{status_txt} ｜ 创建：{_esc_html(meta.get('created', ''))}
+ ｜ 查询引擎：<a href="{_esc_html(meta.get('submit_url', ''))}" target="_blank">Logan-Search</a>
  （NCBI SRA 全量组装 k-mer 索引）<br>
  提交片段：{meta.get('n_segments', 0)} 条（每条 ≤{SEG_MAX_BP}bp）
  ｜ 去重后匹配样本：{agg['n_union']:,}
@@ -878,7 +919,7 @@ def build_report(name):
 <div class="cards">
  <div class="card"><b>{agg['n_union']:,}</b><span>匹配公共样本（去重）</span></div>
  <div class="card"><b>{len(organisms):,}</b><span>涉及物种</span></div>
- <div class="card"><b>{(_fmt(list(organisms)[0]) if organisms else '—')}</b>
+ <div class="card"><b>{(_esc_html(_fmt(list(organisms)[0])) if organisms else '—')}</b>
    <span>样本数最多的物种</span></div>
  <div class="card"><b>{meta.get('n_segments', 0)}</b><span>提交片段</span></div>
 </div>
@@ -894,7 +935,7 @@ def build_report(name):
 <p class="meta">查询流程：平台切片（≤{SEG_MAX_BP}bp）→ Logan-Search
 （kmindex，k=31 Bloom filter 索引，对 SRA 全量组装 unitigs 计算共享
 k-mer 比例）→ 导入结果表聚合。Threshold 默认 0.25；Groups 提交时选择：
-{meta.get('group_hint', '')}。<br>引用：{LOGAN_CITE}。
+{_esc_html(meta.get('group_hint', ''))}。<br>引用：{LOGAN_CITE}。
 报告由植物病毒分析平台生成于 {time.strftime('%Y-%m-%d %H:%M:%S')}。</p>
 </div></body></html>"""
     out = check_path(os.path.join(jdir, 'trace_report.html'),

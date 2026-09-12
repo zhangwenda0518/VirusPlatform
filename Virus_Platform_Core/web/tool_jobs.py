@@ -2,7 +2,7 @@
 """工具箱：22 个独立分析任务工厂（自 app.py 拆出）。
 
 每个 _tool_job_<name>(ctx) 返回 job(log, prog, cancel) 可调用；
-由 vp/web/tools_api.py 的 /api/tool/run 取用。
+由 Virus_Platform_Core/web/tools_api.py 的 /api/tool/run 取用。
 新增工具三步：① 写 _tool_job_<name> ② 注册 TOOL_REGISTRY
 （在 tools_api.py）③ webapp/templates/tools.html 加卡片。
 """
@@ -11,20 +11,25 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 
 from flask import abort
 
-from vp.config import DIRS, PLATFORM_ROOT
-from vp.utils import (TaskLogger, check_path, safe_open)
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT
+from Virus_Platform_Core.utils import (TaskLogger, check_path, safe_open)
+from Virus_Platform_Core.web.state import cfg, tool_runs_root as _tool_runs_root
 
 
-CONSENSUS_READS_LAYERS = {
-    'host_removed': '01_host_removal',
-    'viral':        '02_virus_screen',
-    'clean':        '00_prep',
-}
+# 共识模块 reads 未手动指定时的兜底层（contig 分类运行目录下）：
+# 去宿主后全量，变异检测无偏。不再提供「病毒筛选后 / 质控后原始」等
+# 选项——前者低估变异，后者带宿主污染。
+CONSENSUS_FALLBACK_LAYER = '01_host_removal'
+
+# kvsuite 卡的默认阶段：识别/定量（identify）+ 过滤（filter）两段。
+# 共识/绘图/变异属于下游模块（t-consensus / t-variant），不在「识别与定量」范围内。
+# 字面量与引擎侧 Virus_Platform_Core/known_virus_suite/known_virus_suite.py 的
+# DEFAULT_STAGE 必须一致；这里不 import 引擎模块——冻结分发版不打包 kv_filter /
+# kv_identify（见 main.py 的 import 白名单说明）。
+KV_DEFAULT_STAGE = 'identify+filter'
 
 
 def _tool_job_convert(ctx):
@@ -47,7 +52,7 @@ def _tool_job_convert(ctx):
         logger = TaskLogger(callback=log)
         out_files = []
         if mode == 'sra':
-            from vp.public_data import sra_convert_engine
+            from Virus_Platform_Core.public_data import sra_convert_engine
             engine, exe = sra_convert_engine()
             if engine != 'sracha':
                 raise RuntimeError('sracha.exe 不可用，无法转换 .sra')
@@ -58,13 +63,20 @@ def _tool_job_convert(ctx):
             if target == 'fasta':
                 cmd.append('--fasta')
             import subprocess as _sp
+            from Virus_Platform_Core.public_data import _sra_fastq_outputs
             _sp.run(cmd, check=True, timeout=8 * 3600,
                     stdout=_sp.DEVNULL, stderr=_sp.PIPE)
             base = os.path.basename(inp)[:-4]
-            out_files = sorted(
-                os.path.join(ctx.run_dir, f_) for f_ in os.listdir(ctx.run_dir)
-                if f_.startswith(base + '_')
-                and f_.endswith(('.fastq.gz', '.fq.gz', '.fa.gz', '.fasta.gz')))
+            # ⚠ 单端 run：sracha 写 `<acc>.fastq.gz`（**无下划线**）；双端才写
+            #   `<acc>_1/_2.fastq.gz`。只匹配 `base + '_'` 会把单端产物判成
+            #   「无输出」，把已经落盘的 GB 级 FASTQ 丢掉 —— 与下载链
+            #   （public_data._convert_sras）同源的历史 bug。这里复用同一份
+            #   判定函数，杜绝两处再走偏。
+            out_files = [os.path.join(ctx.run_dir, f_) for f_ in
+                         _sra_fastq_outputs(
+                             ctx.run_dir, base,
+                             exts=('.fastq.gz', '.fq.gz',
+                                   '.fa.gz', '.fasta.gz'))]
             if not out_files:
                 raise RuntimeError('sracha 无输出')
         else:
@@ -72,7 +84,7 @@ def _tool_job_convert(ctx):
             dst = os.path.join(ctx.run_dir,
                                os.path.basename(inp).rsplit('.', 2)[0] + '.fa.gz')
             prog('fq2fa', 0.3, 'seqkit fq2fa 转换中')
-            from vp.utils import run_cmd
+            from Virus_Platform_Core.utils import run_cmd
             run_cmd([seqkit, 'fq2fa', '-w', '0',
                      '-j', str(ctx.threads or cfg.threads), inp,
                      '-o', dst], logger=logger)
@@ -92,7 +104,7 @@ def _tool_job_fastp(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.preprocess import run_fastp
+        from Virus_Platform_Core.preprocess import run_fastp
         prog('fastp', 0.3, 'fastp 质控中')
         res = run_fastp(ctx.run_dir, r1, r2, threads=ctx.threads, logger=logger,
                         force=True, dedup=bool(ctx.p.get('dedup')))
@@ -114,13 +126,13 @@ def _tool_job_hostremoval(ctx):
     conf = float(ctx.p.get('confidence') or 0)
     db_host = ctx.opt('db') or cfg.databases['host']
 
-    from vp.kunpeng import db_ready
+    from Virus_Platform_Core.kunpeng import db_ready
     if not db_ready(db_host):
         abort(400, '宿主库未就绪，请先到「数据库构建」页构建宿主库')
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.host_removal import remove_host
+        from Virus_Platform_Core.host_removal import remove_host
         prog('classify', 0.05, 'kunpeng 宿主库分类中')
         res = remove_host(ctx.run_dir, r1, r2, db_host, threads=ctx.threads,
                           confidence=conf, logger=logger, force=True,
@@ -149,7 +161,7 @@ def _tool_job_hostpredict(ctx):
         os.makedirs(a_dir, exist_ok=True)
         prog('prep', 0.05, '整理输入')
         # 统一 11 列口径（含 blast_* 补算），见 host_analysis.normalize_contig_table
-        from vp.host_analysis import normalize_contig_table, predict_hosts
+        from Virus_Platform_Core.host_analysis import normalize_contig_table, predict_hosts
         normalize_contig_table(tsv, a_dir, fasta=fa, threads=ctx.threads,
                                logger=logger)
         prog('predict', 0.15, 'ICTV 宿主概率级联预测')
@@ -173,6 +185,8 @@ def _tool_job_orf(ctx):
     orf_model = (ctx.p.get('model') or '').strip()
     if orf_model not in ('pyrodigal_rv', 'pyrodigal'):
         orf_model = ''
+    # 功能注释层选择：prot（序列同源）/ pfam（HMM）/ cdd（结构域）；空=全部
+    orf_libs = ctx.p.get('libs')
 
     def job(log, prog, cancel):
         import json as _json
@@ -181,7 +195,7 @@ def _tool_job_orf(ctx):
                            must_exist=False, in_platform=True)
         os.makedirs(a_dir, exist_ok=True)
         prog('prep', 0.03, '整理输入')
-        from vp.utils import iter_fasta, write_fasta_record
+        from Virus_Platform_Core.utils import iter_fasta, write_fasta_record
         ids = []
         vfa = os.path.join(a_dir, 'viral_contigs.fasta')
         cfa = os.path.join(a_dir, 'contigs.filtered.fasta')
@@ -195,7 +209,7 @@ def _tool_job_orf(ctx):
             raise RuntimeError('输入 FASTA 中没有序列')
         with safe_open(os.path.join(a_dir, 'summary.json'), 'wt') as f:
             _json.dump({'viral_contigs': ids, 'standalone': True}, f)
-        from vp.orf import predict_orfs
+        from Virus_Platform_Core.orf import predict_orfs
         prog('orf', 0.08, 'ORF 基因预测')
         res = predict_orfs(ctx.run_dir, min_aa=min_aa, threads=ctx.threads,
                            logger=logger, force=True, tools=orf_tool or None,
@@ -203,12 +217,12 @@ def _tool_job_orf(ctx):
                                'orf', 0.08 + p * 0.6, m))
         res = dict(res)
         if annotate:
-            from vp.orf_annot import run_orf_annotation
+            from Virus_Platform_Core.orf_annot import run_orf_annotation
             prog('orfa', 0.72, 'ORF 功能注释')
             res['orfa'] = run_orf_annotation(
                 ctx.run_dir, threads=ctx.threads, logger=logger, force=True,
                 engine=orf_engine or None, db=orf_db or None,
-                model=orf_model or None,
+                model=orf_model or None, libs=orf_libs,
                 progress=lambda p, m: prog('orfa', 0.72 + p * 0.26, m))
         prog('done', 1.0, '完成')
         logger.close()
@@ -225,6 +239,8 @@ def _tool_job_orfa(ctx):
     orf_model = (ctx.p.get('model') or '').strip()
     if orf_model not in ('pyrodigal_rv', 'pyrodigal'):
         orf_model = ''
+    # 注释层选择：prot（层1 序列同源）/ pfam（层2 HMM）/ cdd（层2 结构域）
+    orf_libs = ctx.p.get('libs')
     if run:
         if not re.fullmatch(r'[A-Za-z0-9_]+', run) or not run.startswith('orf_'):
             abort(400, f'无效的 ORF 运行名: {run}')
@@ -233,12 +249,12 @@ def _tool_job_orfa(ctx):
 
         def job(log, prog, cancel):
             logger = TaskLogger(callback=log)
-            from vp.orf_annot import run_orf_annotation
+            from Virus_Platform_Core.orf_annot import run_orf_annotation
             prog('orfa', 0.15, f'对运行 {run} 做 ORF 功能注释')
             res = run_orf_annotation(target, threads=ctx.threads, logger=logger,
                                      force=True, engine=orf_engine or None,
                                      db=orf_db or None,
-                                     model=orf_model or None,
+                                     model=orf_model or None, libs=orf_libs,
                                      progress=lambda p, m: prog(
                                          'orfa', 0.15 + p * 0.8, m))
             res = dict(res)
@@ -277,7 +293,7 @@ def _tool_job_genoplot(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.gbdraw_plot import run_genome_plots, gbdraw_available
+        from Virus_Platform_Core.gbdraw_plot import run_genome_plots, gbdraw_available
         if not gbdraw_available():
             raise RuntimeError('未检测到 gbdraw（管道不支持 DFV）')
         tag = 'gbdraw'
@@ -320,7 +336,7 @@ def _tool_job_primer(ctx):
                                must_exist=False, in_platform=True)
             os.makedirs(a_dir, exist_ok=True)
             shutil.copyfile(fasta, os.path.join(a_dir, 'viral_contigs.fasta'))
-        from vp.primer import design_primers
+        from Virus_Platform_Core.primer import design_primers
         prog('primer', 0.1, f'primer3 引物设计（{mode}）')
         res = design_primers(ctx.run_dir, mode=mode, num_return=num_return,
                              logger=logger, force=True,
@@ -341,7 +357,7 @@ def _tool_job_identify(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.kunpeng import classify, parse_classify_output
+        from Virus_Platform_Core.kunpeng import classify, parse_classify_output
         inputs = [inp]
         if itype == 'pe':
             inputs.append(ctx.req('input2', 'R2 FASTQ'))
@@ -399,7 +415,7 @@ def _tool_job_assemble(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.assembly import run_spades, filter_contigs
+        from Virus_Platform_Core.assembly import run_spades, filter_contigs
         out = os.path.join(ctx.run_dir, 'assembly')
         prog('spades', 0.05, 'SPAdes 组装中（耗时主要步骤）')
         spades_out = run_spades(r1, r2, out, mode=mode, threads=ctx.threads,
@@ -429,9 +445,9 @@ def _tool_job_contigs(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.assembly import filter_contigs
-        from vp.kunpeng import classify, parse_classify_output
-        from vp.contig_annot import classify_rows, genus_avg_map, RANKS
+        from Virus_Platform_Core.assembly import filter_contigs
+        from Virus_Platform_Core.kunpeng import classify, parse_classify_output
+        from Virus_Platform_Core.contig_annot import classify_rows, genus_avg_map, RANKS
 
         prog('genus_lens', 0.03, '统计属平均基因组长度（首跑需建缓存）')
         genus_map = genus_avg_map(logger=logger)
@@ -512,8 +528,8 @@ def _tool_job_structcmp(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.phylo import _run_mafft
-        from vp.utils import iter_fasta
+        from Virus_Platform_Core.phylo import _run_mafft
+        from Virus_Platform_Core.utils import iter_fasta
 
         prog('read', 0.05, '读取与筛选序列')
         recs, seen = [], {}
@@ -600,7 +616,7 @@ def _tool_job_verify(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.verify import verify
+        from Virus_Platform_Core.verify import verify
 
         # 输入解析：优先 run（其 viral_contigs.fasta），否则独立 fasta
         run_dir = ctx.run_dir
@@ -636,17 +652,18 @@ def _tool_job_consensus(ctx):
       1. kvsuite 运行选参考（virus-fasta/ref_<acc>/）—— 已知病毒基因组
       2. contig 分类运行的 viral_contigs.fasta —— 未知/组装候选
       3. 独立 FASTA
-    reads 默认取**去宿主后全量**（01_host_removal）——变异检测无偏；
-    02_virus_screen 已按相似度丢过一轮 reads，会系统性低估变异与准种多样性。
-    默认重新比对（而非复用 kvsuite 的 BAM）：旧 BAM 有比对偏好性，
-    新 BAM 覆盖更全。
+    固定**重新比对**（minibwa map 双位置参数双端回贴），不复用 kvsuite 的
+    BAM——那是按参考筛过的 reads 子集，有比对偏好性，会系统性低估变异。
+    reads 默认来源（未手动指定时）：
+      1. 所选 kvsuite 运行的输入序列（tool_runs/<run>/sample_sheet.tsv，
+         即「已知病毒识别与定量」吃进去的 reads）
+      2. contig 分类运行目录的 01_host_removal（去宿主后全量，变异无偏）
+      3. 都没有 → 报错要求手动指定
     """
     run_ref = (ctx.p.get('run') or '').strip()
     fasta = ctx.opt('fasta') if ctx.p.get('fasta') else None
     kv_run = (ctx.p.get('kv_run') or '').strip()
     kv_refs = [x.strip() for x in (ctx.p.get('kv_refs') or '').split(',') if x.strip()]
-    reuse_bam = (ctx.p.get('reuse_bam') or '').strip()
-    reads_src = (ctx.p.get('reads_src') or 'host_removed').strip()
     ambig = (ctx.p.get('ambig') or 'N').strip()[:1] or 'N'
 
     def _num(v, default, cast):
@@ -674,17 +691,12 @@ def _tool_job_consensus(ctx):
     for _r in kv_refs:
         if not re.fullmatch(r'[A-Za-z0-9_.\-]+', _r):
             abort(400, '无效的 accession: %s' % _r)
-    if reads_src not in CONSENSUS_READS_LAYERS:
-        reads_src = 'host_removed'
-    if reuse_bam:
-        # 只允许平台运行目录内的 BAM（防任意路径写入）
-        reuse_bam = check_path(reuse_bam, must_exist=False, in_platform=True)
-        if not os.path.isfile(reuse_bam):
-            abort(400, '复用的 BAM 不存在：%s' % reuse_bam)
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.consensus import consensus_and_variants, find_read_pairs
+        from Virus_Platform_Core.consensus import (consensus_and_variants,
+                                                   find_read_pairs,
+                                                   pair_read_files)
 
         # ---- 参考 ----
         # 三条来源，优先级：kvsuite 选参考 > contig 运行 > 独立 FASTA
@@ -755,41 +767,66 @@ def _tool_job_consensus(ctx):
             vfa = fasta
 
         # ---- reads ----
-        # 默认重新比对：用去宿主后全量 reads，让新 BAM 覆盖更全。
-        # kvsuite 自己的 bam/virus_reads 已按病毒筛选过，复用会引入比对
-        # 偏好性并系统性低估变异，因此不作为默认来源。
+        # 固定重新比对。未手动指定时按 docstring 里的默认来源顺序解析；
+        # kvsuite 的 bam/virus_reads 已按病毒筛过，不作为来源（低估变异）。
+        # 文件 token 先收集再统一配对——R1/R2 拆在两个 token 里也能配上。
         reads = []
-        if not reuse_bam:
-            for p in (ctx.p.get('reads') or '').split(','):
-                p = p.strip()
-                if not p:
-                    continue
-                if os.path.isdir(p):
-                    reads.extend(find_read_pairs(p))
-                else:
-                    reads.append(p)
-            if not reads:
-                if not src_run:
-                    # kvsuite 参考或独立 FASTA：也需要 reads
-                    if kv_run:
-                        abort(400, '选择了 kvsuite 参考，请显式指定回贴 reads 文件/目录')
-                    abort(400, '未指定运行时必须直接给出 reads 文件路径')
-                layer = os.path.join(src_run, CONSENSUS_READS_LAYERS[reads_src])
+        file_toks = []
+        for p in (ctx.p.get('reads') or '').split(','):
+            p = p.strip()
+            if not p:
+                continue
+            if os.path.isdir(p):
+                reads.extend(find_read_pairs(p))
+            elif os.path.isfile(p):
+                file_toks.append(p)
+            else:
+                abort(400, 'reads 路径不存在：%s' % p)
+        reads.extend(pair_read_files(file_toks))
+        if not reads:
+            if kv_run:
+                # kvsuite 运行的输入序列（含样品与直填测序数据两种来路，
+                # 都落在该 run 目录的 sample_sheet.tsv）
+                sheet = os.path.join(_tool_runs_root(), kv_run,
+                                     'sample_sheet.tsv')
+                if not os.path.isfile(sheet):
+                    abort(400, 'kvsuite 运行 %s 无 sample_sheet.tsv，'
+                               '请手动指定回贴 reads' % kv_run)
+                with open(sheet, encoding='utf-8-sig', errors='replace') as fh:
+                    hdr = fh.readline().rstrip('\n').split('\t')
+                    if 'r1' not in hdr:
+                        abort(400, 'sample_sheet.tsv 缺 r1 列：%s' % sheet)
+                    i1 = hdr.index('r1')
+                    i2 = hdr.index('r2') if 'r2' in hdr else len(hdr)
+                    for line in fh:
+                        cols = line.rstrip('\n').split('\t')
+                        if len(cols) <= i1 or not cols[i1].strip():
+                            continue
+                        r2 = cols[i2].strip() if len(cols) > i2 else ''
+                        reads.append((cols[i1].strip(), r2 or None))
+                if not reads:
+                    abort(400, 'kvsuite 运行 %s 的 sample_sheet.tsv 没有'
+                               '有效 reads，请手动指定' % kv_run)
+                log('reads 默认取该 kvsuite 运行的输入序列：'
+                    '%d 个样本（sample_sheet.tsv）' % len(reads))
+            elif src_run:
+                layer = os.path.join(src_run, CONSENSUS_FALLBACK_LAYER)
                 reads = find_read_pairs(layer)
                 if not reads:
                     raise RuntimeError(
-                        '在 %s 下未找到 reads（期望 *_R1/*.fastq.gz 配对文件）'
-                        % CONSENSUS_READS_LAYERS[reads_src])
-        else:
-            log('映射模式：复用 BAM %s' % os.path.basename(reuse_bam))
+                        '在 %s 下未找到 reads（期望 *_R1/*.fastq(.gz) 配对文件）'
+                        % CONSENSUS_FALLBACK_LAYER)
+                log('reads 默认取 contig 运行的去宿主后全量（%s）'
+                    % CONSENSUS_FALLBACK_LAYER)
+            else:
+                abort(400, '请直接给出回贴 reads 文件/目录')
 
         summary = consensus_and_variants(
             ctx.run_dir, vfa, reads, out_subdir='consensus',
             min_qual=min_qual, min_depth=min_depth, min_freq=min_freq,
             ambig=ambig, min_mapq=min_mapq, min_minor_freq=min_minor_freq,
             min_cov_pct=min_cov_pct, preset='sr', threads=ctx.threads,
-            logger=logger, progress=lambda st, fr, msg: prog(st, fr, msg),
-            reuse_bam=reuse_bam or None)
+            logger=logger, progress=lambda st, fr, msg: prog(st, fr, msg))
         logger.close()
         return summary
     return job
@@ -798,42 +835,100 @@ def _tool_job_consensus(ctx):
 def _tool_job_kvsuite(ctx):
     """已知病毒识别与定量（known_virus_suite 五段整合）。
 
-    完全照搬 D:/桌面/延伸基因组/MMPV-RNA/virome_analysis_pipeline 的做法：
+    移植自 D:/桌面/延伸基因组/MMPV-RNA/virome_analysis_pipeline：
       鉴定 → 过滤 → 共识 → 深度绘图 → 变异注释
-    引擎 minibwa 替代 bowtie2，**其余一点不改**。
+    引擎分工固定：定量（identify）用 salmon（--writeBam 出映射 BAM），
+    共识段内部固定 minibwa 真比对。
+
+    默认只跑**两段**：识别/定量（identify）+ 过滤（filter）——本卡的口径就是
+    「识别与定量」；共识序列、深度绘图、变异注释由下游模块各自完成
+    （共识序列分析 t-consensus / 病毒变异分析 t-variant），需要在本卡一次跑全时
+    前端把 stage 选成 all（或走 t-kvchain 一键全流程，那条链固定 stage=all）。
+    与管道阶段 Virus_Platform_Core/kv_stage.py 的口径一致（它也只跑这两段）。
 
     caller 用 bcftools mpileup+call（freebayes/lofreq/ivar 在 Windows 上均不可得），
-    参数与阈值为实测定稿，详见 engines/known_virus_suite/POSCOUNTS_REMOVAL_PLAN.md §4.2。
+    参数与阈值为实测定稿，详见 Virus_Platform_Core/known_virus_suite/POSCOUNTS_REMOVAL_PLAN.md §4.2。
     """
     import json
 
     # ── 输入：勾选样品 → 临时 sample-sheet TSV(name,r1,r2) ──
     # 变异段（variant）不吃 reads，只需 BAM 或 VCF，因此允许 samples 为空。
-    stage = (ctx.p.get('stage') or 'all').strip().lower()
-    if stage not in ('all', 'index', 'identify', 'filter', 'consensus',
-                     'plot', 'variant'):
-        stage = 'all'
+    stage = (ctx.p.get('stage') or KV_DEFAULT_STAGE).strip().lower()
+    if stage not in ('all', 'index', 'identify', 'filter', KV_DEFAULT_STAGE,
+                     'consensus', 'plot', 'variant'):
+        stage = KV_DEFAULT_STAGE
     samples_raw = (ctx.p.get('samples') or '').strip()
     sheet_in = (ctx.p.get('sample_sheet') or '').strip()
+    reads_raw = (ctx.p.get('reads') or '').strip()
+    if sheet_in and reads_raw:
+        abort(400, '样本表 TSV 与直接输入测序数据只能二选一')
+    if samples_raw and reads_raw:
+        abort(400, '样品与直接输入测序数据只能二选一')
     if sheet_in:
         sheet = ctx.req('sample_sheet', '样本表 TSV')
     elif stage == 'variant':
         sheet = None          # 变异段不用样本表
+    elif reads_raw:
+        # 直接输入测序数据（不必先建样品）：目录/文件 → R1/R2 配对 → 样本表。
+        # 样本名取 R1 文件名去掉 _R1 与扩展名，重名自动加后缀；
+        # 文件 token 先收集再统一配对——R1/R2 拆在两个 token 里也能配上。
+        from Virus_Platform_Core.consensus import (find_read_pairs,
+                                                   pair_read_files)
+        dir_pairs, file_toks = [], []
+        for tok in reads_raw.split(','):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if os.path.isdir(tok):
+                pairs = find_read_pairs(tok)
+                if not pairs:
+                    abort(400, '目录下未找到 reads'
+                               '（期望 *_R1/*.fastq(.gz)，R2 按 _R2 配对）：%s'
+                               % tok)
+                dir_pairs.extend(pairs)
+            elif os.path.isfile(tok):
+                file_toks.append(tok)
+            else:
+                abort(400, 'reads 路径不存在：%s' % tok)
+        rows = []
+        used = set()
+        for r1, r2 in dir_pairs + pair_read_files(file_toks):
+            from Virus_Platform_Core.consensus import R1_RX
+            m = R1_RX.match(os.path.basename(r1))
+            stem = (m.group(1) if m
+                    else re.sub(r'\.(fq|fastq)(\.gz)?$', '',
+                                os.path.basename(r1), flags=re.I))
+            nm = re.sub(r'[^\w\-.]+', '_', stem).strip('_-.') or 'sample'
+            base, k = nm, 2
+            while nm in used:
+                nm = '%s_%d' % (base, k)
+                k += 1
+            used.add(nm)
+            rows.append((nm, r1, r2 or ''))
+        sheet = os.path.join(ctx.run_dir, 'sample_sheet.tsv')
+        with open(sheet, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write('name\tr1\tr2\n')
+            for nm, r1, r2 in rows:
+                fh.write(f'{nm}\t{r1}\t{r2}\n')
     else:
         if not samples_raw:
-            abort(400, '请选择样品，或提供样本表 TSV')
+            abort(400, '请选择样品、直接输入测序数据（FASTQ），或提供样本表 TSV')
         names = [s.strip() for s in samples_raw.split(',') if s.strip()]
         if not names:
             abort(400, '未选择有效样品')
-        from vp.pipeline import load_sample_input
+        from Virus_Platform_Core.pipeline import load_sample_input
+        from Virus_Platform_Core.utils import resolve_sample_name
         rows = []
         for nm in names:
-            sd = check_path(os.path.join(DIRS['results'], nm),
+            # 勾选框给的是 /api/samples 返回的真实目录名 → 按磁盘解析后再取输入
+            real = resolve_sample_name(nm, DIRS['results'])
+            sd = check_path(os.path.join(DIRS['results'], real),
                             must_exist=True, in_platform=True)
             r1, r2, _proj = load_sample_input(sd)
             if not r1 or not os.path.isfile(r1):
                 abort(400, f'样品 {nm} 的 R1 不可用: {r1}')
-            rows.append((nm, r1, r2 or ''))
+            # sample_sheet 用真实目录名，便于与 results/ 下的产物目录对上
+            rows.append((real, r1, r2 or ''))
         sheet = os.path.join(ctx.run_dir, 'sample_sheet.tsv')
         with open(sheet, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write('name\tr1\tr2\n')
@@ -841,22 +936,28 @@ def _tool_job_kvsuite(ctx):
                 fh.write(f'{nm}\t{r1}\t{r2}\n')
 
     # ── 参考序列与注释 ──
+    # 缺省参考统一走 kv_stage 的目录解析（重构后的自包含库目录优先，
+    # 旧布局散置文件兜底），不再各自硬编码路径。
+    from Virus_Platform_Core.kv_stage import (default_ref_info,
+                                              default_reference)
     ref = (ctx.p.get('reference') or '').strip()
     if ref:
         ref = ctx.req('reference', '参考序列')
     else:
-        ref = os.path.join(DIRS['virus_src'], 'final.cluster.ref.fasta')
+        ref = default_reference()
+        if not ref:
+            abort(400, '缺少默认病毒参考：请先在「数据库构建 → 病毒鉴定库」建库')
         ref = check_path(ref, must_exist=True, in_platform=True)
     ref_info = (ctx.p.get('ref_info') or '').strip()
     if ref_info:
         ref_info = ctx.req('ref_info', '参考注释')
     else:
-        cand = os.path.join(DIRS['virus_src'], 'final.cluster.ref_info.tsv')
-        ref_info = cand if os.path.isfile(cand) else None
+        cand = default_ref_info()
+        ref_info = cand if cand and os.path.isfile(cand) else None
 
-    engine = (ctx.p.get('engine') or 'minibwa').strip().lower()
-    if engine not in ('minibwa', 'salmon'):
-        engine = 'minibwa'
+    # 定量引擎固定 salmon（共识段内部固定 minibwa，不经此参数）。
+    # 旧前端的 engine 值仍接受但一律归一为 salmon。
+    engine = 'salmon'
     # 索引复用：① 用户在前端选的「鉴定库」优先（build 页建好的）；
     # ② 默认参考 + 预建索引在位时自动复用（避免每个 run 重建 60 MB 索引）；
     # ③ 都不满足则回退 <out>/index 临时建。
@@ -864,18 +965,10 @@ def _tool_job_kvsuite(ctx):
     user_idx = (ctx.p.get('index_dir') or '').strip()
     if user_idx:
         index_dir = ctx.req('index_dir', '鉴定库目录')
-    elif engine == 'minibwa':
-        kv_idx = os.path.join(DIRS['virus_src'], 'kv_index')
-        default_ref = os.path.join(DIRS['virus_src'], 'final.cluster.ref.fasta')
-        if (os.path.isfile(os.path.join(kv_idx, 'minibwa.mbw'))
-                and os.path.abspath(ref) == os.path.abspath(default_ref)):
-            index_dir = kv_idx
-    elif engine == 'salmon':
-        kv_idx = os.path.join(DIRS['virus_src'], 'kv_index')
-        default_ref = os.path.join(DIRS['virus_src'], 'final.cluster.ref.fasta')
-        if (os.path.isfile(os.path.join(kv_idx, 'salmon_k31', 'info.json'))
-                and os.path.abspath(ref) == os.path.abspath(default_ref)):
-            index_dir = kv_idx
+    else:
+        # 预建索引复用（布局判定收敛在 kv_stage.index_dir_for 一处）
+        from Virus_Platform_Core.kv_stage import index_dir_for
+        index_dir = index_dir_for(ref, engine)
 
     def _num(v, default, cast, lo=None, hi=None):
         try:
@@ -898,15 +991,14 @@ def _tool_job_kvsuite(ctx):
     max_aa_labels = _num(ctx.p.get('max_aa_labels'), 40, int, 0)
 
     def job(log, prog, cancel):
-        suite = os.path.join(PLATFORM_ROOT, 'engines', 'known_virus_suite',
-                             'known_virus_suite.py')
-        if not os.path.isfile(suite):
-            raise RuntimeError(f'未找到 engines/known_virus_suite/'
-                               f'known_virus_suite.py: {suite}')
+        # 引擎入口统一走 kv_stage.engine_cmd()：源码模式 python -m，
+        # 冻结模式 --run-engine（engine_entry 已在进程内注册 kvsuite）
+        from Virus_Platform_Core.kv_stage import engine_cmd
+        entry_exe, entry_pre = engine_cmd()
 
         out_dir = os.path.join(ctx.run_dir, 'kvsuite')
         os.makedirs(out_dir, exist_ok=True)
-        cmd = [sys.executable, suite, stage,
+        cmd = [entry_exe] + entry_pre + [stage,
                '--out', out_dir,
                '--reference', ref,
                '--engine', engine,
@@ -936,8 +1028,6 @@ def _tool_job_kvsuite(ctx):
                     '--align-threads', str(ctx.threads)]
         if ctx.p.get('ncbi_email'):
             cmd += ['--ncbi-email', str(ctx.p['ncbi_email']).strip()]
-        if ctx.p.get('ncbi_api_key'):
-            cmd += ['--ncbi-api-key', str(ctx.p['ncbi_api_key']).strip()]
         if ctx.p.get('no_genes'):
             cmd.append('--no-genes')
         if ctx.p.get('no_variant_evo'):
@@ -950,6 +1040,11 @@ def _tool_job_kvsuite(ctx):
         log('$ ' + ' '.join(cmd))
         env = dict(os.environ)
         env.setdefault('PYTHONIOENCODING', 'utf-8')
+        # NCBI API key 走环境变量传递（引擎侧 argparse 以 NCBI_API_KEY 兜底）：
+        # 不进 argv → 不出现在上面这行 `$ ...` 任务日志 / run.log / 进程列表里
+        _api_key = str(ctx.p.get('ncbi_api_key') or '').strip()
+        if _api_key:
+            env['NCBI_API_KEY'] = _api_key
         proc = subprocess.Popen(cmd, cwd=PLATFORM_ROOT,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
@@ -967,7 +1062,11 @@ def _tool_job_kvsuite(ctx):
             # cancel 是 threading.Event（见 TaskServer._run），必须用 is_set()，
             # 直接 cancel() 会报 'Event' object is not callable。
             if cancel is not None and cancel.is_set():
-                proc.kill()
+                # taskkill /T 杀整棵进程树：只 kill 引擎本身会留下
+                # salmon/samtools 孤儿继续吃 CPU/磁盘
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                               capture_output=True)
+                proc.wait()
                 raise RuntimeError('用户取消')
         rc = proc.wait()
         if rc != 0:
@@ -1026,8 +1125,8 @@ def _tool_job_quicktree(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.phylo import _run_mafft, _run_nj, _run_fasttree
-        from vp.utils import iter_fasta
+        from Virus_Platform_Core.phylo import _run_mafft, _run_nj, _run_fasttree
+        from Virus_Platform_Core.utils import iter_fasta
 
         prog('read', 0.05, '读取与筛选序列')
         recs, seen = [], {}
@@ -1084,7 +1183,7 @@ def _tool_job_align(ctx):
     产物：input.fasta / aln.fasta / aln.trim.fasta（trimAl 关闭时无）/
     summary.json，可在「比对查看器」彩色浏览与编辑。
     """
-    from vp.utils import iter_fasta, write_fasta_record
+    from Virus_Platform_Core.utils import iter_fasta, write_fasta_record
     seqs_fa = ctx.req('seqs', '序列 FASTA')
     seqs_extra = ctx.opt('seqs_extra')
     strategy = (ctx.p.get('strategy') or 'auto').strip().lower()
@@ -1097,8 +1196,8 @@ def _tool_job_align(ctx):
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
-        from vp.phylo import _run_mafft, _run_trimal
-        from vp.sdt_exact import detect_seqtype
+        from Virus_Platform_Core.phylo import _run_mafft, _run_trimal
+        from Virus_Platform_Core.sdt_exact import detect_seqtype
         prog('read', 0.05, '读取与筛选序列')
         recs, seen = [], {}
         _srcs = [seqs_fa] + ([seqs_extra] if seqs_extra else [])
@@ -1165,7 +1264,7 @@ def _tool_job_sdt(ctx):
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
         mafft = cfg.tool('mafft')
-        from vp.sdt_exact import run_sdt_exact
+        from Virus_Platform_Core.sdt_exact import run_sdt_exact
         prog('sdt', 0.02, 'SDT 精确分析（MAFFT 逐对独立比对，SDT v1.3 口径）')
         res = run_sdt_exact(seqs_fa, ctx.run_dir, mafft, max_n=max_n,
                             orient=orient, threads=ctx.threads,
@@ -1194,7 +1293,7 @@ def _tool_job_identity(ctx):
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
         mafft = cfg.tool('mafft')
-        from vp.sdt_exact import run_identity_table
+        from Virus_Platform_Core.sdt_exact import run_identity_table
         prog('idty', 0.02, '核苷酸+氨基酸同一性表（BioAider 口径）')
         res = run_identity_table(nt_fa, ctx.run_dir, mafft, aa_fasta=aa_fa,
                                  max_n=max_n, aligned=aligned,

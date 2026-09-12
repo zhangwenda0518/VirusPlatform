@@ -7,7 +7,7 @@
 本模块，由 app.py 与各 blueprint 双向导入。
 
 内容：
-  - cfg         配置单例（vp.config.get_config() 本身即单例）
+  - cfg         配置单例（Virus_Platform_Core.config.get_config() 本身即单例）
   - _WWW        webapp 目录（模板/静态资源根）
   - webapp_dir() 目录探测（源码运行 / PyInstaller 冻结分发两种布局）
   - tool_runs_root()  tool_runs 根（跟随自定义输出根）
@@ -15,16 +15,16 @@
 import os
 import sys
 
-from vp.config import DIRS, PLATFORM_ROOT, get_config
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT, get_config
 
 
 def webapp_dir():
     """定位 webapp 目录。
 
-    源码运行：平台根/webapp（app.py 与 vp/ 同级）；
+    源码运行：平台根/webapp（app.py 与 Virus_Platform_Core/ 同级）；
     PyInstaller 冻结分发：优先内置资源 `sys._MEIPASS/webapp`。
     """
-    # vp/web/state.py -> vp/web -> vp -> 平台根
+    # Virus_Platform_Core/web/state.py -> Virus_Platform_Core/web -> 平台根
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
     src = os.path.join(root, 'webapp')
@@ -41,7 +41,7 @@ def webapp_dir():
 
 _WWW = webapp_dir()
 
-# 配置单例：vp.config.get_config() 内部缓存，重复调用返回同一对象，
+# 配置单例：Virus_Platform_Core.config.get_config() 内部缓存，重复调用返回同一对象，
 # 因此 app.py 与各 blueprint 拿到的是同一个 cfg（改语言/参数全局生效）。
 cfg = get_config()
 

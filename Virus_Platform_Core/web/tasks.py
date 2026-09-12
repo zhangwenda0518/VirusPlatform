@@ -11,6 +11,7 @@ TaskManager：后台线程执行 + 状态快照（内存为主，tasks/ 留一�
 注：原实现用 `app.logger.warning`，拆出后改用本模块 logger，避免对 Flask
 应用对象的模块级依赖（后台线程内 app 对象不可靠）。
 """
+import hashlib
 import json
 import logging
 import os
@@ -22,11 +23,11 @@ import time
 import uuid
 from collections import deque
 
-from vp.config import DIRS, PLATFORM_ROOT
-from vp.utils import check_path, fmt_size, safe_open, safe_remove
-from vp.web.state import cfg, tool_runs_root as _tool_runs_root
+from Virus_Platform_Core.config import DIRS
+from Virus_Platform_Core.utils import check_path, fmt_size, safe_open, safe_remove
+from Virus_Platform_Core.web.state import cfg, tool_runs_root as _tool_runs_root
 
-_log = logging.getLogger('vp.web.tasks')
+_log = logging.getLogger('Virus_Platform_Core.web.tasks')
 
 
 def _slot_limits():
@@ -66,6 +67,7 @@ class TaskManager:
         self.tasks = {}
         self.order = []
         self.lock = threading.Lock()
+        self._ext_keys = {}          # 外部任务：稳定 key -> task id
         heavy, light = _slot_limits()
         self.heavy_slots = threading.Semaphore(heavy)
         self.light_slots = threading.Semaphore(light)
@@ -74,11 +76,21 @@ class TaskManager:
 
     def _recover_interrupted(self):
         """服务启动时把上次进程遗留的 running 任务标记为中断（防幽灵），
-        并把任务状态文件修剪到最近 100 个（防 tasks/ 无限膨胀）。"""
+        并把任务状态文件修剪到最近 100 个（防 tasks/ 无限膨胀）。
+
+        设 `VP_NO_RECOVER=1` 可跳过（只读巡检脚本 `import app` 时不应改动
+        磁盘：tests/_route_inventory.py 自称只读，却会触发这里的修剪与改写）。
+        """
+        if os.environ.get('VP_NO_RECOVER'):
+            return
         try:
-            files = [n for n in os.listdir(DIRS['tasks']) if n.endswith('.json')]
-            files.sort(reverse=True)                     # 新任务 id 排前（uuid 时间无关，
-                                                         # 改按 mtime 更稳，见下）
+            # 只认合法任务 id（12 位十六进制）：tasks/ 下还住着
+            # SampleQueue 的 queue.json，它不是任务记录——不排除掉的话
+            # ① 修剪到 100 个时会把 queue.json 当旧任务删掉（整条批处理队列丢失）
+            # ② json.load 得到 list，下面 d.get() 抛 AttributeError，
+            #    被外层 except 吞掉后整个中断恢复循环失效（幽灵 running 任务）。
+            files = [n for n in os.listdir(DIRS['tasks'])
+                     if n.endswith('.json') and self._tid_ok(n[:-5])]
             files.sort(key=lambda n: os.path.getmtime(
                 os.path.join(DIRS['tasks'], n)), reverse=True)
             for fn in files[100:]:                       # 只保留最近 100 个
@@ -101,10 +113,13 @@ class TaskManager:
                     d['finished'] = time.time()
                     with safe_open(p, 'wt') as f:
                         json.dump(d, f, ensure_ascii=False)
-        except Exception:
-            pass
+        except Exception as e:
+            # 恢复失败的后果：幽灵 running 任务照旧、旧任务文件无痕堆积，
+            # 必须留痕而非静默
+            print(f'[tasks] 启动时中断任务恢复失败: {e}', file=sys.stderr)
 
-    def start(self, name, fn, log_file=None, weight='heavy', link=None):
+    def start(self, name, fn, log_file=None, weight='heavy', link=None,
+              out_dir=None):
         """创建任务。log_file: 任务日志持久化文件（缺省落 logs/tasks/）。
 
         weight: 'heavy'（吃多核/大内存，受 heavy 闸门限流）或 'light'
@@ -112,6 +127,9 @@ class TaskManager:
         也不要把不认识的任务放过去打满机器。
 
         link: 结果/操作页跳转地址（任务卡「前往」按钮）。
+
+        out_dir: 本任务的输出目录（绝对路径）。任务卡与结果面板据此把
+        「结果输出在哪」直接显示给用户（含打开/复制入口）；不传则无此行。
 
         重启上下文自动捕获：任务在 POST API handler 里发起时，记录
         request.path + JSON body，任务卡可一键重新提交同一请求。
@@ -143,13 +161,15 @@ class TaskManager:
                'cancel': threading.Event(),
                'procs': [],          # 本任务启动的子进程（硬停止用）
                'weight': weight if weight in ('heavy', 'light') else 'heavy',
-               'log_file': log_file, 'link': link, 'restart': restart}
+               'log_file': log_file, 'link': link, 'restart': restart,
+               'out_dir': out_dir}
         with self.lock:
             self.tasks[tid] = rec
             self.order.insert(0, tid)
 
         def _log(line):
-            rec['log'].append(line)
+            with self.lock:
+                rec['log'].append(line)
             try:
                 with safe_open(rec['log_file'], 'at') as f:
                     f.write(time.strftime('[%H:%M:%S] ') + line + '\n')
@@ -157,16 +177,20 @@ class TaskManager:
                 pass
 
         def _progress(stage, pct, msg, *eta):
-            rec['stage'], rec['pct'], rec['msg'] = stage, pct, msg
-            if eta:
-                try:
-                    rec['eta'] = max(float(eta[0]), 0)
-                except (TypeError, ValueError):
-                    rec['eta'] = None
+            # 加锁写入：snapshot() 在锁内组装字段，不锁会出现
+            # 「status=done 但 result 仍为空」这类半更新帧（前端据此显示
+            # 已完成却空结果面板）。
+            with self.lock:
+                rec['stage'], rec['pct'], rec['msg'] = stage, pct, msg
+                if eta:
+                    try:
+                        rec['eta'] = max(float(eta[0]), 0)
+                    except (TypeError, ValueError):
+                        rec['eta'] = None
             self._persist(rec)
 
         def _run():
-            from vp.utils import task_bind
+            from Virus_Platform_Core.utils import task_bind
             slot = (self.light_slots if rec['weight'] == 'light'
                     else self.heavy_slots)
             # 排队等名额：每 0.5s 探一次，期间可被取消（不会被闸门永久卡住）
@@ -190,23 +214,30 @@ class TaskManager:
             task_bind(rec['cancel'], rec['procs'])
             try:
                 result = fn(_log, _progress, rec['cancel'])
-                rec['status'] = 'cancelled' if rec['cancel'].is_set() else 'done'
-                rec['result'] = result
-                rec['result_preview'] = build_result_preview(result, rec['name'])
+                # 终态与结果必须一次性原子写入（snapshot 在锁内读）
+                with self.lock:
+                    rec['status'] = ('cancelled' if rec['cancel'].is_set()
+                                     else 'done')
+                    rec['result'] = result
+                    rec['result_preview'] = build_result_preview(result,
+                                                                 rec['name'])
                 if rec['status'] == 'done':
                     _log('[OK] ' + cfg.tr('任务完成', 'Task finished'))
             except Exception as e:
-                rec['status'] = 'cancelled' if rec['cancel'].is_set() else 'failed'
-                rec['error'] = ('任务已停止（用户取消）' if rec['cancel'].is_set()
-                                else str(e))
+                with self.lock:
+                    rec['status'] = ('cancelled' if rec['cancel'].is_set()
+                                     else 'failed')
+                    rec['error'] = ('任务已停止（用户取消）'
+                                    if rec['cancel'].is_set() else str(e))
                 _log(f"[ERROR] {rec['error']}" if rec['cancel'].is_set()
                      else f"[ERROR] {e}")
             finally:
                 task_bind(None, None)
-                rec['procs'].clear()
-                rec['finished'] = time.time()
+                with self.lock:
+                    rec['procs'].clear()
+                    rec['finished'] = time.time()
+                    rec['msg'] = ''
                 slot.release()          # 归还名额
-                rec['msg'] = ''
                 self._trim_memory()     # 回收旧任务内存
                 self._persist(rec)
 
@@ -217,6 +248,10 @@ class TaskManager:
         return tid
 
     def _persist(self, rec):
+        # 外部任务不落盘：它们的真身在别的子系统（如 downloads/<批次>/
+        # batch.json），再写一份会被 _recover_interrupted 当成幽灵任务。
+        if rec.get('external'):
+            return
         try:
             p = check_path(os.path.join(DIRS['tasks'], rec['id'] + '.json'),
                            must_exist=False, in_platform=True)
@@ -227,7 +262,8 @@ class TaskManager:
                     'error': rec['error'],
                     'log_tail': list(rec['log'])[-40:],
                     'started': rec['started'], 'finished': rec['finished'],
-                    'eta': rec.get('eta'), 'link': rec.get('link')}
+                    'eta': rec.get('eta'), 'link': rec.get('link'),
+                    'out_dir': rec.get('out_dir')}
             if rec.get('result') is not None:
                 try:
                     json.dumps(rec['result'], ensure_ascii=False)
@@ -261,11 +297,14 @@ class TaskManager:
         持久化，仍可经 tasks/*.json 回溯）；超出 _KEEP_TOTAL 的移出内存。
 
         服务长跑时任务只增不减会持续吃内存，这里做稳态回收。
+        外部任务（external）不参与淘汰：它们不落盘、数量有限（下载批次/
+        扫描等），被淘汰后卡片会凭空消失却又被下次 attach 复活。
         """
         with self.lock:
             for tid in self.order[_KEEP_FULL:]:
                 rec = self.tasks.get(tid)
-                if not rec or rec['status'] in ('running', 'queued'):
+                if (not rec or rec['status'] in ('running', 'queued')
+                        or rec.get('external')):
                     continue
                 if rec['log']:
                     rec['log'].clear()
@@ -274,11 +313,189 @@ class TaskManager:
                 rec['thread'] = None
                 rec['procs'] = []
             if len(self.order) > _KEEP_TOTAL:
+                keep = [t for t in self.order[_KEEP_TOTAL:]
+                        if (self.tasks.get(t) or {}).get('external')]
                 for tid in self.order[_KEEP_TOTAL:]:
+                    if tid in keep:
+                        continue
                     self.tasks.pop(tid, None)
-                self.order = self.order[:_KEEP_TOTAL]
+                self.order = self.order[:_KEEP_TOTAL] + keep
+
+    # ------------------------------------------------------------------
+    # 外部任务：执行归别的子系统（DownloadManager / SampleQueue / 存储扫描），
+    # 本管理器只做统一展示与「停止」转发。
+    #
+    # 为什么不反过来让那些子系统 import 本模块：它们跑在自建线程里，
+    # 反向依赖 web 层既乱分层、又容易碰到 Flask 上下文问题。这里用
+    # provider 回调把状态「拉」过来，是单向依赖。
+    # ------------------------------------------------------------------
+    def attach(self, name, provider, on_cancel=None, link=None, key=None,
+               weight='light'):
+        """登记一个「外部任务」，返回其稳定 task id。
+
+        provider() -> dict | None，每次快照时调用（**在锁外**，避免与
+        provider 内部可能的重入互锁）：
+            {'status': 'running'|'done'|'failed'|'cancelled',
+             'pct': float|None, 'msg': str, 'stage': str, 'error': str,
+             'eta': int|None, 'log': [str], 'started': float|None,
+             'finished': float|None}
+          返回 None 表示该任务已消失（卡片随之移除）。
+
+        key: 稳定标识（同一 key 重复 attach 只登记一次），缺省用 name。
+        外部任务**不占** heavy/light 并发名额、**不落** tasks/*.json
+        （否则重启后会被 _recover_interrupted 当成幽灵任务标失败）。
+        """
+        key = str(key or name)
+        with self.lock:
+            tid = self._ext_keys.get(key)
+            if tid and tid in self.tasks:
+                # 重复 attach 只登记一次（tid 不变、started 不重置），但要把
+                # provider/on_cancel 换成最新的闭包 —— 否则绑定方重建了执行
+                # 对象（如 DownloadManager 单例被重建）后，卡片仍指向旧对象，
+                # 快照会一直返回 None 导致卡片被误判成「已消失」。
+                rec = self.tasks[tid]
+                rec['provider'] = provider
+                if on_cancel is not None:
+                    rec['on_cancel'] = on_cancel
+                if link:
+                    rec['link'] = link
+                if name:
+                    rec['name'] = name
+                return tid
+            # 用 key 的哈希做稳定 id：形状与 uuid4().hex[:12] 一致（12 位
+            # 十六进制），_tid_ok / 前端 data-tid 都能直接用。
+            tid = hashlib.sha1(key.encode('utf-8')).hexdigest()[:12]
+            if tid in self.tasks:
+                return tid
+            rec = {'id': tid, 'name': name, 'status': 'running', 'stage': '',
+                   'pct': None, 'msg': '', 'error': '',
+                   'log': deque(maxlen=500), 'started': time.time(),
+                   'finished': None, 'result': None, 'result_preview': None,
+                   'eta': None, 'cancel': threading.Event(), 'procs': [],
+                   'weight': weight if weight in ('heavy', 'light') else 'light',
+                   'log_file': None, 'link': link, 'restart': None,
+                   'external': True, 'provider': provider,
+                   'on_cancel': on_cancel, 'hidden': False}
+            self.tasks[tid] = rec
+            self.order.insert(0, tid)
+            self._ext_keys[key] = tid
+        return tid
+
+    def detach(self, key):
+        """移除某个外部任务的登记（provider 返回 None 时由内部自动清理）。"""
+        with self.lock:
+            tid = self._ext_keys.pop(str(key), None)
+            if tid:
+                self.tasks.pop(tid, None)
+                if tid in self.order:
+                    self.order.remove(tid)
+        return bool(tid)
+
+    def _provider_state(self, tid):
+        """在锁外调用 provider，取回外部任务状态（异常按「消失」处理）。"""
+        return self._provider_state_ex(tid)[0]
+
+    def _provider_state_ex(self, tid):
+        """同 _provider_state，但额外告诉调用方「是干净地没有了，还是读失败」。
+
+        返回 (state, ok)：provider 返回 None → (None, True)；
+        provider 抛异常 → (None, False)。前端展示要区分这两者：
+        前者该移除卡片，后者只该降级显示（否则一次瞬时错误就让用户的
+        卡片永久消失）。
+        """
+        with self.lock:
+            rec = self.tasks.get(tid)
+            if not rec or not rec.get('external'):
+                return None, False
+            prov = rec.get('provider')
+        if prov is None:
+            return None, False
+        try:
+            return prov(), True
+        except Exception:
+            _log.warning('外部任务状态读取失败 %s', tid, exc_info=True)
+            return None, False
+
+    def _prune_external(self):
+        """清掉已隐藏 / 真身已消失的外部任务（卡片与内存都不堆积）。
+
+        区分两种 None：provider **干净地**返回 None = 真身没了（批次被删）
+        → 丢弃；provider 抛异常 = 只是这次读不到 → **保留**卡片，否则一个
+        瞬时错误会让用户的卡片永久消失。
+        """
+        with self.lock:
+            hidden = [t for t, r in self.tasks.items()
+                      if r.get('external') and r.get('hidden')]
+            ext = [t for t, r in self.tasks.items() if r.get('external')]
+        for tid in hidden:
+            self._drop_external(tid)
+        for tid in ext:
+            if self._provider_missing(tid):
+                self._drop_external(tid)
+
+    def _provider_missing(self, tid):
+        """provider 是否明确表示「该任务已不存在」（异常不算）。"""
+        with self.lock:
+            rec = self.tasks.get(tid)
+            prov = rec.get('provider') if (rec and rec.get('external')) else None
+        if prov is None:
+            return False
+        try:
+            return prov() is None
+        except Exception:
+            return False
+
+    def _drop_external(self, tid):
+        with self.lock:
+            self.tasks.pop(tid, None)
+            if tid in self.order:
+                self.order.remove(tid)
+            for k, v in list(self._ext_keys.items()):
+                if v == tid:
+                    self._ext_keys.pop(k, None)
+
+    @staticmethod
+    def _ext_snapshot(tid, name, link, st, log_lines):
+        """把 provider 的字段映射成本管理器统一的快照结构。"""
+        status = str(st.get('status') or 'running')
+        pct = st.get('pct')
+        try:
+            pct = None if pct is None else max(0.0, min(float(pct), 1.0))
+        except (TypeError, ValueError):
+            pct = None
+        log = st.get('log') or []
+        return {'id': tid, 'name': name, 'status': status,
+                'stage': str(st.get('stage') or ''), 'pct': pct,
+                'msg': str(st.get('msg') or ''),
+                'error': str(st.get('error') or ''),
+                'started': st.get('started'), 'finished': st.get('finished'),
+                'eta': st.get('eta'), 'link': st.get('link') or link,
+                'restart': None,
+                'log': [str(x) for x in log][-log_lines:] if log_lines else []}
 
     def snapshot(self, tid, log_lines=80, include_result=True):
+        with self.lock:
+            rec = self.tasks.get(tid)
+            if not rec:
+                return None
+            if rec.get('external'):
+                name, link = rec['name'], rec.get('link')
+                started0 = rec.get('started')
+            else:
+                name = None
+        if name is not None:
+            st, ok = self._provider_state_ex(tid)
+            if st is None:
+                if ok:
+                    return None          # provider 明确说：真身已不存在
+                # 读失败：给降级卡片，别让用户的卡片凭空消失。
+                # started 取本记录的挂载时间 —— 否则前端算「耗时」会拿
+                # 一个空 started 当 0，显示成 49 万小时这种荒唐值。
+                st = {'status': 'running', 'pct': None, 'stage': '',
+                      'msg': cfg.tr('状态读取失败（会自动恢复）',
+                                    'State read failed (recovers自动)'),
+                      'error': '', 'log': [], 'started': started0}
+            return self._ext_snapshot(tid, name, link, st, log_lines)
         with self.lock:
             rec = self.tasks.get(tid)
             if not rec:
@@ -292,6 +509,7 @@ class TaskManager:
                    'error': rec['error'], 'started': rec['started'],
                    'finished': rec['finished'], 'eta': rec.get('eta'),
                    'link': rec.get('link'), 'restart': rec.get('restart'),
+                   'out_dir': rec.get('out_dir'),
                    'log': list(rec['log'])[-log_lines:]}
             if include_result:
                 out['result'] = rec.get('result_preview')
@@ -307,18 +525,28 @@ class TaskManager:
         - logs=False：完全不带日志（任务中心/徒轮询只需元信息，
           日志走 /api/task/<tid>/log 单独拉取）
         - 结果预览一律保留（任务完成后的结果面板依赖它）
+
+        外部任务（external）一并列出：provider 返回 None（真身已删除）
+        或已 hidden 的先剪掉，避免卡片凭空堆积。
         """
+        self._prune_external()
+        self._refresh_ext_status()      # 外部任务的活跃态由 provider 决定
         with self.lock:
             ids = list(self.order[:limit])
             active = {i for i in ids
                       if (self.tasks.get(i) or {}).get('status')
                       in ('running', 'queued')}
         if not logs:
-            return [self.snapshot(i, log_lines=0, include_result=True)
+            outs = [self.snapshot(i, log_lines=0, include_result=True)
                     for i in ids if i in self.tasks]
-        return [self.snapshot(i, log_lines=(30 if i in active else 5),
-                              include_result=True)
-                for i in ids if i in self.tasks]
+        else:
+            outs = [self.snapshot(i, log_lines=(30 if i in active else 5),
+                                  include_result=True)
+                    for i in ids if i in self.tasks]
+        # 外部任务的真身可能在两次取快照之间被删除（provider 变 None）：
+        # 必须滤掉，否则 /api/tasks 会吐出 [null]，前端 list.filter(...)
+        # 直接 TypeError。
+        return [x for x in outs if x]
 
     @staticmethod
     def _kill_tree(proc):
@@ -340,6 +568,19 @@ class TaskManager:
     def cancel(self, tid):
         with self.lock:
             rec = self.tasks.get(tid)
+            ext_cancel = rec.get('on_cancel') if (rec or {}).get('external') \
+                else None
+        if ext_cancel is not None:
+            # 外部任务的停止由真身负责（如 DownloadManager.cancel 会
+            # terminate aria2c/sracha 子进程并置批次为 cancelled）。
+            try:
+                ok = ext_cancel() is not False
+            except Exception:
+                _log.warning('外部任务取消失败 %s', tid, exc_info=True)
+                ok = False
+            if ok:
+                rec['msg'] = cfg.tr('已请求停止', 'Stop requested')
+            return bool(ok)
         if rec and rec['status'] in ('running', 'queued'):
             rec['cancel'].set()
             if rec['status'] == 'queued':
@@ -354,16 +595,104 @@ class TaskManager:
         return False
 
 
+    def _refresh_ext_status(self):
+        """把外部任务的活跃态刷新一遍（provider 的结论写回 rec['status']）。
+
+        active_ids() / cancel_all() / 全局重置的「还有几个在收尾」都只看
+        rec['status']，而外部任务的执行方是别人（下载线程、队列、扫描线程）。
+        不在读取前刷新的话，一个早就跑完的下载批次会永远被当成「运行中」：
+        全局重置会对它转发一次取消（把已完成的批次误标成「已取消」），
+        收尾等待也永远等不到干净。provider 一律在锁外调用，避免互锁。
+        """
+        with self.lock:
+            ext = [t for t, r in self.tasks.items() if r.get('external')]
+        for tid in ext:
+            st, ok = self._provider_state_ex(tid)
+            if st is None:
+                continue          # 真身没了/读失败：交给 _prune_external 处置
+            with self.lock:
+                rec = self.tasks.get(tid)
+                if rec is not None:
+                    rec['status'] = str(st.get('status') or 'running')
+
+    def active_ids(self):
+        """运行中/排队中的任务 id（全局重置与状态查询用）。"""
+        self._refresh_ext_status()
+        with self.lock:
+            return [t for t, r in self.tasks.items()
+                    if r['status'] in ('running', 'queued')]
+
+    def cancel_all(self):
+        """请求取消全部运行中/排队中的任务，返回被受理的条数。
+
+        只发取消信号（含已注册子进程的硬停止），不删除任务记录，
+        更不碰 results/ tool_runs/ 下任何结果文件。
+        """
+        n = 0
+        for tid in self.active_ids():
+            if self.cancel(tid):
+                n += 1
+        return n
+
+    def purge_all(self, include_archive=True):
+        """清空全部任务记录，返回 (removed, active_left)。
+
+        全局重置用，边界写死：
+        - 只动「任务状态」——内存记录 + tasks/<tid>.json；
+          results/ tool_runs/ downloads/ submissions/ 等结果文件一律不碰。
+        - 仍在运行/排队中的任务不强删（会撞上正在写盘的句柄），
+          只统计条数返回；调用方应先 cancel_all() 等它们收敛。
+        - include_archive=False 只清内存记录，磁盘历史归档原样保留
+          （所以这里**不能**复用 delete()——它会顺手 unlink tasks/<tid>.json）。
+        - removed 是「被清掉的不同任务 id 数」，内存与磁盘同一 id 只计一次。
+        """
+        with self.lock:
+            active = {t for t, r in self.tasks.items()
+                      if r['status'] in ('running', 'queued')}
+            mem = [t for t in self.tasks if t not in active]
+            for t in mem:
+                self.tasks.pop(t, None)
+                if t in self.order:
+                    self.order.remove(t)
+        ids = set(mem)
+        if include_archive:
+            try:
+                files = [f for f in os.listdir(DIRS['tasks'])
+                         if f.endswith('.json')]
+            except OSError:
+                files = []
+            for f in files:
+                tid = f[:-5]
+                # _tid_ok 顺带把 queue.json 这类非任务文件挡在外面
+                if not self._tid_ok(tid) or tid in active:
+                    continue
+                try:
+                    p = check_path(os.path.join(DIRS['tasks'], f),
+                                   must_exist=False, in_platform=True)
+                    if os.path.isfile(p):
+                        os.remove(p)
+                        ids.add(tid)
+                except (OSError, ValueError):
+                    continue
+        return len(ids), len(active)
+
     @staticmethod
     def _tid_ok(tid):
         return bool(tid) and bool(re.fullmatch(r'[0-9a-f]{6,16}', str(tid)))
 
     def delete(self, tid):
-        """删除任务记录（仅终态）：移出内存 + 删 tasks/<tid>.json。"""
+        """删除任务记录（仅终态）：移出内存 + 删 tasks/<tid>.json。
+
+        外部任务只「隐藏卡片」：真身（下载批次等）归各自子系统管理，
+        在这里 pop 掉之后下次 attach 又会复活，反而像是删不掉。
+        """
         if not self._tid_ok(tid):
             return False, '非法任务 ID'
         with self.lock:
             rec = self.tasks.get(tid)
+            if rec and rec.get('external'):
+                rec['hidden'] = True
+                return True, 'ok'
             if rec and rec['status'] in ('running', 'queued'):
                 return False, '运行中的任务请先停止再删除'
             self.tasks.pop(tid, None)
@@ -383,15 +712,26 @@ class TaskManager:
 
         注意：不碰磁盘上的历史归档（平台重启后加载的 tasks/*.json）。
         清空归档是破坏性操作，只能由用户逐个删除。
+
+        外部任务按「隐藏」处理（见 delete），并顺带剪掉 provider 已消失的。
         """
+        self._prune_external()
         with self.lock:
             tids = [t for t, r in self.tasks.items()
-                    if r['status'] not in ('running', 'queued')]
+                    if r['status'] not in ('running', 'queued')
+                    or r.get('external')]
+            # 外部任务的 rec.status 只是登记初值，一律按「可清」处理：
+            # 真身是否还在由 provider 说话，隐藏掉即可。
+            tids = [t for t in tids
+                    if (self.tasks.get(t) or {}).get('external')
+                    or (self.tasks.get(t) or {}).get('status')
+                    not in ('running', 'queued')]
         n = 0
         for t in tids:
             ok, _ = self.delete(t)
             if ok:
                 n += 1
+        self._prune_external()
         return n
 
     def list_archived(self, limit=200):
@@ -437,6 +777,14 @@ class TaskManager:
         磁盘 log_file（json 里记录了路径），最后回退 json 内的 log_tail。"""
         if not self._tid_ok(tid):
             return None
+        with self.lock:
+            rec = self.tasks.get(tid)
+            is_ext = bool(rec and rec.get('external'))
+        if is_ext:
+            # 外部任务没有内存 deque，日志由 provider 提供（如批次
+            # batch.log 的尾部）。
+            st = self._provider_state(tid) or {}
+            return [str(x) for x in (st.get('log') or [])][-lines:]
         rec = self.tasks.get(tid)
         if rec and rec['log']:
             return list(rec['log'])[-lines:]
@@ -510,8 +858,11 @@ tm = TaskManager()
 
 def _sample_result_preview(sample):
     """样品任务的完成预览：报告链接 + 关键数字 + 产物文件。"""
-    from vp.pipeline import pipeline_overview, _safe_sample_name
-    s = _safe_sample_name(sample)
+    from Virus_Platform_Core.pipeline import pipeline_overview
+    from Virus_Platform_Core.utils import resolve_sample_name
+    # sample 来自 os.path.relpath(结果目录, results/)，本身就是真实目录名；
+    # 用 resolve 而不是字符转换，避免手工/历史命名的样品被改名后 404。
+    s = resolve_sample_name(sample, DIRS['results'])
     try:
         sd = check_path(os.path.join(DIRS['results'], s), must_exist=True,
                         in_platform=True)
@@ -523,6 +874,7 @@ def _sample_result_preview(sample):
     rpt = os.path.join(sd, '07_report', 'report.html')
     return {'kind': 'sample', 'sample': s,
             'report': f'/report/{s}/' if os.path.isfile(rpt) else None,
+            'out_dir': sd,
             'stages': stages}
 
 
@@ -564,6 +916,9 @@ def build_result_preview(result, task_name=''):
             if run:
                 out['run'] = str(run)          # 前端 toolrun 需顶层 run 名
                 out['files'] = _tool_result_files(str(run))
+            out_dir = result.get('out_dir')
+            if isinstance(out_dir, str) and out_dir:
+                out['out_dir'] = out_dir       # 输出目录随结果下发，前端明示
             return out
     except Exception:
         pass

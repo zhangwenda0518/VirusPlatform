@@ -82,22 +82,32 @@ def _redirect_legacy_top(raw):
         new_abs = os.path.join(PLATFORM_ROOT, *new_rel.split('/'))
         return (not os.path.exists(old_abs)) and os.path.exists(new_abs)
 
-    # 特例（多段前缀）：示例数据 2026-09-10 由 databases/examples/ 迁到
-    # <平台根>/examples/，历史记录与旧前端常量里仍可能写旧前缀。
-    _EX_OLD = 'databases/examples/'
-    if tail.startswith(_EX_OLD):
-        rest = tail[len(_EX_OLD):]
-        if _usable('databases/examples', 'examples'):
-            return _finish('examples/' + rest)
-        if tail.startswith('databases/examples'):
-            return _finish('examples/' + tail[len('databases/examples'):])
-        return raw
+    # 多段前缀的旧→新映射（表见 Virus_Platform_Core/config.py 的 LEGACY_MULTI_DIRS）。
+    # 例：示例数据 2026-09-10 由 databases/examples/ 迁到 <平台根>/examples/；
+    # 用户数据 databases/misc/gb/、databases/ncbi_refs/ 迁入 run/。
+    try:
+        from .config import LEGACY_MULTI_DIRS
+    except Exception:                                # 循环导入兜底
+        LEGACY_MULTI_DIRS = {}
+    for old_pre, new_pre in LEGACY_MULTI_DIRS.items():
+        if not (tail == old_pre or tail.startswith(old_pre + '/')):
+            continue
+        rest = tail[len(old_pre):].lstrip('/')
+        # 按**完整路径**判定（而非只看顶层目录是否还在）：根目录可能残留
+        # 旧顶层空壳（tool_runs/、results/ 里只剩 _archive 等杂项），顶层级
+        # 判定会让重映射被永久抑制、所有旧相对路径全部失效（2026-09-12 实测，
+        # /api/align/file、submit /fasta 与前端 tool_runs/... 引用全部中招）。
+        old_full = old_pre + ('/' + rest if rest else '')
+        new_full = new_pre + ('/' + rest if rest else '')
+        if not _usable(old_full, new_full):
+            return raw
+        return _finish(new_full)
 
     head, sep, tail_rest = tail.partition('/')
     if not sep:
         return raw
     new = LEGACY_TOP_DIRS.get(head)
-    if not new or not _usable(head, new):
+    if not new or not _usable(tail, new + '/' + tail_rest):
         return raw                                   # 旧位置还在 / 新位置不存在 → 不动
     return _finish(new + '/' + tail_rest)
 
@@ -327,7 +337,14 @@ class _GzReadPipe:
             self._fh.close()
         except OSError:
             pass
-        rc = self._proc.wait(timeout=60)
+        try:
+            rc = self._proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            # 网络盘/杀毒扫描可能让 crabz 收尾卡死：杀掉并给出可诊断错误，
+            # 而不是向上抛裸 TimeoutExpired 让调用方莫名其妙崩溃
+            self._proc.kill()
+            self._proc.wait()
+            raise RuntimeError('crabz 解压进程关闭超时（60s），已强制终止')
         if rc not in (0, None):
             raise RuntimeError(f"crabz 解压失败 (退出码 {rc})")
 
@@ -370,7 +387,16 @@ class _GzWritePipe:
             self._fh.close()
         except (OSError, ValueError):
             pass
-        rc = self._proc.wait(timeout=600)
+        try:
+            rc = self._proc.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            self._proc.wait()
+            try:
+                os.remove(self._path)
+            except OSError:
+                pass
+            raise RuntimeError('crabz 压缩进程收尾超时（600s），已强制终止')
         if rc not in (0, None):
             try:
                 os.remove(self._path)
@@ -439,6 +465,14 @@ def fmt_eta(seconds):
 # ------------------------------------------------------------------
 # 命令执行
 # ------------------------------------------------------------------
+# 外部命令默认超时（秒）：任何 run_cmd/run_cmd_redirect 未显式传 timeout 时
+# 生效。背景：SPAdes 死锁/杀毒软件锁文件曾让任务线程永久挂起，heavy 任务槽
+# （默认 2）被占满后全平台分析排队瘫痪，只能重启。默认 6 小时——本平台输入
+# 经子采样，正常阶段远低于此值；确有超长任务时用环境变量调整：
+#   set VP_CMD_TIMEOUT_SEC=43200   （12 小时；0 = 关闭默认超时）
+DEFAULT_CMD_TIMEOUT_SEC = int(os.environ.get('VP_CMD_TIMEOUT_SEC', '21600') or 0)
+
+
 def total_ram():
     """物理内存总量（字节）；失败返回 0。"""
     import ctypes
@@ -521,6 +555,8 @@ def run_cmd(cmd, logger=None, timeout=None, cwd=None, check=True,
     monitor_fn: 可选回调，命令运行期间每 monitor_interval 秒调用一次
     （用于长命令的进度看门狗，如 chunk 目录增长、spades 日志解析）。
     返回 returncode；check=True 时非零退出抛 RuntimeError。
+    timeout: 秒。缺省用 DEFAULT_CMD_TIMEOUT_SEC（外部工具挂死时不再永久
+    占用 heavy 任务槽）；显式传 None 之外的值可覆盖，传 0 关闭超时。
     """
     cmd = [str(c) for c in cmd]
     cwd = check_path(cwd, must_exist=True) if cwd else None
@@ -530,6 +566,10 @@ def run_cmd(cmd, logger=None, timeout=None, cwd=None, check=True,
     creationflags = 0
     if sys.platform == 'win32':
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    if timeout is None:
+        timeout = DEFAULT_CMD_TIMEOUT_SEC or None
+    elif timeout <= 0:
+        timeout = None
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -551,9 +591,12 @@ def run_cmd(cmd, logger=None, timeout=None, cwd=None, check=True,
 
     # timeout 看门狗：阻塞读 stdout 时 wait(timeout) 永远轮不到，
     # 由看门狗线程在超时后强杀进程，读循环随即拿到 EOF。
+    # timed_out 标志让报错说清「是超时被杀」而非误导性的「退出码 <0」。
+    timed_out = threading.Event()
     if timeout:
         def _kill_watchdog():
             if not stop_mon.wait(timeout):
+                timed_out.set()
                 try:
                     proc.kill()
                 except Exception:
@@ -583,6 +626,10 @@ def run_cmd(cmd, logger=None, timeout=None, cwd=None, check=True,
             stop_mon.set()
             mon_thread.join(timeout=2)
 
+    if timed_out.is_set():
+        raise RuntimeError(
+            f"命令超时（运行 {timeout}s 后被强制终止）: {cmd[0]}"
+            f"（可设环境变量 VP_CMD_TIMEOUT_SEC 调大，0=不限制）")
     rc = proc.returncode
     dt = time.time() - t0
     if logger:
@@ -593,9 +640,11 @@ def run_cmd(cmd, logger=None, timeout=None, cwd=None, check=True,
     return rc
 
 
-def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None):
+def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None,
+                     append=False):
     """执行外部命令并将 stdout 重定向到平台内文件（mafft/fasttree 等输出流）。
 
+    append=True 时追加写入（kvsuite 引擎多个子命令共用一份日志）。
     返回 returncode；非零抛 RuntimeError。
     """
     cmd = [str(c) for c in cmd]
@@ -608,16 +657,32 @@ def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None):
     creationflags = 0
     if sys.platform == 'win32':
         creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    if timeout is None:
+        timeout = DEFAULT_CMD_TIMEOUT_SEC or None
+    elif timeout <= 0:
+        timeout = None
     t0 = time.time()
-    with safe_open(out, 'wb') as fo:
+    with safe_open(out, 'ab' if append else 'wb') as fo:
         proc = subprocess.Popen(
             cmd, stdout=fo, stderr=subprocess.PIPE,
             cwd=cwd, creationflags=creationflags)
         _task_register(proc)
         err_lines = []
+        timed_out = threading.Event()
+        stop_wd = threading.Event()
+        if timeout:
+            def _kill_watchdog():
+                if not stop_wd.wait(timeout):
+                    timed_out.set()
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+            threading.Thread(target=_kill_watchdog, daemon=True).start()
         try:
             for line in iter(proc.stderr.readline, b''):
-                txt = line.decode('utf-8', errors='replace').rstrip()
+                # 与 run_cmd 同一解码口径：GBK stderr 中的中文路径不丢
+                txt = decode_output(line).rstrip()
                 if txt:
                     err_lines.append(txt)
                     if logger:
@@ -627,6 +692,17 @@ def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None):
             proc.kill()
             proc.wait()
             raise RuntimeError(f"命令超时被终止: {cmd[0]}")
+        except KeyboardInterrupt:
+            # 不杀会留孤儿（mafft/fasttree 挂后台继续吃 CPU）
+            proc.kill()
+            proc.wait()
+            raise
+        finally:
+            stop_wd.set()
+        if timed_out.is_set():
+            raise RuntimeError(
+                f"命令超时（运行 {timeout}s 后被强制终止）: {cmd[0]}"
+                f"（可设环境变量 VP_CMD_TIMEOUT_SEC 调大，0=不限制）")
     task_check_cancel()
     rc = proc.returncode
     if logger:
@@ -931,3 +1007,65 @@ def sample_name_from_fastq(path):
             break
     base = base.split('_L00')[0]
     return base or 'sample'
+
+
+# ------------------------------------------------------------------
+# 样品名归一化 —— 全平台唯一真源
+#
+# 历史问题：样品名到目录名的转换曾经有 4 份各自为政的实现
+#   pipeline._safe_sample_name   折叠非法字符 + 去首尾 + 截断 50（建目录用）
+#   web/common._safe_sample      逐字符替换，不去首尾、不截断（读路径用）
+#   logan_trace.safe_name        同 web/common
+#   utils.sample_name_from_fastq 仅由文件名推导（用于生成初始候选名）
+# 前两者的差异在中文/连续特殊字符/超长名下会显形：样品名「样品A」建成目录 `A`，
+# 读路径却去找 `__A` —— 用户读不到自己刚建的样品，甚至撞名丢数据。
+# 现在收敛成下面两个函数：safe_sample_name（纯转换）+ resolve_sample_name（查真实目录）。
+# ------------------------------------------------------------------
+SAFE_SAMPLE_MAX = 50
+
+
+def safe_sample_name(name):
+    """样品名 → 目录名（纯函数，唯一权威实现）。
+
+    规则（与历史 pipeline._safe_sample_name 逐字节一致，保证已有目录名不漂移）：
+      1. 非 [A-Za-z0-9_\\-.] 的**连续**字符折叠成一个 '_'
+      2. 去掉首尾的 '.' / '_' / '-'
+      3. 截断到 50 字符（Windows 全路径长度安全）；空则回退 'sample'
+
+    为什么不做「保留中文」：样品名直接当目录名进 SPAdes/BLAST(LMDB)/minibwa/
+    snpEff 等外部工具的路径（见 DEVELOPMENT_NOTES 环境与路径 1），
+    非 ASCII 路径这些工具普遍不支持。折叠成 ASCII 是刻意的安全设计，
+    代价只是"用户填的名字与实际目录名可能不同"——这一点必须显式告知用户
+    （见 web/samples.api_pipeline_create 的 note 返回），不能静默。
+    """
+    s = re.sub(r'[^A-Za-z0-9_\-.]+', '_', str(name)).strip('._-')
+    return s[:SAFE_SAMPLE_MAX] or 'sample'
+
+
+def resolve_sample_name(name, base=None):
+    """把请求里的样品名解析成 base 目录下**真实存在**的子目录名。
+
+    为什么需要：光靠字符替换无法命中"已经躺在磁盘上的目录"。
+    手工用资源管理器建的目录、历史遗留命名、旧版本写下的非规范名
+    （含中文、空格、超长名）都会被字符替换改成另一个名字 → 读不到。
+    这里改为以磁盘为准：
+      1. 含路径分隔符 / 上跳 / 空的名字一律不原样接受，直接用规范名
+      2. 原名命中 base 的子目录 → 用原名（人工/历史目录也能正常读写）
+      3. 规范名命中 → 用规范名
+      4. 都不命中 → 返回规范名，由调用方决定是新建还是报 404
+    第 2 步返回的名字直接取自 os.listdir，天然不含分隔符，比字符替换更安全；
+    路径越界仍由 check_path(in_platform=True) 兜底。
+    """
+    raw = str(name or '')
+    canon = safe_sample_name(raw)
+    if (not raw or raw in ('.', '..') or '/' in raw or '\\' in raw
+            or (os.altsep and os.altsep in raw)):
+        return canon
+    if base is None:
+        from .config import DIRS
+        base = DIRS['results']
+    try:
+        names = set(os.listdir(base))
+    except OSError:
+        return canon
+    return raw if raw in names else canon

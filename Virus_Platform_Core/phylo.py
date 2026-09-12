@@ -13,12 +13,19 @@ import os
 import csv
 import re
 import json
+import threading
 from collections import defaultdict
 
 from .config import get_config
 from .utils import (check_path, safe_open, run_cmd, run_cmd_redirect,
                     iter_fasta, write_fasta_record, is_step_done, mark_step_done)
 from .assembly import find_virus_ref_fasta
+
+# 建树参考序列长度上限（bp）。植物病毒基因组通常 2-20kb
+# （Closteroviridae 是最长的一科，约 20kb），超过这个量级的"参考"要么不是
+# 植物病毒，要么是误入的组装/宿主污染。带进比对会让 MAFFT 的 O(L²) DP 爆炸：
+# 实测 34 条 / 最长 41kb / 合计 966kb 跑 20 分钟无输出，而 8 条 × 6.4kb 仅 3.0s。
+MAX_REF_LEN = 25000
 
 
 def _safe_name(s):
@@ -28,17 +35,49 @@ def _safe_name(s):
 
 
 
-def _extract_refs(ref_fastas, wanted_ids, out_fasta):
+def _scan_ref_accessions(ref_fastas):
+    """参考源里**实际可用**的 accession（去版本 base）集合。
+
+    只读 '>' 头行、不解析序列，31MB 的参考 FASTA 约 0.5s。
+    用途：兜底选参时优先挑本地真有的参考——否则会选出 30 个 id 却只提到
+    1 条序列，剩下的走 NCBI 下载（离线即失败），最后比对只剩 2-3 条。
+    """
+    out = set()
+    for ref in (ref_fastas if isinstance(ref_fastas, (list, tuple))
+                else [ref_fastas]):
+        if not ref or not os.path.isfile(ref):
+            continue
+        try:
+            with safe_open(ref) as f:
+                for line in f:
+                    if line.startswith('>'):
+                        tok = line[1:].split()
+                        if tok:
+                            out.add(tok[0].split('.')[0].upper())
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _extract_refs(ref_fastas, wanted_ids, out_fasta, max_len=None, logger=None):
     """从病毒参考库提取指定 accession 子集（多来源按序扫描，取到即止）。
 
     wanted_ids 允许含/不含版本号；按完整 accession 与去版本 base 双匹配
-    （all_virus/taxa.txt 用无版本号，植物参考 FASTA 头带版本号）。
+    （建树库 taxa.txt 用无版本号，植物参考 FASTA 头带版本号）。
+
+    max_len：参考序列长度上限（bp）。超过上限的跳过——植物病毒基因组
+    通常 2-20kb（Closteroviridae 最长约 20kb），而 ICTV 缓存里有 40kb 级的
+    古菌病毒（Sulfolobus/Betalipothrixvirus）。带进比对会让 MAFFT 的
+    O(L²) DP 爆炸（实测 34 条/966kb 跑 20 分钟无输出；8×40kb 也需 28s）。
+
+    返回 (found: [acc...], skipped_long: [acc...])；skipped_long 供调用方
+    区分"本地没有"与"有但被长度护栏拦下"，避免对后者白跑一次 NCBI 下载。
     """
     if isinstance(ref_fastas, str):
         ref_fastas = [ref_fastas]
     keep = {w for w in wanted_ids if w}
     keep_base = {w.split('.')[0].upper() for w in keep}
-    found = []
+    found, skipped_long = [], []
     with safe_open(out_fasta, 'wt') as f:
         for ref in ref_fastas:
             if not keep_base or not ref or not os.path.isfile(ref):
@@ -47,11 +86,20 @@ def _extract_refs(ref_fastas, wanted_ids, out_fasta):
                 acc = h.split()[0]
                 base = acc.split('.')[0].upper()
                 if acc in keep or base in keep_base:
+                    if max_len and len(s) > max_len:
+                        skipped_long.append(acc)
+                        keep.discard(acc)
+                        keep_base.discard(base)
+                        continue
                     write_fasta_record(f, acc, s)
                     found.append(acc)
                     keep.discard(acc)
                     keep_base.discard(base)
-    return found
+    if skipped_long and logger:
+        logger.log(f"  参考长度护栏（>{max_len // 1000}kb）跳过 "
+                   f"{len(skipped_long)} 条: {', '.join(skipped_long[:5])}"
+                   + ("…" if len(skipped_long) > 5 else ""), "PLAN")
+    return found, skipped_long
 
 
 def _tax_sample_refs(top_acc, ref_tax, genus_accs, family_genera, mode,
@@ -96,11 +144,24 @@ def _tax_sample_refs(top_acc, ref_tax, genus_accs, family_genera, mode,
 
 def _ascii_stage(path, work_dir, suffix):
     """路径含非 ASCII（平台根含中文）时复制到纯 ASCII 中转目录，返回
-    (暂存路径, 是否中转)。用后由调用方 _ascii_fetch 取回并清理。"""
+    (暂存路径, 是否中转)。用后由调用方 _ascii_fetch / _ascii_drop 清理。
+
+    中转目录按**每次调用**唯一（work_dir 只是逻辑名如 mafft_in/trimal）：
+    平台允许多任务并发（defaults 里 max_heavy_tasks=2 / max_light_tasks=4），
+    若共用同一个 in.fasta，两个任务会互相写/删对方的暂存文件。实测两个测试
+    并发跑时必现：
+      [Errno 2] No such file or directory: ...\\Temp\\vp_mafft\\mafft_in\\in.fasta
+    加 pid+线程 id 后互不干扰（同线程是顺序执行，无需再细分）。
+    """
     from .assembly import _ascii_work_base, _is_ascii
     if _is_ascii(path):
         return path, False
-    stage_dir = os.path.join(_ascii_work_base('vp_mafft'), work_dir)
+    # pid+线程 id+随机段：三重保证唯一（同 pid 下线程 id 可能复用，
+    # 极端时序下上一轮的 stage_dir 还没被 _ascii_drop 清掉）
+    import uuid as _uuid
+    token = f'{os.getpid()}_{threading.get_ident()}_{_uuid.uuid4().hex[:8]}'
+    stage_dir = os.path.join(_ascii_work_base('vp_mafft'),
+                             f'{work_dir}_{token}')
     os.makedirs(stage_dir, exist_ok=True)
     staged = os.path.join(stage_dir, f'in{suffix}')
     import shutil
@@ -108,14 +169,27 @@ def _ascii_stage(path, work_dir, suffix):
     return staged, True
 
 
+def _ascii_drop(staged):
+    """删中转文件；目录空了就一并删掉。
+
+    每次调用一个独立中转目录（见 _ascii_stage），只删文件会在 %TEMP% 里积下
+    成千上万个空目录；这里顺手回收空目录（非空时 rmdir 失败即忽略）。
+    """
+    try:
+        os.remove(staged)
+    except OSError:
+        pass
+    try:
+        os.rmdir(os.path.dirname(staged))
+    except OSError:
+        pass
+
+
 def _ascii_fetch(staged, final_path, was_staged):
     if was_staged:
         import shutil
         shutil.copyfile(staged, final_path)
-        try:
-            os.remove(staged)
-        except OSError:
-            pass
+        _ascii_drop(staged)
 
 
 def _orient_normalize(staged_in, logger=None):
@@ -166,10 +240,27 @@ def _orient_normalize(staged_in, logger=None):
     return out
 
 
+def _fasta_size(path, cap_seq=400, cap_bp=5_000_000):
+    """快速估计 (序列数, 总碱基)，超过 cap 提前停止（避免大文件全读）。"""
+    n = tot = 0
+    for _h, s in iter_fasta(path):
+        n += 1
+        tot += len(s)
+        if n >= cap_seq or tot >= cap_bp:
+            break
+    return n, tot
+
+
 def _run_mafft(in_fasta, out_fasta, threads=None, logger=None,
                strategy='auto'):
     """MAFFT 比对。strategy: auto（缺省）/ linsi（L-INS-i 精确，
-    适合 <200 条）/ fast（FFT-NS-1 极速）。"""
+    适合 <200 条）/ fast（FFT-NS-1 极速）。
+
+    auto 会按体量再决策：MAFFT 的 --auto 在「序列数中等 + 位点数大」时
+    可能选到迭代法（L-INS-i/E-INS-i），实测 34 条 × 最长 41kb（合计 ~1Mb）
+    跑 20 分钟无输出；此时降级为 FFT-NS-2 级（--retree 2 --maxiterate 0），
+    把可预期性放在精度之前（建树参考同源性高，差异极小）。
+    """
     cfg = get_config()
     mafft = cfg.tool('mafft')
     # Windows 原生 mafft 对中文路径不可靠：输入经 ASCII 中转
@@ -181,6 +272,14 @@ def _run_mafft(in_fasta, out_fasta, threads=None, logger=None,
              'linsi': ['--localpair', '--maxiterate', '1000'],
              'fast': ['--retree', '1', '--maxiterate', '0']}.get(
                  strategy, ['--auto'])
+    if strategy == 'auto':
+        _n, _bp = _fasta_size(aln_input)
+        if _n > 100 or _bp > 500_000:
+            extra = ['--retree', '2', '--maxiterate', '0']
+            if logger:
+                logger.log(f"MAFFT 体量较大（{_n} 条 / {_bp / 1e3:.0f} kb），"
+                           f"自动降级为 FFT-NS-2（--retree 2 --maxiterate 0）",
+                           "PLAN")
     cmd = [mafft] + extra + ['--quiet', '--inputorder']
     if threads:
         cmd += ['--thread', str(threads)]
@@ -236,6 +335,7 @@ def _run_trimal(in_aln, out_aln, logger=None, min_frac=0.3, min_cols=100):
                  '-out', staged_out, '-automated1'], logger=logger)
         if staged:
             _ascii_fetch(staged_out, out_aln, True)
+            _ascii_drop(staged_in)      # trimal 的暂存输入也要回收（否则留空目录）
         cols_after = _alignment_cols(out_aln)
         if not cols_after or not os.path.isfile(out_aln):
             raise RuntimeError("trimAl 无输出")
@@ -381,19 +481,14 @@ def _parse_iqtree_log(iqtree_file):
 
 def _run_iqtree(aln_fasta, prefix, threads=None, logger=None, bootstrap=1000,
                 alrt=1000):
-    """IQ-TREE 建树：优先 v3，回退 v2。
+    """IQ-TREE v3 建树。
 
-    -m MFP 自动选模；-B UFBoot + -alrt SH-aLRT 双支持值（v2/v3 参数兼容）。
+    -m MFP 自动选模；-B UFBoot + -alrt SH-aLRT 双支持值。
     """
     cfg = get_config()
-    try:
-        iqtree = cfg.tool('iqtree3')
-        ver = 'v3'
-    except (FileNotFoundError, RuntimeError):
-        iqtree = cfg.tool('iqtree2')
-        ver = 'v2'
+    iqtree = cfg.tool('iqtree3')
     if logger:
-        logger.log(f"IQ-TREE {ver} 建树 (MFP + UFBoot {bootstrap} + SH-aLRT {alrt})，"
+        logger.log(f"IQ-TREE v3 建树 (MFP + UFBoot {bootstrap} + SH-aLRT {alrt})，"
                    f"耗时较长")
     pf = check_path(prefix, must_exist=False, in_platform=True)
     cmd = [iqtree, '-s', check_path(aln_fasta, must_exist=True),
@@ -505,7 +600,10 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
         mark_step_done(out_dir, step)
         return summary
 
-    cfg = get_config()
+    # contigs 过滤产物路径：下方「无分类表时用 kunpeng 兜底分类」与
+    # 分组建树都要用，必须先于 527 行的兜底分支定义（原先定义在 568 行，
+    # 兜底分支引用时 NameError）。
+    contigs_fa = os.path.join(a_dir, 'contigs.filtered.fasta')
     # 从 virus_classification.tsv 读 kunpeng 分类信息
     cls_map = {}
     cls_tsv = os.path.join(a_dir, 'virus_classification.tsv')
@@ -565,7 +663,6 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
 
     # 按 top hit 参考物种分组（用 accession 简化为 group key）
     groups = {}
-    contigs_fa = os.path.join(a_dir, 'contigs.filtered.fasta')
     contig_seqs = {h.split()[0]: s for h, s in iter_fasta(contigs_fa)}
 
     # ICTV VMR 参考库（MSL 当前版）：谱系比 acvirus 旧表更新（种改名/
@@ -573,6 +670,7 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
     # 联网，缺的参考用 ictv-refs --download 预先补齐。
     ictv_meta = {}
     ictv_gb_set = set()
+    plant_accs = set()          # 植物口径 accession 白名单（见下方 ref_tax 过滤）
     try:
         from . import ictv_db
         if ictv_db.ensure_taxa(logger=logger):
@@ -584,6 +682,17 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
             if logger:
                 logger.log(f"ICTV VMR（{ictv_db._read_version().get('MSL', '?')}）"
                            f"谱系接入: {len(ictv_meta)} 条")
+            # 植物口径白名单：ICTV VMR 是**全病毒界**（20,179 accession），
+            # 无限并入 ref_tax 会让兜底选参把 40kb 级古菌病毒
+            # （Sulfolobus islandicus filamentous virus / Betalipothrixvirus）
+            # 拉进植物病毒比对。名单来自 databases/tree_db/ictv_tree.db/
+            # acvirus_accs_plant.txt（6,195 条，离线可得、带 stamp 缓存）。
+            try:
+                plant_accs = ictv_db.acvirus_acc_index()
+            except Exception as _e:
+                if logger:
+                    logger.log(f"植物口径名单不可用（本次不做宿主过滤）: {_e}",
+                               "WARN")
     except Exception as e:
         if logger:
             logger.log(f"ICTV VMR 库不可用（跳过）: {e}", "WARN")
@@ -593,13 +702,17 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
         m = ref_meta.get(sacc) or {}
         lin = ictv_meta.get(sacc.split('.')[0].upper()) or {}
         complete = ((m.get('Nuc_Completeness') or '') == 'complete'
-                    or bool(lin))          # all_virus/VMR 收录完整基因组为主
+                    or bool(lin))          # VMR 收录完整基因组为主
         return (1 if (m.get('Sequence_Type') or '') == 'RefSeq' else 0,
                 1 if complete else 0)
 
     # 统一参考分类索引 {base: (species, genus, family)}：植物库元数据 +
     # ICTV VMR（优先，MSL 当前版）+ acvirus taxa.txt —— 层级抽样
-    # （macro/genus/lineage）的数据基础
+    # （macro/genus/lineage）的数据基础。
+    #
+    # 宿主口径：植物参考库（items 1）本身即植物口径，全部保留；
+    # ICTV VMR 部分只收植物名单内的 accession（plant_accs）——这是
+    # 「选参不混入非植物病毒」的关键一步，名单缺失时退化为不过滤并已告警。
     ref_tax = {}
     for acc, m in ref_meta.items():
         fam = (m.get('VMR_Family') or '').strip()
@@ -607,13 +720,23 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
         sp = (m.get('Species') or m.get('VMR_Species') or '').strip()
         if fam or gen or sp:
             ref_tax[acc.split('.')[0].upper()] = (sp, gen, fam)
+    n_vmr_kept = n_vmr_dropped = 0
     for base, row in ictv_meta.items():
-        if base not in ref_tax:
-            fam = (row.get('Family') or '').strip()
-            gen = (row.get('Genus') or '').strip()
-            sp = (row.get('Species') or '').strip()
-            if fam or sp:
-                ref_tax[base] = (sp, gen, fam)
+        if base in ref_tax:
+            continue
+        if plant_accs and base not in plant_accs:
+            n_vmr_dropped += 1
+            continue
+        fam = (row.get('Family') or '').strip()
+        gen = (row.get('Genus') or '').strip()
+        sp = (row.get('Species') or '').strip()
+        if fam or sp:
+            ref_tax[base] = (sp, gen, fam)
+            n_vmr_kept += 1
+    if logger and n_vmr_dropped:
+        logger.log(f"参考池宿主过滤：ICTV VMR 保留 {n_vmr_kept} 条植物口径、"
+                   f"剔除 {n_vmr_dropped} 条非植物记录（名单 "
+                   f"{len(plant_accs)} 条）", "PLAN")
 
     genus_accs = defaultdict(list)
     family_genera = defaultdict(set)
@@ -682,23 +805,39 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
             if not ref_bases:
                 ref_bases = []
         if not ref_bases:
-            # 兜底：用所有参考序列
+            # 兜底：按 (RefSeq, 完整基因组) 优选排序后取前 N 条。
+            # 两个必须同时满足的约束：
+            #  ① 本地真有（avail）——否则选出 30 个 id 只提到 1 条，
+            #     其余走 NCBI 下载（离线即失败），比对退化成 2-3 条；
+            #  ② 排序不能只看 _ref_pref：它大量并列，(?, ?) 相同时若按
+            #     accession 倒序会挑到字母靠后的 id，恰好都是本地没有的。
             ref_ids = []
             seen = set()
-            for base in ref_tax:
-                if base not in seen:
-                    seen.add(base)
-                    ref_ids.append(base)
-                    if len(ref_ids) >= max(top_n_refs * 3, 30):
-                        break
+            avail = _scan_ref_accessions(ref_sources)
+            pool = [b for b in ref_tax if b in avail] if avail else list(ref_tax)
+            if not pool and logger:
+                logger.log("  参考池本地可用集合为空，回退为全部候选", "WARN")
+            for base in sorted(pool or list(ref_tax),
+                               key=lambda b: (_ref_pref(b), b), reverse=True):
+                if base in seen:
+                    continue
+                seen.add(base)
+                ref_ids.append(base)
+                if len(ref_ids) >= max(top_n_refs * 3, 30):
+                    break
         else:
             ref_ids = ref_bases
 
         refs_fa = os.path.join(gdir, 'refs.fa')
-        found_refs = _extract_refs(ref_sources, ref_ids, refs_fa)
+        found_refs, skipped_long = _extract_refs(
+            ref_sources, ref_ids, refs_fa, max_len=MAX_REF_LEN, logger=logger)
 
-        # 兜底：若有 ref_ids 未匹配到本地序列，尝试从 NCBI 按需下载
-        not_found = [rid for rid in ref_ids if rid not in found_refs]
+        # 兜底：若有 ref_ids 未匹配到本地序列，尝试从 NCBI 按需下载。
+        # 被长度护栏拦下的不算"缺失"——否则会为 40kb 古菌病毒白跑一次下载。
+        skipped_base = {a.split('.')[0].upper() for a in skipped_long}
+        not_found = [rid for rid in ref_ids
+                     if rid not in found_refs
+                     and rid.split('.')[0].upper() not in skipped_base]
         if not_found:
             if logger:
                 logger.log(f"  参考序列缺失 {len(not_found)} 条，尝试 NCBI 下载...")
@@ -709,7 +848,9 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                 if downloaded > 0 and logger:
                     logger.log(f"  NCBI 下载 {downloaded} 条参考序列")
                 # 重新提取（gb_refs.fa 已更新）
-                found_refs = _extract_refs(ref_sources, ref_ids, refs_fa)
+                found_refs, _sk2 = _extract_refs(
+                    ref_sources, ref_ids, refs_fa, max_len=MAX_REF_LEN,
+                    logger=logger)
             except Exception as e:
                 if logger:
                     logger.log(f"  NCBI 下载失败（跳过）: {e}", "WARN")

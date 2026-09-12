@@ -213,9 +213,15 @@ function autoscrollLogs() {
    无需改动；实时显示字符数/记录数，Ctrl+Enter 立即写入并收起，Esc 收起，
    再点一次 📋 也收起。 */
 var _pasteTimers = {};
+/* 与后端 /api/paste_input 的 20MB 上限一致：超限文本不改走粘贴，提示用文件 */
+var _PASTE_MAX_CHARS = 20 * 1024 * 1024;
 function _pasteWrite(inputId, ext, ta, onDone) {
   var text = (ta.value || '').trim();
   if (!text) return;
+  if (text.length > _PASTE_MAX_CHARS) {
+    alert('粘贴内容过大（>20MB）。请把内容保存为文件后，用文件选择/拖拽方式输入。');
+    return;
+  }
   fetch('/api/paste_input', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: text, ext: ext })
@@ -294,7 +300,7 @@ const EXAMPLE_TREE_NWK = 'examples/example_tree.nwk';
 // 示例 GenBank（含 CDS 注释）：基因组图谱 GenBank 模式「✨ 示例」
 const EXAMPLE_GENBANK_GB = 'examples/example_genome.gb';
 // 共线性比较离线示例（3 条同属小基因组 .gb，逗号分隔供 s_files 导入）
-const EXAMPLE_SYNTENY_GBS = 'examples/example_synteny_A.gb,examples/example_synteny_B.gb,examples/example_synteny_C.gb';
+const EXAMPLE_GB_TRIO = 'examples/example_synteny_A.gb,examples/example_synteny_B.gb,examples/example_synteny_C.gb';
 // 示例数据的**实际绝对路径**表（服务端给出）：示例目录可能位于程序目录
 // 之外（程序/数据库/示例三分离打包），此时下面这些相对路径不成立，
 // fillExample 会用 /api/example_paths 换成真实绝对路径。
@@ -1153,6 +1159,396 @@ function takePrefill(page) {
   } catch (e) { return null; }
 }
 
+// ---------------- 全局上下文（当前样品 / 当前项目） + 全局清理 ----------------
+/* 为什么需要：一级导航是普通 <a href>，每次切模块都是整页刷新，页面级 JS 变量
+   （curSample / curStages / curBranch …）必然归零。以前"上次在分析哪个样品"
+   只写进 localStorage['vp_last_sample'] 却**从来没有读取点**，所以切回来就失忆。
+   这里把「当前样品 / 当前项目」提升为跨模块共享的全局上下文：
+     - 真源 = localStorage（同源同浏览器，所有模块页可读）
+     - 顶部导航常驻两个可点胶囊，任何模块页都能看到/切换
+     - 变更通过 document 上的 'vp-ctx' 事件广播，各页按需重挂自己
+   并配一个全局清理总闸，把"还在跑的 + 排队的 + 互相交接的"一次归零
+   （只清运行态与关联，不删任何结果文件）。 */
+const VP_CTX_SAMPLE_KEY = 'vp_ctx_sample';
+const VP_CTX_PROJECT_KEY = 'vp_ctx_project';
+// 全局清理要清的浏览器态（跨模块"相互关联"）；
+// 主题 / 收藏 / 语言、文件浏览器上次目录属于个人偏好，不在清理范围。
+const VP_CTX_RESET_KEYS = ['vp_ctx_sample', 'vp_ctx_project', 'vp_last_sample',
+                           'vp_prefill', 'vp_runfill', 'vp_logclosed',
+                           'vp_anajump', 'vp_verifyjump'];
+
+function lsGet(k) {
+  try { return localStorage.getItem(k) || ''; } catch (e) { return ''; }
+}
+function lsSet(k, v) {
+  try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); }
+  catch (e) { /* 隐私模式等场景忽略 */ }
+}
+
+const VP_CTX = {
+  sample: '',
+  project: '',
+  load() {
+    this.sample = lsGet(VP_CTX_SAMPLE_KEY);
+    this.project = lsGet(VP_CTX_PROJECT_KEY);
+    return this;
+  },
+  setSample(name) {
+    name = String(name || '');
+    if (name === this.sample) return false;
+    this.sample = name;
+    lsSet(VP_CTX_SAMPLE_KEY, name);
+    this._emit();
+    return true;
+  },
+  setProject(name) {
+    name = String(name || '');
+    if (name === this.project) return false;
+    this.project = name;
+    lsSet(VP_CTX_PROJECT_KEY, name);
+    this._emit();
+    return true;
+  },
+  clear() {
+    if (!this.sample && !this.project) return false;
+    this.sample = ''; this.project = '';
+    lsSet(VP_CTX_SAMPLE_KEY, ''); lsSet(VP_CTX_PROJECT_KEY, '');
+    this._emit();
+    return true;
+  },
+  _emit() {
+    renderNavCtx();
+    try {
+      document.dispatchEvent(new CustomEvent('vp-ctx',
+        {detail: {sample: this.sample, project: this.project}}));
+    } catch (e) { /* 老浏览器兜底：忽略广播 */ }
+  },
+};
+VP_CTX.load();
+window.VP_CTX = VP_CTX;      // 各页内联脚本与 tools.html 选样弹窗取用
+
+/* 项目筛选下拉：以全局当前项目为默认值；用户在本页手动选过则尊重本页选择。
+   返回生效的筛选值。所有页面共用一份实现，避免各页各写一遍导致口径不一。 */
+function gxSyncProjSelect(sel, projs) {
+  if (!sel) return '';
+  let cur = sel.dataset.touched ? sel.value : (VP_CTX.project || '');
+  if (cur && projs.indexOf(cur) < 0) cur = '';
+  sel.innerHTML = `<option value="">${esc(t('gx.allProjects', '全部项目'))}</option>`
+    + projs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  sel.value = cur;
+  return cur;
+}
+
+function injectGlobalCtx() {
+  const nav = document.querySelector('.navlinks');
+  if (!nav || document.getElementById('navCtx')) return;
+  const wrap = document.createElement('span');
+  wrap.id = 'navCtx';
+  wrap.className = 'navctx';
+  wrap.innerHTML =
+    `<span class="navctx-chip" id="navCtxSample" onclick="gxPickSample()"></span>`
+    + `<span class="navctx-chip" id="navCtxProject" onclick="gxPickProject()"></span>`
+    + `<button class="navctx-reset" id="navCtxReset" type="button" `
+    + `onclick="gxGlobalReset(this)"></button>`;
+  // 把「上下文条 + 语言按钮 + 📂」收成一个**不可拆**的控制簇（.navtail）。
+  // 为什么必须成组：13 个一级链接约占 1150px，窗口刚好差几十像素时
+  // flex 换行只会把最后一个 📂 挤到第二行，单独一个图标孤零零待在右边，
+  // 看着就像坏了（实测 1884px 正是这个症状）。成组后要么整簇留在第一行，
+  // 要么整簇换到第二行，视觉上是"刻意分了两行"。
+  const tail = document.createElement('span');
+  tail.className = 'navtail';
+  tail.appendChild(wrap);
+  nav.appendChild(tail);
+  // i18n.js 先注入 #langBtn，这里把它与 📂 移进簇内（appendChild 即移动节点）
+  const anchors = [document.getElementById('langBtn'),
+                   nav.querySelector('.iconbtn')].filter(Boolean);
+  for (const el of anchors) tail.appendChild(el);
+  renderNavCtx();
+}
+
+function renderNavCtx() {
+  const s = $('navCtxSample'), p = $('navCtxProject'), r = $('navCtxReset');
+  if (!s || !p) return;
+  const tip = t('gx.ctxTip', '');
+  const none = t('gx.none', '未选择');
+  const all = t('gx.allProjects', '全部项目');
+  // 胶囊宽度有限（max-width 116px，窄窗口还会再收），长样品名会被省略号截断，
+  // 所以 title 里必须给出**完整**名字，否则用户没法确认选中的是哪一个。
+  s.className = 'navctx-chip' + (VP_CTX.sample ? '' : ' is-empty');
+  s.title = `${t('gx.sample', '样品')}：${VP_CTX.sample || none}`
+    + (tip ? '\n' + t('gx.pickSample', '') + ' — ' + tip : '');
+  s.innerHTML = `<span class="k">${esc(t('gx.sample', '样品'))}</span>`
+    + `<span class="v">${esc(VP_CTX.sample || none)}</span>`;
+  p.className = 'navctx-chip' + (VP_CTX.project ? '' : ' is-empty');
+  p.title = `${t('gx.project', '项目')}：${VP_CTX.project || all}`
+    + (tip ? '\n' + t('gx.pickProject', '') + ' — ' + tip : '');
+  p.innerHTML = `<span class="k">${esc(t('gx.project', '项目'))}</span>`
+    + `<span class="v">${esc(VP_CTX.project || all)}</span>`;
+  if (r) {
+    r.textContent = t('gx.reset', '🧹 全局清理');
+    r.title = t('gx.resetTitle', '');
+  }
+}
+
+/* 通用模态框（全局上下文选择 / 全局清理确认共用） */
+function gxModal(titleText, bodyHtml, onMount) {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);'
+    + 'display:flex;align-items:center;justify-content:center';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--paper,#fff);color:var(--ink-700,#33475b);'
+    + 'border-radius:10px;padding:16px 18px;min-width:460px;max-width:92vw;'
+    + 'max-height:88vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.25)';
+  panel.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">`
+    + `<b style="font-size:14px">${esc(titleText)}</b>`
+    + `<button class="btn small" id="gxModalX" style="margin-left:auto">✕</button></div>`
+    + `<div id="gxModalBody">${bodyHtml}</div>`;
+  box.appendChild(panel);
+  document.body.appendChild(box);
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    box.remove();
+  }
+  document.addEventListener('keydown', onKey);
+  panel.querySelector('#gxModalX').onclick = close;
+  box.addEventListener('click', e => { if (e.target === box) close(); });
+  if (onMount) onMount(panel.querySelector('#gxModalBody'), close);
+  return close;
+}
+
+async function gxFetchSamples() {
+  try { return await (await fetch('/api/samples')).json(); }
+  catch (e) { return null; }
+}
+
+async function gxPickSample() {
+  const list = await gxFetchSamples();
+  if (list === null) {
+    toast(t('gx.resetFail', '加载失败'), '', {kind: 'failed', ttl: 8000});
+    return;
+  }
+  if (!list.length) { alert(t('gx.noSamples', '暂无样品')); return; }
+  gxModal(t('gx.pickSample', '切换当前样品'),
+    `<p class="hint" style="margin:0 0 8px">${esc(t('gx.pickHint', ''))}</p>`
+    + `<div class="gx-pick-row"><input type="text" id="gxQ" `
+    + `placeholder="${esc(t('gx.searchPh', ''))}">`
+    + `<button class="btn small" id="gxNone">${esc(t('gx.clearSample', '清空当前样品'))}</button></div>`
+    + `<div class="gx-pick-list" id="gxList"></div>`,
+    (body, close) => {
+      const box = body.querySelector('#gxList');
+      const q = body.querySelector('#gxQ');
+      const draw = () => {
+        const s = q.value.trim().toLowerCase();
+        const shown = list.filter(x => !s || String(x.name).toLowerCase().indexOf(s) >= 0);
+        box.innerHTML = shown.length ? shown.map(x => `
+          <div class="gx-item" data-name="${esc(x.name)}">
+            <span class="nm">${esc(x.name)}${x.name === VP_CTX.sample ? ' ✔' : ''}</span>
+            ${x.project ? `<span style="color:var(--ink-400,#8b98a5)">🏷 ${esc(x.project)}</span>` : ''}
+            <span class="meta">${x.done || 0}/${x.total || 7}</span>
+          </div>`).join('') : `<div class="gx-empty">—</div>`;
+        box.querySelectorAll('.gx-item').forEach(el => {
+          el.onclick = () => { VP_CTX.setSample(el.dataset.name); close(); };
+        });
+      };
+      q.oninput = draw;
+      body.querySelector('#gxNone').onclick = () => {
+        VP_CTX.setSample('');
+        close();
+      };
+      q.focus();
+      draw();
+    });
+}
+
+async function gxPickProject() {
+  const list = (await gxFetchSamples()) || [];
+  const projs = [...new Set(list.map(x => x.project).filter(Boolean))].sort();
+  gxModal(t('gx.pickProject', '切换当前项目'),
+    `<p class="hint" style="margin:0 0 8px">${esc(t('gx.projHint', ''))}</p>`
+    + `<div class="gx-pick-list" id="gxList"></div>`,
+    (body, close) => {
+      const box = body.querySelector('#gxList');
+      const opts = [{v: '', label: t('gx.allProjects', '全部项目'), n: list.length}]
+        .concat(projs.map(p => ({
+          v: p, label: p,
+          n: list.filter(x => x.project === p).length})));
+      box.innerHTML = opts.map(o => `
+        <div class="gx-item" data-v="${esc(o.v)}">
+          <span class="nm">${esc(o.label)}${o.v === VP_CTX.project ? ' ✔' : ''}</span>
+          <span class="meta">${o.n}</span>
+        </div>`).join('');
+      box.querySelectorAll('.gx-item').forEach(el => {
+        el.onclick = () => { VP_CTX.setProject(el.dataset.v); close(); };
+      });
+    });
+}
+
+/* 全局清理：非破坏性 —— 停任务 + 清队列 + 清任务记录 + 清浏览器关联，
+   结果文件（results/ tool_runs/ downloads/ submissions/ …）一律不动。 */
+function gxGlobalReset(btn) {
+  if (btn && btn.disabled) return;
+  const li = k => `<li>${esc(t(k, ''))}</li>`;
+  gxModal(t('gx.resetTitle', '全局清理'),
+    `<p style="margin:0 0 8px">${esc(t('gx.resetIntro', ''))}</p>`
+    + `<ul style="margin:0 0 10px 18px;padding:0;font-size:12.5px;line-height:1.9">`
+    + li('gx.resetItem1') + li('gx.resetItem2') + li('gx.resetItem3')
+    + li('gx.resetItem4') + `</ul>`
+    + `<p style="margin:0 0 10px;padding:8px 10px;border-radius:8px;`
+    + `background:var(--green-50,#eef4f0);color:var(--green-900,#14532d);font-size:12.5px">`
+    + `✅ ${esc(t('gx.resetKeep', ''))}</p>`
+    + `<label class="chk" style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px">`
+    + `<input type="checkbox" id="gxArch" checked> `
+    + `<span>${esc(t('gx.resetArchive', ''))}</span></label>`,
+    (body, close) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px';
+      row.innerHTML = `<button class="btn small" id="gxNo">`
+        + `${esc(t('gx.resetCancel', '取消'))}</button>`
+        + `<button class="btn primary" id="gxYes">`
+        + `${esc(t('gx.resetConfirm', '确认清理'))}</button>`;
+      body.appendChild(row);
+      body.querySelector('#gxNo').onclick = close;
+      const yes = body.querySelector('#gxYes');
+      yes.onclick = async () => {
+        yes.disabled = true;
+        yes.textContent = t('gx.resetting', '⏳ 清理中…');
+        let d = null;
+        try {
+          const r = await fetch('/api/global/reset', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            // confirm 是"防误触"令牌（非鉴权）：本接口在空请求体下就会做
+            // 破坏性清理，任何对路由发空 POST 的巡检/脚本都会误伤。
+            body: JSON.stringify(
+              {confirm: 'reset',
+               include_archive: !!body.querySelector('#gxArch').checked})});
+          d = await r.json();
+          if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        } catch (e) {
+          yes.disabled = false;
+          yes.textContent = t('gx.resetConfirm', '确认清理');
+          const s = String(e);
+          // 最可能的两种失败：服务未重启（404）或端口断开。
+          // 前者给一句能直接照做的提示，比裸 HTTP 404 有用。
+          const msg = s.indexOf('404') >= 0
+            ? t('gx.resetNeedRestart', s) : s;
+          toast(t('gx.resetFail', '全局清理失败'), msg,
+                {kind: 'failed', ttl: 14000});
+          return;
+        }
+        gxClearBrowserCtx();
+        // 结果经 sessionStorage 带到 reload 之后展示：整页刷新是复位全部
+        // 页面级 DOM 态最可靠的方式，但会吃掉 toast，所以先存后 reload。
+        try { sessionStorage.setItem('vp_reset_result', JSON.stringify(d)); }
+        catch (e) { /* 存不下就直接刷新，结果以计数为准 */ }
+        close();
+        location.reload();
+      };
+    });
+}
+
+function gxClearBrowserCtx() {
+  for (const k of VP_CTX_RESET_KEYS) {
+    try { localStorage.removeItem(k); } catch (e) { /* ignore */ }
+    try { sessionStorage.removeItem(k); } catch (e) { /* ignore */ }
+  }
+  VP_CTX.sample = ''; VP_CTX.project = '';
+}
+
+function gxResetDetail(d) {
+  return t('gx.resetDetail', '')
+    .replace('{c}', (d && d.cancelled_tasks) || 0)
+    .replace('{q}', (d && d.cleared_queue) || 0)
+    .replace('{r}', (d && d.removed_task_records) || 0);
+}
+
+/* 项目筛选下拉的变更入口：模板 onchange 直接调它。
+   为什么不用 addEventListener：属性处理器在解析期就注册，早于
+   DOMContentLoaded 里挂的监听器；只在 DOMContentLoaded 挂监听的话，
+   页面自身的 onchange（会重刷下拉）先跑，会把用户刚选的旧值刷回去。
+   这里先同步全局项目，再由 'vp-ctx' 广播驱动各页刷新列表。 */
+function gxProjChanged(sel) {
+  if (!sel) return;
+  sel.dataset.touched = '1';
+  VP_CTX.setProject(sel.value || '');
+}
+
+/* 结果中心：按全局项目筛选样品行（归档表不参与，它没有项目维度） */
+function gxApplyResultsFilter() {
+  const tbl = $('sampleTbl');
+  const sel = $('resProjFilter');
+  if (!tbl || !sel) return;
+  const rows = [...tbl.querySelectorAll('tr[data-project]')];
+  if (!rows.length) {
+    sel.style.display = 'none';
+    return;
+  }
+  const projs = [...new Set(rows.map(r => r.dataset.project).filter(Boolean))].sort();
+  const cur = gxSyncProjSelect(sel, projs);
+  rows.forEach(r => {
+    const ok = !cur || r.dataset.project === cur;
+    r.style.display = ok ? '' : 'none';
+    const nxt = r.nextElementSibling;
+    if (nxt && nxt.classList.contains('filerow-tr') && !ok) nxt.style.display = 'none';
+  });
+}
+
+/* 全局上下文变更广播的订阅者：各页按需重挂自己。
+   管道页重刷样品列表并在样品变化时切换选中样品；结果中心重筛。 */
+document.addEventListener('vp-ctx', () => {
+  const pf = $('projFilter');
+  if (pf) {
+    if ($('samples')) loadSamples();
+    else if (typeof scLoadSamples === 'function') scLoadSamples();
+  }
+  if ($('samples') && typeof curSample !== 'undefined'
+      && VP_CTX.sample !== (curSample || '')) {
+    if (VP_CTX.sample) {
+      selectSample(VP_CTX.sample);
+    } else {
+      curSample = null;
+      loadSamples();
+      const p = $('pipe');
+      if (p) p.innerHTML = `<div class="card"><p class="hint" `
+        + `style="margin:4px 0">${esc(t('pp.empty', ''))}</p></div>`;
+    }
+  }
+  gxApplyResultsFilter();
+});
+
+/* 整页加载后统一接线：注入导航上下文条、回显上一轮清理结果、接上全局样品 */
+function gxApplyPage() {
+  injectGlobalCtx();
+  try {
+    const raw = sessionStorage.getItem('vp_reset_result');
+    if (raw) {
+      sessionStorage.removeItem('vp_reset_result');
+      const d = JSON.parse(raw);
+      let msg = gxResetDetail(d);
+      if (d && d.active_left) {
+        msg += ' · ' + t('gx.resetLeft', '').replace('{n}', d.active_left);
+      }
+      toast(t('gx.resetDone', '全局清理完成'), msg, {ttl: 9000});
+    }
+  } catch (e) { /* 结果回显失败不影响页面 */ }
+
+  const pf = $('projFilter');
+  // 管道页 / 样品页：项目下拉变更走模板 onchange="gxProjChanged(this)"；
+  // 这里只兜住未来新增、漏写 onchange 的同类下拉。
+  if (pf && !pf.getAttribute('onchange')) {
+    pf.addEventListener('change', () => gxProjChanged(pf));
+  }
+  // 管道页：导航栏的 /pipeline 不带 ?sample=，以前就因此永远回不到上次的样品；
+  // 现在用全局当前样品自动接上（?sample= 显式指定时仍以 URL 为准）。
+  if ($('samples') && VP_CTX.sample) {
+    const q = new URLSearchParams(location.search);
+    if (!q.get('sample') && typeof selectSample === 'function') {
+      selectSample(VP_CTX.sample);
+    }
+  }
+  gxApplyResultsFilter();
+}
+
 // ---------------- 任务轮询 + 结果预览 ----------------
 let pollTimer = null;
 const taskLogOpen = new Set();   // 展开日志的任务 id
@@ -1324,9 +1720,10 @@ const STAGE_LABELS = {
   fastp:    ['⓪ Fastp 质控', '⓪ Fastp QC'],
   fq2fa:    ['⓪b 序列转换(FASTQ→FASTA)', '⓪b FASTQ→FASTA'],
   host:     ['① 宿主去除', '① Host removal'],
-  virus:    ['② 病毒筛查与提取', '② Virus screening'],
+  kvsuite:  ['②b 已知病毒识别与定量', '②b Known virus ID & quantification'],
   assembly: ['③ 组装·分类·提取', '③ Assembly'],
   verify:   ['③b 候选序列验证', '③b Candidate verify'],
+  consensus:['③c 共识序列与变异', '③c Consensus & variants'],
   hostana:  ['④ 宿主预测(ICTV)', '④ Host prediction (ICTV)'],
   orf:      ['⑥ ORF 预测', '⑥ ORF prediction'],
   orfa:     ['⑥b ORF 功能注释', '⑥b ORF annotation'],
@@ -1349,10 +1746,14 @@ const TOOL_LABELS = {
   contigs:  ['contig分类', 'Contig classify'],
   verify:   ['候选序列验证', 'Candidate verify'],
   consensus: ['共识序列与变异', 'Consensus & variants'],
+  // 一键流程两张卡此前没登记：injectStageLogs 找不到对应 toolrun 容器，
+  // 卡片输出区一直是空的（2026-09-11 用户实测「一键分析（全流程）没有输出」）。
+  kvsuite:  ['已知病毒识别与定量', 'Known virus suite'],
+  kvchain:  ['病毒定量与共识·一键', 'KV chain'],
+  virchain: ['病毒识别分类·一键', 'Virus chain'],
   ncbi:     ['NCBI下载', 'NCBI download'],
   gbdown:   ['GenBank下载', 'GenBank download'],
   gbimport: ['GenBank导入', 'GenBank import'],
-  synteny:  ['同属比较', 'Synteny'],
 };
 
 // 数据库构建页：建库任务名 → 卡片内嵌日志容器（buildrun-<key>）。
@@ -1476,6 +1877,33 @@ function dlLabel(base, path) {
   return { label: base, color: '' };   // 未知 → 原始文件名
 }
 
+/* 输出目录行：结果产出位置随结果一起明示（完整路径 + 复制 + 打开）。
+   路径经 data-* 属性传递再由 dataset 读回：Windows 路径里的 \t \r 这类
+   序列若直接拼进 onclick 的 JS 字符串字面量会被当成转义符。 */
+function outDirLine(outDir) {
+  if (!outDir) return '';
+  const od = String(outDir);
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0 2px;font-size:12.5px">
+    <span style="font-weight:700">${t('c.outdir', '输出目录')}</span>
+    <code class="mono" style="user-select:all;word-break:break-all" title="${esc(od)}">${esc(od)}</code>
+    <button class="btn small" style="padding:1px 8px" data-d="${esc(od)}" onclick="copyText(this.dataset.d)" title="${t('c.copyPath', '复制路径')}">⧉</button>
+    <button class="btn small" style="padding:1px 8px" data-d="${esc(od)}" onclick="openOutDir(this.dataset.d)" title="${t('c.openDir', '打开目录')}">📂</button>
+  </div>`;
+}
+
+/* 在资源管理器中打开平台内的输出目录（/api/open_dir 做平台内校验） */
+async function openOutDir(p) {
+  try {
+    const r = await fetch('/api/open_dir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p }) });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert((d.error || '打开失败') + ' (HTTP ' + r.status + ')');
+    }
+  } catch (e) { alert('打开失败: ' + e); }
+}
+
 function outFilesHtml(task) {
   const files = (task.result && task.result.files) || [];
   if (!files.length) {
@@ -1519,7 +1947,7 @@ function toolStatChips(res) {
   const zh = (typeof VP_LANG === 'undefined' || VP_LANG !== 'en');
   const chips = [];
   for (const [k, v] of Object.entries(res.stats || {})) {
-    if (v === null || v === '' || k === 'run') continue;
+    if (v === null || v === '' || k === 'run' || k === 'out_dir') continue;
     const lab = (TOOL_STAT_LABELS[k] || [k, k])[zh ? 0 : 1];
     const s = String(v);
     const shown = /[\\/]/.test(s) ? s.split(/[\\/]/).pop() : s;
@@ -1535,8 +1963,10 @@ function toolRunHtml(task, boxId) {
   const stat = taskStatusText(task.status);
   const err = task.error ? `<div class="err" style="margin:6px 0 0">${esc(task.error)}</div>` : '';
   const chips = task.status === 'done' ? toolStatChips(task.result) : '';
+  // 输出目录：任务创建即带（运行中也能看到将写到哪），完成后结果里再确认一次
+  const outdir = task.out_dir || (task.result && task.result.out_dir) || '';
   const lines = esc((task.log || []).join('\n'));
-  // 纵向平铺：状态/进度 → 关键数字 → 运行日志 → Downloads（下载）。
+  // 纵向平铺：状态/进度 → 输出目录 → 关键数字 → 运行日志 → Downloads（下载）。
   // 产物文件统一在 Downloads 一处列出（分类报告面板内不再重复）。
   return `<div style="margin:10px 0 2px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -1544,7 +1974,7 @@ function toolRunHtml(task, boxId) {
       ${task.status === 'running' ? `<button class="btn small danger" onclick="cancelTask('${task.id}')">${t('c.cancel')}</button>` : ''}
     </div>
     <div class="bar"><i style="width:${pct}%"></i></div>
-    ${err}${chips}
+    ${err}${outdir ? outDirLine(outdir) : ''}${chips}
     <div style="font-size:12.5px;font-weight:700;margin:10px 0 4px">${t('c.runlog')}</div>
     <pre class="logbox" style="max-height:180px;overflow-y:auto" data-autoscroll="${task.status === 'running' ? 1 : 0}">${lines || t('c.noLog')}</pre>
     <div style="font-size:12.5px;font-weight:700;margin:10px 0 4px">${t('c.downloads')}</div>
@@ -1600,12 +2030,14 @@ function cardResultFilled(key) {
   return !!(box && box.innerHTML.trim());
 }
 function runRestoreHtml(run) {
-  const fake = { status: 'done', result: { run: run.name, files: run.files || [] } };
+  const fake = { status: 'done', out_dir: run.out_dir || '',
+                 result: { run: run.name, files: run.files || [] } };
   return `<div style="margin:10px 0 2px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
         <span class="sbadge done">${t('c.restoredRun', '上次运行')} · ${esc(run.name)}</span>
         <span class="hint">${t('c.restoredHint', '结果已从磁盘恢复，无需重跑')}</span>
       </div>
+      ${outDirLine(run.out_dir)}
       <div style="font-size:12.5px;font-weight:700;margin:10px 0 4px">${t('c.downloads')}</div>
       ${outFilesHtml(fake)}
     </div>`;
@@ -1765,6 +2197,8 @@ function browse(inputId) {
   browseMode = 'file';
   browseTarget = inputId;
   $('dlgMask').style.display = 'flex';
+  const dp = $('dlgPath');
+  if (dp) wirePathInput(dp);              // 路径栏：粘贴清洗 + 跳转历史
   const ttl = $('dlgTitle');
   if (ttl) ttl.textContent = t('c.chooseFile');
   const last = localStorage.getItem('vp_browse_cwd');
@@ -1775,6 +2209,8 @@ function browseDir(inputId) {
   browseMode = 'dir';
   browseTarget = inputId;
   $('dlgMask').style.display = 'flex';
+  const dp = $('dlgPath');
+  if (dp) wirePathInput(dp);              // 路径栏：粘贴清洗 + 跳转历史
   const ttl = $('dlgTitle');
   if (ttl) ttl.textContent = t('c.chooseDir', '选择目录');
   const last = localStorage.getItem('vp_browse_cwd');
@@ -1783,7 +2219,10 @@ function browseDir(inputId) {
 
 function pickDir() {
   if (browseCwd === '此电脑') { alert('请先进入某个目录'); return; }
-  if (browseTarget && $(browseTarget)) $(browseTarget).value = browseCwd;
+  if (browseTarget && $(browseTarget)) {
+    $(browseTarget).value = browseCwd;
+    pushPathHist(browseTarget, browseCwd);
+  }
   closeDlg();
 }
 
@@ -1797,16 +2236,26 @@ function _joinBrowse(cwd, name) {
   return cwd + '/' + name;
 }
 
-async function loadBrowse(path) {
+async function loadBrowse(path, _isRetry) {
   try {
     // 选目录模式带 all=1：服务端不限文件扩展名，方便查看目录里有什么
     const r = await fetch('/api/browse?path=' + encodeURIComponent(path) +
                           (browseMode === 'dir' ? '&all=1' : ''));
-    if (!r.ok) { alert('无法打开目录'); return; }
+    if (!r.ok) {
+      // 记忆的上次目录可能已被删除/改名（U 盘拔出、运行目录清理等）：
+      // 退回「此电脑」重试一次，只有根视图也打不开才报错。
+      if (!_isRetry && path && path !== '.') {
+        try { localStorage.removeItem('vp_browse_cwd'); } catch (e) {}
+        loadBrowse('.', true);
+        return;
+      }
+      alert('无法打开目录');
+      return;
+    }
     const d = await r.json();
     browseCwd = d.cwd;
     try { localStorage.setItem('vp_browse_cwd', d.cwd === '此电脑' ? '' : d.cwd); } catch (e) {}
-    $('dlgPath').textContent = '📁 ' + d.cwd;
+    $('dlgPath').value = d.cwd;
     const pick = $('dlgPickDir');
     if (pick) pick.style.display = browseMode === 'dir' ? '' : 'none';
     const items = [];
@@ -1842,9 +2291,145 @@ async function loadBrowse(path) {
 }
 
 function pickFile(fullPath) {
-  if (browseTarget && $(browseTarget)) $(browseTarget).value = fullPath;
+  if (browseTarget && $(browseTarget)) {
+    $(browseTarget).value = fullPath;
+    pushPathHist(browseTarget, fullPath);
+  }
   closeDlg();
 }
+
+/* 路径文本清洗：资源管理器「复制文件地址」带首尾引号、浏览器地址栏是
+   file:/// 链接、表格单元格粘贴可能带换行——统一裁成可直接使用的路径。
+   只在文本“长得像路径”时才接管（引号 / 盘符 / file:// / 双反斜杠 / 根斜杠
+   开头），避免干扰普通文本输入。 */
+function cleanPathText(s) {
+  const raw = String(s == null ? '' : s);
+  const x = raw.trim();
+  if (!x) return raw;
+  if (!/^(["']|file:\/\/|[A-Za-z]:[\\/]|\\\\|\/)/.test(x)) return raw;
+  let out = x.replace(/^file:\/\/\/?/i, '')
+             .replace(/^["']+/, '').replace(/["']+$/, '').trim();
+  out = out.split(/\r?\n/)[0].trim();
+  return out || raw;
+}
+
+/* 路径栏粘贴/输入 + 回车（或点「跳转」）：
+   - 指向文件：文件模式 → 直接选中；目录模式 → 跳到其所在目录；
+   - 指向目录：跳进该目录（目录模式再用「选择此目录 ✔」确认）。 */
+async function jumpBrowse() {
+  const box = $('dlgPath');
+  if (!box) return;
+  const raw = cleanPathText(box.value);
+  if (!raw) return;
+  box.value = raw;
+  try {
+    const r = await fetch('/api/path_info?path=' + encodeURIComponent(raw));
+    const d = await r.json();
+    if (!d.exists) {
+      toast(t('c.pathMissing', '路径不存在'), raw, {kind: 'failed', ttl: 5000});
+      return;
+    }
+    pushPathHist('dlgPath', raw);
+    if (!d.is_dir && browseMode === 'file') { pickFile(d.path); return; }
+    loadBrowse(d.is_dir ? d.path : (d.parent || d.path));
+  } catch (e) {
+    setConnBanner(true);
+  }
+}
+
+// ---------------- 路径输入历史（点输入框 → 弹最近用过的路径 → 点选回填） ----------------
+/* 按输入框 id 存 localStorage（vp_path_hist），每 id 最多 10 条、去重、最新在前。
+   入史时机：change（手输失焦 / 粘贴清洗后）、pickFile/pickDir、拖拽上传成功、
+   对话框路径栏跳转。示例按钮等程序化回填不触发 change，故意不入史。 */
+const PATH_HIST_KEY = 'vp_path_hist';
+const PATH_HIST_MAX = 10;
+let _histBox = null, _histInput = null;
+
+function getPathHist(id) {
+  try {
+    const all = JSON.parse(localStorage.getItem(PATH_HIST_KEY) || '{}') || {};
+    return Array.isArray(all[id]) ? all[id] : [];
+  } catch (e) { return []; }
+}
+function pushPathHist(id, p) {
+  const v = String(p || '').trim();
+  if (!id || !v || !$(id)) return;          // 占位目标（如测试用 __probe__）不入史
+  try {
+    const all = JSON.parse(localStorage.getItem(PATH_HIST_KEY) || '{}') || {};
+    if ((all[id] || [])[0] === v) return;   // 已是最新，免写
+    const arr = (all[id] || []).filter(x => x !== v);
+    arr.unshift(v);
+    all[id] = arr.slice(0, PATH_HIST_MAX);
+    localStorage.setItem(PATH_HIST_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+function dropPathHist(id, p) {
+  try {
+    const all = JSON.parse(localStorage.getItem(PATH_HIST_KEY) || '{}') || {};
+    all[id] = (all[id] || []).filter(x => x !== p);
+    localStorage.setItem(PATH_HIST_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+function clearPathHist(id) {
+  try {
+    const all = JSON.parse(localStorage.getItem(PATH_HIST_KEY) || '{}') || {};
+    delete all[id];
+    localStorage.setItem(PATH_HIST_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+
+function closePathHist() {
+  if (_histBox) { _histBox.remove(); _histBox = null; _histInput = null; }
+}
+
+function showPathHist(input) {
+  closePathHist();
+  const id = input.id;
+  if (!id) return;
+  const items = getPathHist(id);
+  if (!items.length) return;
+  const box = document.createElement('div');
+  box.className = 'pathhist';
+  box.innerHTML =
+    `<div class="ph-head"><span>${t('c.recentPaths', '最近使用')}</span>` +
+    `<button type="button" class="ph-clear">${t('c.histClear', '清空')}</button></div>` +
+    items.map(p =>
+      `<div class="ph-item" data-p="${esc(p)}">` +
+      `<span class="ph-path" title="${esc(p)}">${esc(p)}</span>` +
+      `<button type="button" class="ph-del" title="${t('c.histDel', '删除这条')}">✕</button></div>`
+    ).join('');
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault();                     // 防止输入框因失焦抢先关闭下拉
+    const item = e.target.closest('.ph-item');
+    if (!item) return;
+    if (e.target.closest('.ph-del')) {
+      dropPathHist(id, item.dataset.p);
+      showPathHist(input);                  // 删除后原地重画
+      return;
+    }
+    input.value = item.dataset.p;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    closePathHist();
+  });
+  box.querySelector('.ph-clear').addEventListener('pointerdown', e => {
+    e.preventDefault();
+    clearPathHist(id);
+    closePathHist();
+    toast(t('c.histClear', '清空'), t('c.histCleared', '已清空该输入框的路径历史'), { ttl: 2500 });
+  });
+  const host = input.parentElement;
+  if (!host) return;
+  host.style.position = 'relative';
+  host.appendChild(box);
+  _histBox = box; _histInput = input;
+}
+// 点输入框/下拉以外任意处收起（capture：抢在页面其它 handler 之前）
+document.addEventListener('pointerdown', e => {
+  if (!_histBox) return;
+  if (e.target === _histInput || _histBox.contains(e.target)) return;
+  closePathHist();
+}, true);
 
 function closeDlg() { $('dlgMask').style.display = 'none'; }
 
@@ -1875,25 +2460,24 @@ async function loadSamples() {
       box.innerHTML = `<p class="hint">${t('pp.noSamples')}</p>`;
       return;
     }
-    // 项目筛选下拉（去重）
+    // 项目筛选下拉（去重）：默认值取全局当前项目，用户在本页选过则用本页的
     const sel = $('projFilter');
+    let filt = '';
     if (sel) {
       const projs = [...new Set(list.map(s => s.project).filter(Boolean))];
-      const cur = sel.value;
-      sel.innerHTML = `<option value="">${t('pp.allProjects', '全部项目')}</option>` +
-        projs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
-      if (projs.includes(cur)) sel.value = cur;
+      filt = gxSyncProjSelect(sel, projs);
     }
-    const filt = sel ? sel.value : '';
     const shown = filt ? list.filter(s => s.project === filt) : list;
     box.innerHTML = shown.length ? shown.map(s => {
       const pct = Math.round(s.done / (s.total || 7) * 100);
+      // 样品名来自磁盘目录名（可含引号等字符）：走 data-* + dataset 传参，
+      // 内联 onclick="'${esc(x)}'" 会被 HTML 实体解码还原成引号闭合字符串
       return `<div class="sample-item ${s.name === curSample ? 'active' : ''}"
-            onclick="selectSample('${esc(s.name)}')">
+            data-sample="${esc(s.name)}" onclick="selectSample(this.dataset.sample)">
         <button class="btn small si-del" title="${t('rs.confirmClear', '清除结果（保留样品与输入信息）')}"
-                onclick="event.stopPropagation();clearSample('${esc(s.name)}', this)">🧹</button>
+                data-sample="${esc(s.name)}" onclick="event.stopPropagation();clearSample(this.dataset.sample, this)">🧹</button>
         <button class="btn small danger si-del" title="${t('rs.del', '删除样品及其全部文件')}"
-                onclick="event.stopPropagation();deleteSample('${esc(s.name)}', this)">🗑</button>
+                data-sample="${esc(s.name)}" onclick="event.stopPropagation();deleteSample(this.dataset.sample, this)">🗑</button>
         <div class="nm"><span>${esc(s.name)}</span><span class="pct">${pct}%</span></div>
         ${s.project ? `<div class="hint" style="margin:2px 0 0">🏷 ${esc(s.project)}</div>` : ''}
         <div class="pr-bar"><div style="width:${pct}%"></div></div>
@@ -1912,6 +2496,7 @@ async function batchCreate(btn) {
       .map(l => l.trim()).filter(l => l && !l.startsWith('#'));
     if (!lines.length) { errBox.textContent = t('pp.needRows', '请至少粘贴一行样品信息'); return; }
     const created = [];
+    const adjusted = [];
     for (const line of lines) {
       const parts = line.split(/\t| {2,}|,/).map(s => s.trim());
       const [sample, r1, r2] = parts;
@@ -1921,10 +2506,16 @@ async function batchCreate(btn) {
         if (res.conn) setConnBanner(true);
         errBox.textContent = `${sample}: ${res.error}`; return;
       }
-      created.push(sample);
+      // 用后端返回的**实际**目录名入队/展示，不用 TSV 里的原始写法
+      created.push(res.data.sample);
+      if (res.data.note) adjusted.push(sample + ' → ' + res.data.sample);
     }
     $('batchText').value = '';
     toast(t('pp.batchCreate'), `${created.length} ${t('dl.samples')}`, {ttl: 4000});
+    if (adjusted.length) {
+      errBox.textContent = t('pp.nameAdjustedN', '')
+        .replace('{n}', adjusted.length) + '：' + adjusted.join('，');
+    }
     loadSamples();
     if ($('batchEnq')?.checked && created.length) {
       try {
@@ -1999,7 +2590,8 @@ async function queueClear() {
 
 async function selectSample(name) {
   curSample = name;
-  try { localStorage.setItem('vp_last_sample', name); } catch (e) {}
+  // 写进全局上下文（跨模块共享）；取代原来只写不读的 vp_last_sample
+  VP_CTX.setSample(name || '');
   loadSamples();
   try {
     const r = await fetch('/api/pipeline/' + encodeURIComponent(name) +
@@ -2009,19 +2601,19 @@ async function selectSample(name) {
   } catch (e) { setConnBanner(true); }
 }
 
-/* 管道 DAG 视图：③组装后的下游分支互不依赖（依赖关系见 vp/pipeline.py STAGE_REGISTRY），
+/* 管道 DAG 视图：③组装后的下游分支互不依赖（依赖关系见 Virus_Platform_Core/pipeline.py STAGE_REGISTRY），
    并排展示为紧凑节点，点击节点展开完整卡片（参数/产物/日志） */
-const PIPE_FANOUT = ['hostana', 'orf', 'orfa', 'phylo', 'primer', 'gbdraw'];
+const PIPE_FANOUT = ['verify', 'consensus', 'hostana', 'orf', 'orfa', 'phylo', 'primer', 'gbdraw'];
 
 /* 分析模板：一键按预设组合运行（stages=null 表示全部可用阶段；
    exclude 表示「全部可用阶段里剔除这些」） */
 const PIPE_TEMPLATES = [
   { id: 'fast', label: '⚡ 快速筛查',
-    tip: '质控 → 宿主去除 → 病毒筛查 → 报告（最快出结果）',
-    stages: ['fastp', 'host', 'virus', 'report'] },
+    tip: '质控 → 宿主去除 → 已知病毒识别与定量 → 报告（最快出结果）',
+    stages: ['fastp', 'host', 'kvsuite', 'report'] },
   { id: 'std',  label: '🎯 标准分析',
-    tip: '质控 → 转换 → 宿主去除 → 病毒筛查 → 组装 → 验证 → ORF → 进化树 → 报告',
-    stages: ['fastp', 'fq2fa', 'host', 'virus', 'assembly', 'verify', 'orf', 'phylo', 'report'] },
+    tip: '质控 → 转换 → 宿主去除 → 已知病毒识别与定量 → 组装 → 验证 → ORF → 进化树 → 报告',
+    stages: ['fastp', 'fq2fa', 'host', 'kvsuite', 'assembly', 'verify', 'orf', 'phylo', 'report'] },
   { id: 'full', label: '🔬 完整注释',
     tip: '全部可用阶段（含宿主预测 / 功能注释 / 引物设计 / 基因组图），不含子采样',
     stages: null, exclude: ['subsample'] },
@@ -2067,14 +2659,17 @@ function renderPipe(d) {
     const isFresh = s.status === 'ready' || s.status === 'skipped';
     const btns = canRun ? `
       <button class="btn small ${isFresh ? 'primary' : ''}"
-              onclick="runStages('${esc(d.sample)}', ['${s.stage}'])">
+              data-sample="${esc(d.sample)}"
+              onclick="runStages(this.dataset.sample, ['${s.stage}'])">
         ${s.status === 'done' ? t('pp.rerun') : t('pp.runThis')}</button>
-      <button class="btn small" onclick="runUpTo('${esc(d.sample)}', '${s.stage}')">
+      <button class="btn small" data-sample="${esc(d.sample)}"
+              onclick="runUpTo(this.dataset.sample, '${s.stage}')">
         ${t('pp.runTo')}</button>` :
       (s.status === 'unavailable' ?
         `<span class="hint" style="margin:0">${t('pp.installHint')}</span>` : '');
     const viewBtn = s.view
-      ? ` <button class="btn small" onclick="previewStageFile('${esc(d.sample)}','${esc(s.dir)}','${esc(s.view.split('/').pop())}','${esc(s.stage)}')">📊 ${t('c.view')}</button>` : '';
+      ? ` <button class="btn small" data-sample="${esc(d.sample)}" data-dir="${esc(s.dir)}" data-view="${esc(s.view.split('/').pop())}" data-stage="${esc(s.stage)}"
+              onclick="previewStageFile(this.dataset.sample,this.dataset.dir,this.dataset.view,this.dataset.stage)">📊 ${t('c.view')}</button>` : '';
     const files = (s.outputs || []).map(o =>
       `<span>📄 ${esc(o.name.split('/').pop())} · ${fmtSize(o.size)}</span>`).join('');
     const params = renderStageParams(s.stage, saved);
@@ -2090,11 +2685,14 @@ function renderPipe(d) {
   };
   const arrow = () => `<div class="pipe-arrow">↓</div>`;
 
-  // 依赖分层：预处理链 → ②病毒筛查 → ③组装 → 下游并行分支 → ⑩报告；
-  // 未来新增的未知阶段兜底追加在报告前
+  // 依赖分层：预处理链 → ②b 已知病毒识别与定量 → ③组装 → 下游并行分支 → ⑩报告；
+  // 未来新增的未知阶段兜底追加在报告前。
+  // 注意：② 病毒筛查（kraken2 分类）已于 2026-09-10 退役，阶段键由 'virus'
+  // 换成 'kvsuite'；这里曾漏改，导致 ②b 卡片既不匹配 byKey.virus、
+  // 也不在 known 集合里，被当成 extras 追加到 ⑩报告**之后**（顺序错乱）。
   const pre = ((d.groups || [])[0] || [null, []])[1].filter(k => byKey[k]).map(k => byKey[k]);
   const fanout = PIPE_FANOUT.map(k => byKey[k]).filter(Boolean);
-  const known = new Set([...pre.map(s => s.stage), 'virus', 'assembly', 'report', ...PIPE_FANOUT]);
+  const known = new Set([...pre.map(s => s.stage), 'kvsuite', 'assembly', 'report', ...PIPE_FANOUT]);
   const extras = d.stages.filter(s => !known.has(s.stage));
 
   let html = `
@@ -2103,23 +2701,24 @@ function renderPipe(d) {
       <div><b style="font-size:17px;color:var(--green-900)">🧪 ${esc(d.sample)}</b>
         <div class="hint" style="margin:4px 0 0">${t('pp.input')}${esc(d.r1 || t('pp.none'))}
           ${d.r2 ? ' ＋ ' + esc(d.r2) : ` ${t('pp.single')}`}</div></div>
-      <button class="btn primary" onclick="runStages('${esc(d.sample)}', null)">
+      <button class="btn primary" data-sample="${esc(d.sample)}"
+              onclick="runStages(this.dataset.sample, null)">
         ${t('pp.runAll')}</button>
     </div>
     <div class="pipe-templates">
       <span class="hint" style="margin:0">${t('pp.tplHint', '分析模板：')}</span>
       ${PIPE_TEMPLATES.map(tpl =>
         `<button class="btn small" title="${esc(tpl.tip)}"
-                 onclick="runTemplate('${esc(d.sample)}', '${tpl.id}')">${esc(tpl.label)}</button>`).join('')}
+                 data-sample="${esc(d.sample)}" onclick="runTemplate(this.dataset.sample, '${tpl.id}')">${esc(tpl.label)}</button>`).join('')}
     </div>`;
 
   if (pre.length) {
     html += `<div class="group-title">${esc(gmap[pre[0].stage] || '')}</div>` +
       pre.map(s => card(s)).join(arrow()) + arrow();
   }
-  if (byKey.virus) {
-    html += `<div class="group-title">${esc(gmap.virus || '')}</div>` +
-      card(byKey.virus) + arrow();
+  if (byKey.kvsuite) {
+    html += `<div class="group-title">${esc(gmap.kvsuite || '')}</div>` +
+      card(byKey.kvsuite) + arrow();
   }
   if (byKey.assembly) {
     html += `<div class="group-title">${esc(gmap.assembly || '')}</div>` + card(byKey.assembly);
@@ -2165,7 +2764,10 @@ const STAGE_PARAMS = {
   host: [
     { id: 'db_host', label: 'pp.db_host', type: 'dir', def: '' },
   ],
-  virus: [
+  /* 病毒参考库目录挂在 ②b 上。以前它挂在已退役的 'virus' 阶段键下，
+     而 pipeline_overview 永远不会产出 'virus' 卡片 → 输入框从不渲染，
+     collectParams 取到 null，用户无法在管道页指定病毒库（只能用默认值）。 */
+  kvsuite: [
     { id: 'db_virus', label: 'pp.db_virus', type: 'dir', def: '' },
   ],
   assembly: [
@@ -2360,6 +2962,11 @@ async function createSample(btn) {
       errBox.textContent = res.error; return;
     }
     $('r1').value = ''; $('r2').value = ''; $('sample').value = '';
+    // 后端可能把样品名规范化过（中文/空格 → '_'）：显式告知实际登记名，
+    // 否则用户以为建的是「样品A」，列表里却是「A」，无从对应。
+    if (res.data && res.data.note) {
+      errBox.textContent = res.data.note;
+    }
     selectSample(res.data.sample);
     loadSamples();
   }, '⏳ 创建中…');
@@ -2389,6 +2996,9 @@ async function buildHostDb(btn) {
     rebuild: $('hostRebuild').checked,
     clean_mid: $('hostCleanMid').checked,
   };
+  /* 输出目录留空 = 后端按物种自动命名 host-db/<TaxID>_<源目录名>_host_db */
+  const outDirEl = $('hostOutDir');
+  if (outDirEl && outDirEl.value.trim()) body.out_dir = outDirEl.value.trim();
   let r;
   try {
     r = await fetch('/api/build_host_db', {
@@ -2399,7 +3009,58 @@ async function buildHostDb(btn) {
   const d = await r.json();
   taskLogOpen.add(d.task);
   startPolling();
-  watchTaskBtn(d.task, btn, '⏳ 建库中…', () => loadDbs());
+  if (d.out_dir && typeof toast === 'function') {
+    toast(t('bd.hostOutTo', '输出目录: ') + d.out_dir, '', {ttl: 5000});
+  }
+  /* 建库成功后后端会把新库设为「当前宿主库」→ 刷新列表与徽章 */
+  watchTaskBtn(d.task, btn, '⏳ 建库中…', () => { loadDbs(); loadHostDbs(); });
+}
+
+/* 宿主库列表：当前生效的 + 已有的（按物种目录），可一键「设为当前」 */
+async function loadHostDbs() {
+  const box = $('hostDbList');
+  if (!box) return;
+  let d;
+  try { d = await (await fetch('/api/host_dbs')).json(); } catch (e) { return; }
+  const items = d.items || [];
+  if (!items.length) {
+    box.innerHTML = `<p class="hint">${t('bd.hostNone', '还没有宿主库。填好基因组与 TaxID 后点「构建宿主库」。')}</p>`;
+    return;
+  }
+  box.innerHTML = items.map(it => {
+    const who = it.taxid
+      ? `${it.species || '?'} <span class="hint">(taxid=${it.taxid})</span>`
+      : `<span class="hint">${t('bd.hostAnon', '身份未记录（无 host_db.json 清单）')}</span>`;
+    const tags = [];
+    if (it.active) tags.push(`<span class="badge ok">${t('bd.hostActive', '当前')}</span>`);
+    if (it.legacy) tags.push(`<span class="badge">${t('bd.hostLegacy', '旧布局')}</span>`);
+    if (it.conflicted) tags.push(`<span class="badge no">${t('bd.hostConflict', '元数据冲突')}</span>`);
+    if (!it.ready) tags.push(`<span class="badge no">${t('bd.hostNotReady', '不完整')}</span>`);
+    const btn = it.active ? ''
+      : ` <button class="btn small" onclick="setHostDb('${(it.selector || it.name).replace(/'/g, "\\'")}', this)">${t('bd.hostUse', '设为当前')}</button>`;
+    const sub = it.conflicted
+      ? `<div class="hint">⚠ seqid2taxid.map 含多个 taxid: ${(it.taxids_in_map || []).join(', ')}</div>`
+      : '';
+    return `<div style="margin:5px 0"><b>${it.name}</b> ${tags.join(' ')} — ${who}${btn}${sub}</div>`;
+  }).join('');
+}
+
+async function setHostDb(name, btn) {
+  const old = btn ? btn.disabled : false;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/set_host_db', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(t('bd.opFail', '操作失败') + ': ' + (d.error || r.status)); return; }
+    if (typeof toast === 'function') {
+      toast(t('bd.hostSwitched', '✔ 当前宿主库已切换: ') + name, '', {ttl: 5000});
+    }
+    loadDbs(); loadHostDbs();
+  } catch (e) {
+    alert(t('bd.connFail', '无法连接平台服务') + ': ' + e);
+  } finally { if (btn) btn.disabled = old; }
 }
 
 async function buildVirusDb(btn) {
@@ -2449,7 +3110,7 @@ async function deleteSample(sample, btn) {
     /* 流程页：删除的是当前选中样品时清除选中态并刷新列表 */
     if (typeof curSample !== 'undefined' && curSample === sample) {
       curSample = null;
-      try { localStorage.removeItem('vp_last_sample'); } catch (e) {}
+      VP_CTX.setSample('');
     }
     loadSamples();   /* 无样品列表容器时内部自动跳过 */
   } catch (e) { btn.disabled = false; setConnBanner(true); }
@@ -2509,7 +3170,7 @@ async function loadHome() {
       fetch('/api/kv_index_list').catch(() => null),
     ]);
     const dbs = await r.json();
-    // 病毒鉴定库（salmon/minibwa 比对索引）不在 /api/dbs 体系内，单独探
+    // 病毒鉴定库（salmon 比对索引）不在 /api/dbs 体系内，单独探
     let kvLibs = [];
     try { kvLibs = ((await rkv.json()).libs) || []; } catch (e) {}
     // 四张库卡均指向 /build（库的查看与构建入口都在那里，与分析流程页无关）
@@ -2530,9 +3191,7 @@ async function loadHome() {
     }).join('');
     // 第 4 张：病毒鉴定库（有库才称就绪）
     const kvSt = kvLibs.length > 0;
-    const kvEng = (kvLibs[0] && kvLibs[0].minibwa && kvLibs[0].salmon) ? 'minibwa+salmon'
-      : (kvLibs[0] && kvLibs[0].salmon ? 'salmon'
-      : (kvLibs[0] && kvLibs[0].minibwa ? 'minibwa' : ''));
+    const kvEng = (kvLibs[0] && kvLibs[0].salmon) ? 'salmon' : '';
     const kvDesc = t('hm.db.kvidx.d') + (kvSt && kvEng ? ` · ${kvEng}` : '');
     html += `<a class="module-card" href="/build">
       <span class="mc-state ${kvSt ? 'st-ok' : 'st-no'}">
@@ -2657,7 +3316,6 @@ const TOOL_REGISTRY = [
   { id: 't-assemble', href: '/tools#t-assemble', ic: '🧩', zh: '③ 病毒组装',         en: '③ Assembly' },
   { id: 't-contigs',  href: '/tools#t-contigs',  ic: '🔎', zh: '④ 病毒 contig 深度分析', en: '④ Contig deep-dive' },
   { id: 't-seqprep',  href: '/tools#t-seqprep',  ic: '⬇', zh: '⑤ 参考序列下载',    en: '⑤ NCBI references' },
-  { id: 't-synteny',  href: '/tools#t-synteny',  ic: '🧬', zh: '⑥ 同属共线性比较',   en: '⑥ Synteny' },
   { id: 't-align',    href: '/tools#t-align',    ic: '🔤', zh: '⑦ 多序列比对/MSA 查看', en: '⑦ MSA viewer' },
   { id: 't-treebuild', href: '/tools#t-treebuild', ic: '🌳', zh: '⑧ 进化树查看器',     en: '⑧ Tree viewer' },
   { id: 't-sdt',      href: '/tools#t-sdt',      ic: '📐', zh: '⑨ SDT 分析和绘制',   en: '⑨ SDT matrix' },
@@ -2710,6 +3368,36 @@ function applyTheme(theme) {
 }
 
 // ---------------- 拖拽文件 → 上传 → 填路径 ----------------
+/* 路径输入框统一接线：粘贴清洗 + 「最近使用」历史下拉。
+   粘贴时把「复制文件地址」的引号 / file:// 前缀裁掉，失焦（change）再兜底
+   洗一遍手输内容；聚焦/点击时弹出该输入框的历史路径，点选即回填。 */
+function wirePathInput(input) {
+  if (input.dataset.pathWired) return;
+  input.dataset.pathWired = '1';
+  input.addEventListener('paste', e => {
+    const cd = e.clipboardData || window.clipboardData;
+    const txt = cd ? cd.getData('text') : null;
+    if (txt == null) return;
+    const clean = cleanPathText(txt);
+    if (clean && clean !== txt) {
+      e.preventDefault();
+      input.value = clean;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  input.addEventListener('change', () => {
+    const clean = cleanPathText(input.value);
+    if (clean && clean !== input.value) input.value = clean;
+    pushPathHist(input.id, input.value);
+  });
+  input.addEventListener('focus', () => showPathHist(input));
+  input.addEventListener('click', () => showPathHist(input));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePathHist();
+  });
+}
+
 function wireDropzones() {
   document.querySelectorAll('.filerow').forEach(row => {
     if (row.dataset.dropWired) return;
@@ -2717,6 +3405,7 @@ function wireDropzones() {
     if (!input) return;
     row.classList.add('drop-able');
     row.dataset.dropWired = '1';
+    wirePathInput(input);
     row.addEventListener('dragover', e => {
       if ([...(e.dataTransfer.types || [])].includes('Files')) {
         e.preventDefault();
@@ -2738,6 +3427,7 @@ function wireDropzones() {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || 'upload failed');
         input.value = d.path;
+        pushPathHist(input.id, d.path);
         input.placeholder = old;
         toast(t('dz.ok', '已导入上传文件'), `${file.name} → ${d.path}`, {ttl: 4000});
       } catch (err) {
@@ -2746,6 +3436,9 @@ function wireDropzones() {
       }
     });
   });
+  // 设置页的目录输入框（.s-ctrl，多数未写 type=text）不拖文件，
+  // 但同样支持粘贴路径自动清洗
+  document.querySelectorAll('.s-ctrl input').forEach(wirePathInput);
 }
 
 // ---------------- 序列查看器（专项分析页） ----------------
@@ -2818,6 +3511,9 @@ window.addEventListener('DOMContentLoaded', () => {
   wireDropzones();
   wireStars();
   renderFavStrip();
+  // 全局上下文（当前样品/项目）接线 + 上一轮全局清理结果回显。
+  // 放最后：各页自身的 init（loadSamples / 下拉填充）已完成，接线不会互相踩。
+  gxApplyPage();
 });
 
 // ---------------- 收藏星渲染（专项分析各工具卡标题） ----------------
@@ -2956,32 +3652,6 @@ async function gbImport(btn) {
   } catch (e) { alert('无法连接平台服务: ' + e); }
 }
 
-async function runCompareFor(name, btn) {
-  try {
-    const r = await fetch('/api/compare/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ collection: name,
-                             min_ident: parseFloat(_v('s_min_ident')) || 0.30,
-                             min_cov: parseFloat(_v('s_min_cov')) || 0.50 })});
-    if (!r.ok) { alert('启动失败: ' + ((await r.json()).error || '')); return; }
-    const d = await r.json();
-    _watchTask(d.task, () => { loadGbCollections(); loadSyntenyResult(name); }, btn, '⏳ 比较中…');
-  } catch (e) { alert('无法连接平台服务: ' + e); }
-}
-
-/* 页内结果展示：读 /api/compare/preview 把共线性图 + 成对表 + 家族表内嵌到卡内 */
-async function loadSyntenyResult(name) {
-  const box = $('syntenyResult');
-  if (!box) return;
-  if (!name) { box.innerHTML = '<p class="hint">选择集合点「▶ 比较」查看结果</p>'; return; }
-  try {
-    const r = await fetch('/api/compare/preview?name=' + encodeURIComponent(name));
-    if (!r.ok) { box.innerHTML = '<p class="hint">（暂无可展示的结果，先运行比较）</p>'; return; }
-    const d = await r.json();
-    box.innerHTML = '<div style="max-height:600px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:12px;background:#fff">' + (d.html || '<p class="hint">无内容</p>') + '</div>';
-  } catch (e) { box.innerHTML = '<p class="hint">结果加载失败: ' + e + '</p>'; }
-}
-
 /* ================= CDS/PEP 提取（PhyloSuite 布局） ================= */
 async function gbExtract(name, btn) {
   try {
@@ -2996,18 +3666,6 @@ async function gbExtract(name, btn) {
       loadGbCollections();
     }, btn, '⏳ 提取中…');
   } catch (e) { alert('无法连接平台服务: ' + e); }
-}
-
-/* 集合列表「🌳 建树」按钮：切换到进化树构建卡并选中该集合 */
-async function tbBuildFor(name, btn) {
-  const sel = $('tbColl');
-  if (sel) {
-    await loadTbColls();
-    sel.value = name;
-  }
-  location.hash = '#t-treebuild';
-  if (typeof renderModuleTree === 'function') renderModuleTree();
-  await tbBuild(btn);
 }
 
 /* 显式巡检：重解析全部 .gb，重建清单与警告（列表页只读已生成的清单） */
@@ -3042,7 +3700,7 @@ async function gbBuildTree(name, btn) {
     const mol = ($('tbSelectedMol')?.value) || 'CDS';
     const seqs = src === 'aligned'
       ? (_v('tbAlignedPath') || '')
-      : `databases/misc/gb/${name}/extract/selected/${mol}.fa`;
+      : `run/gb_collections/${name}/extract/selected/${mol}.fa`;
     if (!seqs) { alert('请填写已比对 FASTA 路径（或到「序列比对」卡打开后点「用刚才的比对」）'); return; }
     const method = treeTool === 'nj' ? 'nj' : 'fasttree';
     const r = await fetch('/api/tool/run', {
@@ -3078,6 +3736,20 @@ function tbUseAlPath() {
   if (inp) inp.value = p;
 }
 
+/* 建树卡 → 比对卡：带着集合/分组跳到「序列比对」的比对查看器看建树比对 */
+function tbSendToAlign() {
+  const coll = _v('tbColl');
+  if (!coll) { alert('请先选择 GenBank 集合（或到「序列比对」卡直接挑比对）'); return; }
+  const sample = 'gb:' + coll;
+  location.hash = '#t-align';
+  const sel = $('alSample');
+  if (!sel) return;
+  const opt = Array.from(sel.options).find(o => o.value === sample);
+  if (!opt) { alert('该集合还没有比对产物（先在本卡完成一次建树）'); return; }
+  sel.value = sample;
+  alPickGroups();
+}
+
 /* 比对卡来源切换：全长序列 / 挑选序列集 / 手填 */
 function alSourceChanged() {
   const src = ($('alSource') && $('alSource').value) || 'manual';
@@ -3094,10 +3766,10 @@ async function alFillFromSource() {
   const inp = $('al_fa');
   if (!inp) return;
   if (src === 'genome') {
-    inp.value = `databases/misc/gb/${coll}/extract/genome.fa`;
+    inp.value = `run/gb_collections/${coll}/extract/genome.fa`;
   } else {
     const mol = ($('alSelMol')?.value) || 'CDS';
-    inp.value = `databases/misc/gb/${coll}/extract/selected/${mol}.fa`;
+    inp.value = `run/gb_collections/${coll}/extract/selected/${mol}.fa`;
   }
 }
 
@@ -3113,23 +3785,12 @@ async function loadAlColls() {
   } catch (e) { sel.innerHTML = '<option value="">（无法连接）</option>'; }
 }
 
-/* 「▶ 比较」实际使用的阈值/风格来自上方表单——在集合表上方实时提示 */
-function updateGbParamHint() {
-  const el = $('gbParamHint');
-  if (!el) return;
-  const mi = _v('s_min_ident') || '0.30', mc = _v('s_min_cov') || '0.50';
-  el.innerHTML = `「▶ 比较」以 <b>LoVis4u</b> 出图（不可用时自动回退内置绘图）；` +
-    `蛋白聚类参数：identity ≥ ${esc(mi)} · 双侧覆盖度 ≥ ${esc(mc)}。` +
-    `建树请用「进化树构建（科/属级）」卡。`;
-}
-
 async function loadGbCollections() {
   /* 集合列表双渲染：
-     #gbCollections（同属共线性比较卡）= ▶ 比较 / 🌳 建树 + 结果链接；
-     #gbCollectionsMgmt（GenBank 集合管理卡）= 🔍 巡检。 */
-  const cmpBox = $('gbCollections'), mgmtBox = $('gbCollectionsMgmt');
-  if (!cmpBox && !mgmtBox) return;
-  updateGbParamHint();
+     #gbCollectionsMgmt（GenBank 集合管理卡）= 🧬 提取 / 🔍 巡检；
+     #gbWarnings = 巡检警告汇总。 */
+  const mgmtBox = $('gbCollectionsMgmt');
+  if (!mgmtBox) return;
   try {
     const cols = await (await fetch('/api/gb/collections')).json();
     const gbRow = c => {
@@ -3138,8 +3799,6 @@ async function loadGbCollections() {
         : (c.source === 'accessions' ? esc(c.accessions) + ' 个 accession' : '本机导入');
       const cmp = `/compare/${encodeURIComponent(c.name)}`;
       const results = [
-        c.has_compare ? `<a href="${cmp}/" target="_blank">📊 共线性图</a>` : '',
-        c.has_lovis4u ? `<a href="${cmp}/lovis4u.pdf" target="_blank">📄 PDF</a>` : '',
         c.has_phylo ? `<a href="/results#msa" title="结果中心查看比对/树/SDT">🌳 MSA·树</a>` : '',
       ].filter(Boolean).join(' ') || '—';
       const warnN = (c.warnings || []).length;
@@ -3154,24 +3813,10 @@ async function loadGbCollections() {
         '<tr><th>集合</th><th>记录数</th><th>CDS 数</th><th>来源</th><th>日期</th><th>结果</th><th></th></tr>' +
         rows.join('') + '</table>'
       : '<p class="hint">（暂无集合）</p>';
-    if (cmpBox) {
-      cmpBox.innerHTML = mkTable(cols.map(c => gbRow(c).replace('[[ACTIONS]]',
-        `<button class="btn small primary" data-name="${esc(c.name)}" onclick="runCompareFor(this.dataset.name, this)">▶ 比较</button> ` +
-        `<button class="btn small" data-name="${esc(c.name)}" onclick="tbBuildFor(this.dataset.name, this)" title="到「进化树构建」卡用该集合建树">🌳 建树</button>`)));
-    }
     if (mgmtBox) {
       mgmtBox.innerHTML = mkTable(cols.map(c => gbRow(c).replace('[[ACTIONS]]',
         `<button class="btn small primary" data-name="${esc(c.name)}" onclick="gbExtract(this.dataset.name, this)" title="提取 genome / CDS / PEP（分类分目录 + 按基因拆分）">🧬 提取</button> ` +
         `<button class="btn small" data-name="${esc(c.name)}" onclick="gbInspect(this.dataset.name, this)" title="重解析全部 .gb，重建清单与警告">🔍 巡检</button>`)));
-    }
-    // 共线性比较卡的集合选择下拉（#synColl）
-    const synSel = $('synColl');
-    if (synSel) {
-      const curSyn = synSel.value;
-      synSel.innerHTML = '<option value="">（选择集合）</option>' +
-        cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}（${c.n_records} 条）</option>`).join('');
-      if (curSyn && cols.some(c => c.name === curSyn)) synSel.value = curSyn;
-      else if (cols.length === 1) synSel.value = cols[0].name;
     }
     const wbox = $('gbWarnings');
     if (wbox) {
@@ -3182,15 +3827,10 @@ async function loadGbCollections() {
         c.warnings.map(w => `<li>${esc(w)}</li>`).join('') + '</ul></details>').join('');
     }
   } catch (e) {
-    if (cmpBox) cmpBox.innerHTML = '<p class="hint">加载失败</p>';
     if (mgmtBox) mgmtBox.innerHTML = '<p class="hint">加载失败</p>';
   }
 }
 
-['s_min_ident', 's_min_cov', 's_style', 's_lovis4u'].forEach(id => {
-  const el = $(id);
-  if (el) el.addEventListener('change', updateGbParamHint);
-});
 loadNcbiCollections();
 loadGbCollections();
 ictvCascadeRefetch();
@@ -3346,90 +3986,40 @@ function renderTreeTo(box, newick, opts) {
   return tips;
 }
 
-/* ---- ⑦ MSA 卡片 ---- */
-let msData = null, msPageNo = 0, msRun = null;
-
-async function msaRunAlign(btn) {
-  const seqs = _v('ms_fa');
-  if (!seqs) { alert('请选择或粘贴 FASTA（≥2 条序列）'); return; }
-  try {
-    const r = await fetch('/api/tool/run', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool: 'structcmp',
-                             params: { seqs, max_n: +_v('ms_maxn') || 30 } })});
-    if (!r.ok) { alert('启动失败: ' + ((await r.json()).error || '')); return; }
-    const d = await r.json();
-    msRun = d.run;
-    _watchTask(d.task, () => msaToolLoadRun(), btn, '⏳ 比对中…');
-  } catch (e) { alert('无法连接平台服务: ' + e); }
-}
-
-async function msaToolLoadRun() {
-  try {
-    const r = await fetch(`/api/tool/msa_data?run=${encodeURIComponent(msRun)}`);
-    if (!r.ok) { $('msBox').innerHTML = '<p class="hint" style="color:#b91c1c">' + esc((await r.json()).error || '加载失败') + '</p>'; return; }
-    msData = await r.json();
-    msPageNo = 0;
-    $('msDl').innerHTML = `<a class="btn small" href="/tool_runs/${encodeURIComponent(msRun)}/aln.fasta" download>⬇ 下载比对 aln.fasta（运行 ${esc(msRun)}）</a>`;
-    msaToolRender();
-  } catch (e) { $('msBox').innerHTML = '<p class="hint" style="color:#b91c1c">无法连接: ' + esc(e) + '</p>'; }
-}
-
-async function msaToolLoadGroups() {
-  const s = _v('msSample'), sel = $('msGroup');
+/* ---- ② 比对查看器：从样品 / 集合直接选比对 ---- */
+async function alPickGroups() {
+  const s = _v('alSample'), sel = $('alGroup');
   if (!s) { sel.innerHTML = '<option value="">（先选样品）</option>'; return; }
   const list = await fetchSampleList();
   const item = list.find(x => x.sample === s);
   sel.innerHTML = (item?.groups || []).map(g =>
     `<option value="${esc(g.group)}">${esc(g.group)}${g.aln === 'trim' ? '（清剪后）' : ''}</option>`).join('')
     || '<option value="">（该样品没有比对）</option>';
-  if (sel.value) msaToolView();
+  if (sel.value) alPickView();
 }
 
-async function msaToolView() {
-  const s = _v('msSample'), g = _v('msGroup');
-  const box = $('msBox');
+async function alPickView() {
+  const s = _v('alSample'), g = _v('alGroup');
   if (!s || !g) return;
+  const box = $('alBox');
   box.innerHTML = '<p class="hint">加载中…</p>';
   try {
-    const r = await fetch(`/api/msa/data?sample=${encodeURIComponent(s)}&group=${encodeURIComponent(g)}`);
+    const r = await fetch(`/api/msa/path?sample=${encodeURIComponent(s)}&group=${encodeURIComponent(g)}`);
     if (!r.ok) { box.innerHTML = '<p class="hint" style="color:#b91c1c">' + esc((await r.json()).error || '加载失败') + '</p>'; return; }
-    msData = await r.json(); msRun = null; msPageNo = 0;
-    $('msDl').innerHTML = '';
-    msaToolRender();
+    const d = await r.json();
+    $('alPath').value = d.path || '';
+    await alignLoad();
   } catch (e) { box.innerHTML = '<p class="hint" style="color:#b91c1c">无法连接: ' + esc(e) + '</p>'; }
 }
 
-function msaToolRender() {
-  const box = $('msBox');
-  if (!msData) { box.innerHTML = `<p class="hint">${t('c.noData2')}</p>`; $('msNav').style.display = 'none'; return; }
-  if (!msData.n_snp) {
-    box.innerHTML = `<p class="hint">${t('c.noSnp')}</p>`;
-    $('msNav').style.display = 'none'; $('msMeta').textContent = ''; return;
-  }
-  const out = snpTableHtml(msData, +_v('msCols') || 100, msPageNo,
-                           $('msCons').checked, $('msDiv').checked);
-  box.innerHTML = out.html;
-  $('msNav').style.display = '';
-  $('msPageInfo').textContent = out.info;
-  $('msMeta').textContent = out.meta;
-}
-
-function msaToolPage(d) {
-  if (!msData) return;
-  const nChunks = Math.max(1, Math.ceil(msData.n_snp / (+_v('msCols') || 100)));
-  msPageNo = Math.min(nChunks - 1, Math.max(0, msPageNo + d));
-  msaToolRender();
-}
-
-async function msaToolInit() {
-  const sel = $('msSample');
+async function alPickInit() {
+  const sel = $('alSample');
   if (!sel) return;
   const list = await fetchSampleList();
   sel.innerHTML = list.length
     ? list.map(x => `<option value="${esc(x.sample)}">${esc(sampleLabel(x))}</option>`).join('')
     : '<option value="">（暂无比对结果）</option>';
-  if (sel.value) msaToolLoadGroups();
+  if (sel.value) alPickGroups();
 }
 
 /* ---- ⑧ 进化树查看器卡片 ---- */
@@ -3753,7 +4343,7 @@ async function sdtToolInit() {
   if (sel.value) sdtToolLoadGroups();
 }
 
-msaToolInit();
+alPickInit();
 treeToolInit();
 sdtToolInit();
 
@@ -3898,3 +4488,139 @@ loadStoragePanel(0);
   };
   tick();
 })();
+
+/* ── 样品选择对话框 + 按样品批量运行（tools / host_removal 等页共用）── */
+
+async function kvPickSamples(targetId) {
+  const target = $(targetId) ? targetId : 'kv_samples';
+  // 拉样品列表 → 弹窗多选（复选框）
+  let list = [];
+  try {
+    const r = await fetch('/api/samples');
+    list = await r.json();
+  } catch (e) { alert('无法获取样品列表: ' + e); return; }
+  if (!list.length) { alert('尚无样品，请先到「样品创建 / 批量导入」创建'); return; }
+  const cur = new Set((val(target) || '').split(',').map(s => s.trim()).filter(Boolean));
+  // 全局上下文（顶部导航）：当前样品默认勾上、当前项目默认作为筛选条件，
+  // 省掉"切到本模块后重新找一遍样品"的重复操作。
+  const gxSample = (window.VP_CTX && VP_CTX.sample) || '';
+  const gxProject = (window.VP_CTX && VP_CTX.project) || '';
+  if (gxSample && !cur.size && list.some(x => x.name === gxSample)) cur.add(gxSample);
+  const html = `
+    <div style="padding:4px 2px">
+      <p class="hint" style="margin:0 0 8px">${t('tk.pickSamplesHintPre', '勾选要分析的样品（已选 ')}${cur.size}）</p>
+      <div class="filerow" style="margin:0 0 8px">
+        <select id="kvPickProj" style="flex:1">
+          <option value="">${t('gx.allProjects', '全部项目')}</option>
+          ${[...new Set(list.map(x => x.project).filter(Boolean))].sort()
+              .map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="scroll-md" style="border:1px solid var(--line);border-radius:6px">
+        <table class="tbl" style="margin:0">
+          <thead><tr><th style="width:40px">${t('tk.thPick', '选')}</th><th>${t('tk.thSampleName', '样品名')}</th><th>${t('tk.thProject', '项目')}</th><th>${t('c.thStatus', '状态')}</th></tr></thead>
+          <tbody>${list.map((x, i) => `
+            <tr data-proj="${esc(x.project || '')}">
+              <td><input type="checkbox" class="kv-pick" value="${esc(x.name)}" ${cur.has(x.name) ? 'checked' : ''}></td>
+              <td class="mono">${esc(x.name)}</td>
+              <td>${esc(x.project || '')}</td>
+              <td>${esc((x.last_status || '') + ' ' + (x.done || 0) + '/' + (x.total || 0))}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn primary" id="kvPickOk">${t('c.ok', '确定')}</button>
+        <button class="btn" id="kvPickCancel">${t('c.cancel', '取消')}</button>
+        <button class="btn small" id="kvPickAll">${t('c.selectAll', '全选')}</button>
+        <button class="btn small" id="kvPickNone">${t('c.clearAll', '清空')}</button>
+      </div>
+    </div>`;
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:var(--bg-card,#fff);border-radius:10px;padding:16px;min-width:520px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.25)';
+  panel.innerHTML = html;
+  box.appendChild(panel);
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  panel.querySelector('#kvPickCancel').onclick = close;
+  // 项目筛选：默认落到全局当前项目；全选/清空只作用于当前可见（已筛选）的行
+  const projSel = panel.querySelector('#kvPickProj');
+  if (projSel && gxProject
+      && [...projSel.options].some(o => o.value === gxProject)) {
+    projSel.value = gxProject;
+  }
+  const applyProj = () => {
+    const p = projSel ? projSel.value : '';
+    panel.querySelectorAll('tbody tr[data-proj]').forEach(tr => {
+      tr.style.display = (!p || tr.dataset.proj === p) ? '' : 'none';
+    });
+  };
+  if (projSel) projSel.onchange = applyProj;
+  applyProj();
+  panel.querySelector('#kvPickAll').onclick = () =>
+    panel.querySelectorAll('tbody tr[data-proj]').forEach(tr => {
+      if (tr.style.display !== 'none') tr.querySelector('.kv-pick').checked = true;
+    });
+  panel.querySelector('#kvPickNone').onclick = () =>
+    panel.querySelectorAll('tbody tr[data-proj]').forEach(tr => {
+      if (tr.style.display !== 'none') tr.querySelector('.kv-pick').checked = false;
+    });
+  panel.querySelector('#kvPickOk').onclick = () => {
+    const picked = [...panel.querySelectorAll('.kv-pick:checked')].map(c => c.value);
+    $(target).value = picked.join(',');
+    close();
+  };
+  box.onclick = ev => { if (ev.target === box) close(); };
+}
+
+/* ── 按样品批量运行（样品级模块通用）──────────────────────────
+   样品名列表（逗号分隔，📋 多选对话框带项目筛选）→ 逐个读样品登记的
+   R1/R2 → 逐个提交工具任务。任务服务器自带排队（heavy 顺序执行），
+   任务中心每样品一张卡，输入/输出/进度天然按样品衔接。
+   makeParams(name, info) 返回该样品的任务参数；返回 null 或抛错则跳过。 */
+async function batchRunForSamples(btn, tool, field, makeParams) {
+  const names = (val(field) || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!names.length) { alert(t('tk.batchNeed', '请先用 📋 选择样品（可按项目全选）')); return; }
+  return withBtn(btn, async () => {
+    let ok = 0;
+    const skip = [];
+    for (const nm of names) {
+      let d;
+      try {
+        const r = await fetch('/api/pipeline/' + encodeURIComponent(nm));
+        if (!r.ok) { skip.push(nm + '(' + t('c.loadFail', '加载失败') + ')'); continue; }
+        d = await r.json();
+      } catch (e) { skip.push(nm + '(' + t('sc.connFail', '连接失败') + ')'); continue; }
+      let p = null;
+      try { p = makeParams(nm, d); } catch (e) { skip.push(nm + '(' + e.message + ')'); continue; }
+      if (!p) continue;
+      try {
+        const r = await fetch('/api/tool/run', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool, params: p }) });
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          skip.push(nm + '(' + (e.error || t('tk.batchSubmitFail', '提交失败')) + ')');
+          continue;
+        }
+        ok++;
+      } catch (e) { skip.push(nm + '(' + t('sc.connFail', '连接失败') + ')'); }
+    }
+    if (typeof startPolling === 'function') startPolling();
+    toast(t('tk.batchDone', '批量提交'),
+      t('tk.batchSummary', '已提交 {n} 个任务（任务中心看进度）')
+        .replace('{n}', ok)
+      + (skip.length ? '；' + t('tk.batchSkipped', '跳过') + ' ' + skip.length
+        + '：' + skip.join('、') : ''),
+      { ttl: 8000 });
+  }, t('tk.batchSubmitting', '⏳ 提交中…'));
+}
+
+/* 按样品登记的输入构造 r1/r2 参数（双端 {r1,r2}；单端 {r1}） */
+function _peParams(nm, d) {
+  if (!d.r1) throw new Error(t('tk.batchNoInput', '样品无输入序列'));
+  return d.r2 ? { r1: d.r1, r2: d.r2 } : { r1: d.r1 };
+}
+

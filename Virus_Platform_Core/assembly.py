@@ -12,66 +12,172 @@ import csv
 import glob
 import shutil
 
-from .config import get_config, DIRS
+from .config import get_config, DIRS, ref_annotation_path
 from .utils import (check_path, safe_open, run_cmd, iter_fasta, write_fasta_record,
                     count_fasta_seqs, is_step_done, mark_step_done)
 from .kunpeng import classify, parse_classify_output, parse_kreport, KreportTree
 
 def _ascii_work_base(name='vp_blast'):
-    """BLAST(LMDB) 不支持中文路径：返回纯 ASCII 持久工作目录。"""
+    """BLAST(LMDB)/mafft 不支持中文路径：返回纯 ASCII 持久工作目录。
+
+    候选顺序：%TEMP%（ASCII 时）→ 系统盘根 vp_ascii_tmp → C:\\Windows\\Temp。
+    C:\\Windows\\Temp 普通用户通常无写权限，只作最后兜底；全部失败时抛
+    带指引的错误，而不是让 makedirs 在半路抛难懂的 PermissionError。
+    """
     import tempfile
-    cand = os.path.abspath(tempfile.gettempdir())
-    if not (os.path.isdir(cand) and all(ord(c) < 128 for c in cand)):
-        cand = r'C:\Windows\Temp'
-    d = os.path.join(cand, name)
-    os.makedirs(d, exist_ok=True)
-    return d
+    cands = []
+    t = os.path.abspath(tempfile.gettempdir())
+    if all(ord(c) < 128 for c in t):
+        cands.append(t)
+    drv = (os.environ.get('SYSTEMDRIVE') or 'C:').rstrip('\\') or 'C:'
+    cands.append(os.path.join(drv + os.sep, 'vp_ascii_tmp'))
+    cands.append(r'C:\Windows\Temp')
+    last_err = None
+    for cand in cands:
+        if not os.path.isdir(cand):
+            continue
+        d = os.path.join(cand, name)
+        try:
+            os.makedirs(d, exist_ok=True)
+            return d
+        except OSError as e:
+            last_err = e
+            continue
+    raise RuntimeError(
+        f'找不到可写的纯 ASCII 临时目录（外部工具不支持中文路径）。'
+        f'请设置环境变量 TEMP 指向纯 ASCII 路径后重试（最后错误: {last_err}）')
 
 def find_virus_ref_fasta():
-    """定位病毒参考 FASTA（virus-db 下第一个 .fasta/.fa/.fna）。"""
+    """定位病毒参考 FASTA。
+
+    解析顺序：病毒源参考根 databases/virusref_db 下第一个 .fasta/.fa/.fna
+    → 默认鉴定库 kv_index/reference.fasta（库自包含布局后的常驻位置）。
+    """
     src = check_path(DIRS['virus_src'], must_exist=True)
     for pat in ('*.fasta', '*.fa', '*.fna', '*.fas'):
         hits = sorted(glob.glob(os.path.join(src, pat)))
         if hits:
             return check_path(hits[0], must_exist=True)
+    # 库自包含布局（kv_index/reference.fasta）：顶层散置 FASTA 已不存在
+    try:
+        from .kv_stage import default_reference
+        ref = default_reference()
+        if ref and os.path.isfile(ref):
+            return check_path(ref, must_exist=True)
+    except ImportError:
+        pass
     raise FileNotFoundError(f"{src} 下未找到病毒参考 FASTA")
 
-def ensure_virus_blast_db(logger=None):
-    """构建/复用病毒参考 BLAST 库（ASCII 路径，绕开 LMDB 中文路径缺陷）。"""
-    cfg = get_config()
-    makeblastdb = cfg.tool('makeblastdb')
-    ref = find_virus_ref_fasta()
-    db_dir = _ascii_work_base('vp_blast')
-    prefix = os.path.join(db_dir, 'virus')
-    # 版本戳：记录参考 FASTA 的 mtime+大小；源文件更新后自动重建 BLAST 库
-    stamp = os.path.join(db_dir, 'virus.stamp')
-    cur_sig = f'{os.path.getmtime(ref):.0f}:{os.path.getsize(ref)}'
-    if glob.glob(prefix + '.n??'):
-        old_sig = None
+# ------------------------------------------------------------------ BLAST 库
+def _blast_db_sig(path):
+    """库版本戳：源 FASTA 的 `大小|mtime`。取不到返回 ''（视为需重建）。"""
+    try:
+        st = os.stat(path)
+        return f'{st.st_size}|{int(st.st_mtime)}'
+    except OSError:
+        return ''
+
+
+def _db_present(prefix):
+    """库文件是否齐（v4: .nhr/.nin/.nsd…；v5: .ndb/.njs/.not…，都是 `.n??`）。"""
+    return bool(glob.glob(prefix + '.n??'))
+
+
+def _drop_db(prefix):
+    """删掉库的全部 .n* 文件（含 v4 遗留的 `.njs.lmdb-disabled`）。"""
+    for p in glob.glob(prefix + '.n*'):
         try:
-            with open(stamp) as sf:
-                old_sig = sf.read().strip()
+            os.remove(p)
         except OSError:
             pass
-        if old_sig == cur_sig:
-            return prefix
-        if logger:
-            logger.log("病毒参考 FASTA 已更新，重建 BLAST 库")
-        for f in glob.glob(prefix + '.*'):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+
+
+def _disable_lmdb_journal(prefix):
+    """v4 库 makeblastdb 也会顺带生成 `.njs`；改名禁用它。
+
+    留着不影响使用，但改名更保险（同 viroids_v4 的做法，见
+    docs/DEVELOPMENT_NOTES.md 第五十九节）。
+    """
+    njs = prefix + '.njs'
+    if not os.path.isfile(njs):
+        return
     try:
-        with open(stamp, 'w') as sf:
-            sf.write(cur_sig)
+        dst = njs + '.lmdb-disabled'
+        if os.path.exists(dst):
+            os.remove(dst)
+        os.replace(njs, dst)
     except OSError:
         pass
-    if logger:
-        logger.log(f"构建病毒 BLAST 库: {ref} -> {prefix}")
-    run_cmd([makeblastdb, '-in', ref, '-dbtype', 'nucl', '-out', prefix,
-             '-title', 'virus_ref'], logger=logger)
+
+
+def makeblastdb_nucl(prefix, ref, title, logger=None, v4=True):
+    """建核酸 BLAST 库，返回 prefix。
+
+    v4=True → 加 `-blastdb_version 4`，**任意路径可用**。v5 的 LMDB 后端在含
+    中文的路径下打不开（`mdb_env_open: 系统找不到指定的路径`），历史上只能把库
+    建到 ASCII 临时目录；v4 没这个限制，所以**随包分发的预置库一律用 v4**——
+    安装到哪个盘都行，也不再依赖 %TEMP%。
+    """
+    cmd = [get_config().tool('makeblastdb'), '-in', ref, '-dbtype', 'nucl',
+           '-out', prefix, '-title', title]
+    if v4:
+        cmd += ['-blastdb_version', '4']
+    run_cmd(cmd, logger=logger)
+    if v4:
+        _disable_lmdb_journal(prefix)
     return prefix
+
+
+def _rebuild_if_stale(prefix, ref, title, logger=None, v4=True, tag=''):
+    """`prefix` 处库可用且戳未过期 → 直接返回；否则重建。返回 prefix。"""
+    sig = _blast_db_sig(ref)
+    stamp = prefix + '.stamp'
+    if _db_present(prefix):
+        old = ''
+        try:
+            with open(stamp) as sf:
+                old = sf.read().strip()
+        except OSError:
+            pass
+        if old == sig:
+            return prefix
+        if logger:
+            logger.log(f'{tag or prefix} 的源 FASTA 已更新，重建 BLAST 库')
+        _drop_db(prefix)
+    if logger:
+        logger.log(f'构建 {tag or "病毒"} BLAST 库'
+                   f'（{"v4" if v4 else "v5"}）: {ref} -> {prefix}')
+    makeblastdb_nucl(prefix, ref, title, logger=logger, v4=v4)
+    try:
+        with open(stamp, 'w') as sf:
+            sf.write(sig)
+    except OSError:
+        pass
+    return prefix
+
+
+def ensure_virus_blast_db(logger=None):
+    """病毒参考核酸 BLAST 库前缀（`local_search._nuc_db()` 用）。
+
+    优先级：
+      ① **随包预置的 v4 库** `databases/virusref_db/blast/virus.*`
+         —— 安装后零构建、不依赖 %TEMP%、也不受安装路径是否含中文影响；
+      ② 预置库缺失/过期 → **就地重建 v4**（含中文的路径照样能建、能用）；
+      ③ 预置目录不可写（只读介质等）→ 回退 ASCII 临时目录建 v5（历史行为）。
+    """
+    ref = find_virus_ref_fasta()
+    prefix = os.path.join(DIRS['virus_src'], 'blast', 'virus')
+    try:
+        os.makedirs(os.path.dirname(prefix), exist_ok=True)
+        return _rebuild_if_stale(prefix, ref, 'virus_ref', logger=logger,
+                                 v4=True, tag='病毒参考(virus)')
+    except Exception as e:                       # 只读介质 / 权限不足
+        if logger:
+            logger.log(f'预置目录建库失败（{e}），回退 ASCII 临时目录（v5）',
+                       'WARN')
+    return _rebuild_if_stale(os.path.join(_ascii_work_base('vp_blast'), 'virus'),
+                             ref, 'virus_ref', logger=logger, v4=False,
+                             tag='病毒参考(virus)·临时')
 
 def _is_ascii(p):
     return all(ord(c) < 128 for c in str(p))
@@ -107,9 +213,20 @@ def _seq_file_kind(path):
     elif base.endswith(('.fasta', '.fa', '.fna', '.fas')):
         kind = 'fasta'
 
-    # 若非 gz，尝试从内容嗅探修正（扩展名可能被改错）
-    if not is_gz:
-        try:
+    # 内容嗅探：扩展名可能被改错（用户把 FASTA 存成 .fastq.gz），
+    # 所以 gz 也要嗅探——否则扩展名直接决定 kind，SPAdes 会因
+    # "reads should be in FASTQ format" 崩溃。
+    try:
+        if is_gz:
+            import gzip as _gz
+            with _gz.open(path, 'rt', encoding='utf-8', errors='replace') as fh:
+                first = ''
+                for ln in fh:
+                    s = ln.strip()
+                    if s:
+                        first = s
+                        break
+        else:
             with open(path, 'r', encoding='utf-8', errors='replace') as fh:
                 first = ''
                 for ln in fh:
@@ -117,12 +234,12 @@ def _seq_file_kind(path):
                     if s:
                         first = s
                         break
-            if first.startswith('>'):
-                kind = 'fasta'
-            elif first.startswith('@'):
-                kind = 'fastq'
-        except OSError:
-            pass
+        if first.startswith('>'):
+            kind = 'fasta'
+        elif first.startswith('@'):
+            kind = 'fastq'
+    except OSError:
+        pass
     return is_gz, kind
 
 def _shim_name(src, role):
@@ -149,13 +266,15 @@ def _spades_tmp_base():
     """SPAdes Windows 版不支持非 ASCII 路径：返回纯 ASCII 临时工作根目录。
 
     仅允许 %TEMP%（通常为 C:\\Users\\<user>\\AppData\\Local\\Temp）；
-    若 TEMP 含非 ASCII 则回退固定盘根 C:\\vp_spades_tmp。
+    若 TEMP 含非 ASCII 则回退系统盘根下的固定目录（原 C:\\vp_spades_tmp
+    硬编码 C 盘，装在其它盘的机器上可能没有 C 盘写权限）。
     """
     import tempfile
     cand = os.path.abspath(tempfile.gettempdir())
     if os.path.isdir(cand) and _is_ascii(cand):
         return os.path.join(cand, 'vp_spades')
-    return r'C:\vp_spades_tmp'
+    drv = (os.environ.get('SYSTEMDRIVE') or 'C:').rstrip('\\') or 'C:'
+    return os.path.join(drv + os.sep, 'vp_spades_tmp')
 
 def _spades_monitor(spades_dir, mode, progress):
     """SPAdes 看门狗：解析 spades.log 的 Assembling k=xx 行数估算进度。
@@ -190,8 +309,6 @@ def run_spades(r1, r2, out_dir, mode='metaviral', threads=None, memory_gb=64,
     的"染色体外元件"筛选门槛较严），自动清空输出并用 rna 模式重试一次。
     平台路径含中文时自动经纯 ASCII 临时目录中转（输入复制过去、结果拷回）。
     """
-    import shutil
-    import uuid
     try:
         return _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb,
                                 logger, progress)
@@ -209,7 +326,6 @@ def run_spades(r1, r2, out_dir, mode='metaviral', threads=None, memory_gb=64,
 
 def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
                      progress=None):
-    import shutil
     import uuid
     cfg = get_config()
     spades = cfg.tool('spades')
@@ -341,8 +457,21 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
             return json.load(f)
 
     # 1. 组装（若上次运行已有 contigs 且未强制重跑则复用——断点续跑）
-    contigs_raw = os.path.join(out_dir, 'spades', 'contigs.fasta')
-    if force or not (os.path.isfile(contigs_raw) and os.path.getsize(contigs_raw) > 0):
+    # 复用判定要覆盖 SPAdes 全部可能产物名：rna 模式从不生成
+    # contigs.fasta（只有 transcripts*/hard_filtered_transcripts.fasta），
+    # 原判定只认 contigs.fasta → rna 模式每次都重跑数小时。
+    _spades_dir = os.path.join(out_dir, 'spades')
+    _cands = ['contigs.fasta', 'transcripts.fasta',
+              'hard_filtered_transcripts.fasta',
+              'soft_filtered_transcripts.fasta', 'scaffolds.fasta']
+    contigs_raw = None
+    if not force:
+        for _n in _cands:
+            _p = os.path.join(_spades_dir, _n)
+            if os.path.isfile(_p) and os.path.getsize(_p) > 0:
+                contigs_raw = _p
+                break
+    if contigs_raw is None:
         contigs_raw = run_spades(r1, r2, out_dir, mode=mode, threads=threads,
                                  memory_gb=memory_gb, logger=logger,
                                  progress=(lambda p, m: progress(
@@ -379,29 +508,72 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
     # 轻量分类树（来自 contig kreport），供名称/谱系查询
     tree = KreportTree(parse_kreport(res['kreport'])) if res['kreport'] else KreportTree([])
 
-    # 4. 汇总（kunpeng 分类即可）
+    # 4. 汇总（kunpeng 分类 + contig 级 BLASTN 最近参考）
+    #
+    # 两件事在这里一起做：
+    #  a) 落盘 viral_contigs.fasta —— 全平台有 9 个消费方按这个名字取（④宿主
+    #     拆分、⑦/⑨出图、⑧引物、logan、suvtk），但此前只有 ⑥ORF 的
+    #     extract_viral_contigs() 会写；默认阶段序里 hostana(④) 在 orf(⑥)
+    #     之前，所以首次全量运行 ④ 拿不到它 → 08_host_analysis/*.classified.fasta
+    #     被静默跳过（实测 ERR7586041 该产物 0 个）。
+    #  b) 填 blast_* 六列 —— 此前只有列名没有写入方，host_analysis 的
+    #     「BLAST 最后回退」从未生效（实测 212 条 host_prediction 中
+    #     class_source=blast 为 0，14% 落到 Unknown）。
     viral_tsv = os.path.join(out_dir, 'virus_contigs.tsv')
+    viral_fa = os.path.join(out_dir, 'viral_contigs.fasta')
     viral_contigs = []
-    with safe_open(viral_tsv, 'wt') as f:
-        f.write("contig	length	kunpeng_flag	kunpeng_taxid	kunpeng_species\n")
+    with safe_open(viral_fa, 'wt') as vf:
         for header, seq in iter_fasta(contigs_fa):
             cid = header.split()[0]
             flag, taxid = contig_tax.get(cid, ('-', 0))
-            species_k = tree.name(taxid) if taxid and flag == 'C' else ''
-            # 病毒判定：kunpeng 分类到病毒
-            is_viral = (flag == 'C' and taxid > 0)
-            if is_viral:
+            if flag == 'C' and taxid > 0:
                 viral_contigs.append(cid)
-                f.write(f"{cid}	{len(seq)}	{flag}	{taxid}	{species_k}\n")
+                write_fasta_record(vf, cid, seq)
+    if progress:
+        progress(0.755, '③ contig 级 BLASTN 最近参考')
+    blast_tab, _blast_tsv = {}, None
+    if viral_contigs:
+        try:
+            from .local_search import contig_blast_table
+            blast_tab, _blast_tsv = contig_blast_table(
+                viral_fa, out_dir, threads=threads, logger=logger)
+        except Exception as e:              # 可选增强，失败不阻断组装
+            if logger:
+                logger.log(f"contig 级 BLASTN 跳过: {e}", "WARN")
+    _BLAST_COLS = ('blast_top_hit', 'blast_identity(%)',
+                   'blast_coverage_hsp(%)', 'blast_aln_len',
+                   'blast_species', 'blast_family')
+    with safe_open(viral_tsv, 'wt') as f:
+        f.write('contig\tlength\tkunpeng_flag\tkunpeng_taxid\tkunpeng_species\t'
+                + '\t'.join(_BLAST_COLS) + '\n')
+        for header, seq in iter_fasta(contigs_fa):
+            cid = header.split()[0]
+            flag, taxid = contig_tax.get(cid, ('-', 0))
+            if not (flag == 'C' and taxid > 0):
+                continue
+            species_k = tree.name(taxid) if taxid else ''
+            b = blast_tab.get(cid) or {}
+            f.write(f"{cid}\t{len(seq)}\t{flag}\t{taxid}\t{species_k}\t"
+                    f"{b.get('accession', '')}\t{b.get('identity', '')}\t"
+                    f"{b.get('coverage_hsp', '')}\t{b.get('aln_len', '')}\t"
+                    f"{b.get('species', '')}\t{b.get('family', '')}\n")
 
     # 5. 完整分类谱系表（8 级 + 属长比）：03b_verify 的宿主归属来源。
     #    口径与工具④（组装结果再鉴定）一致——两者共用 classify_rows。
+    _cls_warn = ''
     try:
         _write_classification_table(out_dir, res.get('kraken'), logger)
+        if not os.path.isfile(os.path.join(out_dir,
+                                          'virus_classification.tsv')):
+            _cls_warn = '分类表未生成（无 kunpeng 分类输出）'
     except Exception as e:
-        # 谱系表缺失不应阻断组装主流程（verify 会降级为无宿主归属）
+        # 谱系表缺失不应阻断组装主流程（verify 会降级为无宿主归属），
+        # 但必须让卡片/报告看得到降级原因，不能只留在日志里。
+        _cls_warn = f'{type(e).__name__}: {e}'
+    if _cls_warn:
         if logger:
-            logger.log(f"警告：virus_classification.tsv 生成失败：{e}")
+            logger.log(f"警告：virus_classification.tsv 未生成：{_cls_warn}",
+                       "WARN")
 
     summary = {
         'stage': step,
@@ -411,6 +583,9 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
         'contigs_fasta': 'contigs.filtered.fasta',
         'viral_contigs': viral_contigs,
         'virus_contigs_tsv': 'virus_contigs.tsv',
+        'classification_table': (None if _cls_warn else
+                                 'virus_classification.tsv'),
+        'classification_warning': _cls_warn,
         'kreport': os.path.basename(res['kreport']) if res['kreport'] else None,
     }
     import json
@@ -456,9 +631,7 @@ def _write_classification_table(out_dir, kraken_txt, logger=None):
 
 def _load_virus_info_species():
     """病毒 info 表 -> {accession: {species, family, genus}}（存在才读）。"""
-    src = DIRS['virus_src']
-    for name in ('final.cluster.ref_info.tsv',):
-        p = os.path.join(src, name)
+    for p in (ref_annotation_path(),):
         if os.path.isfile(p):
             out = {}
             with safe_open(p) as f:

@@ -5,18 +5,27 @@
 import os
 import re
 import time
+import uuid
 
 from flask import (Blueprint, abort, jsonify, request)
 
-from vp.config import DIRS, PLATFORM_ROOT
-from vp.utils import (check_path, safe_open)
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT
+from Virus_Platform_Core.utils import (check_path, safe_open)
 
 bp = Blueprint('io_api', __name__)
+
+# 序列查看器最多扫描的字节数（防止误点一个多 GB 的组装产物把工作线程占满）
+_SEQVIEW_MAX_BYTES = 64 << 20
+# 粘贴序列上限：粘贴框是给人贴 contig/短序列的，几十 MB 的文本只会
+# 撑爆 JSON 解析和内存，应走文件输入
+_PASTE_MAX_BYTES = 20 << 20
+# 单次上传上限（Kraken2 库包可到数十 GB，故给得很宽；仅拦手滑/恶意超大包）
+_UPLOAD_MAX_BYTES = 64 << 30
 
 
 @bp.route('/api/paste_input', methods=['POST'])
 def api_paste_input():
-    """粘贴序列文本 → 写入 uploads/paste_<ts>.<ext>，返回平台相对路径。
+    """粘贴序列文本 → 写入 uploads/paste_<ts>_<rand>.<ext>，返回平台相对路径。
 
     body: {text: "FASTA/FASTQ 文本", ext: ".fasta" | ".fastq" | ".tsv"}
     所有工具的文件输入框均可使用返回的 path。
@@ -26,6 +35,8 @@ def api_paste_input():
     ext = (body.get('ext') or '.fasta').strip().lower()
     if not text:
         abort(400, '粘贴内容为空')
+    if len(text.encode('utf-8', errors='replace')) > _PASTE_MAX_BYTES:
+        abort(413, '粘贴内容过大（>20MB），请保存为文件后用文件方式输入')
     if not re.fullmatch(r'\.(fasta|fa|fna|fas|fastq|fq|tsv|txt)', ext):
         abort(400, '不支持的文件类型')
     # 基本格式校验
@@ -34,8 +45,9 @@ def api_paste_input():
         abort(400, 'FASTA 格式应以 > 开头')
     if ext in ('.fastq', '.fq') and not first_line.startswith('@'):
         abort(400, 'FASTQ 格式应以 @ 开头')
+    # 文件名带毫秒 + 随机段：秒级时间戳在同秒两次提交时会互相覆盖
     ts = time.strftime('%Y%m%d_%H%M%S')
-    fname = f'paste_{ts}{ext}'
+    fname = f'paste_{ts}_{uuid.uuid4().hex[:6]}{ext}'
     fdir = os.path.join(PLATFORM_ROOT, 'run', 'uploads')
     os.makedirs(fdir, exist_ok=True)
     fp = os.path.join(fdir, fname)
@@ -49,6 +61,11 @@ def api_upload():
     """拖拽/选择上传数据文件到平台 uploads/ 目录（流式落盘，支持大文件）。
 
     返回 {'path': 'uploads/<文件名>'} 供前端填入输入框。"""
+    # Content-Length 预检（不读 body 即拒绝）：Kraken2 库包可到数十 GB，
+    # 上限设得很宽，只拦手滑/恶意的超大包
+    cl = request.content_length
+    if cl and cl > _UPLOAD_MAX_BYTES:
+        abort(413, f'上传文件过大（上限 {_UPLOAD_MAX_BYTES >> 30}GB）')
     f = request.files.get('file')
     if not f:
         abort(400, '缺少上传文件')
@@ -84,7 +101,12 @@ _DATA_EXTS = ('.fasta', '.fa', '.fna', '.fas', '.ffn')
 
 @bp.route('/api/seqview')
 def api_seqview():
-    """轻量序列查看器：流式统计 + 分页预览（FASTA / FASTA.gz）。"""
+    """轻量序列查看器：流式统计 + 分页预览（FASTA / FASTA.gz）。
+
+    大文件按 _SEQVIEW_MAX_BYTES 截断扫描（返回 byte_capped=true）：
+    统计是逐记录累加的，读到一个多 GB 的组装产物会白占用工作线程，
+    而查看器本身只展示前若干条记录。
+    """
     rel = request.args.get('path') or ''
     page = max(0, int(request.args.get('page', 0) or 0))
     per = 50
@@ -101,7 +123,9 @@ def api_seqview():
     rows = []
     total_bp = 0
     truncated = False
+    byte_capped = False
     rec_i = -1
+    n_read = 0
 
     def _push(h, seq):
         nonlocal rec_i, total_bp, truncated
@@ -127,6 +151,10 @@ def api_seqview():
         with safe_open(p) as f:
             h, buf = None, []
             for line in f:
+                n_read += len(line)
+                if n_read > _SEQVIEW_MAX_BYTES:
+                    byte_capped = truncated = True
+                    break
                 line = line.strip()
                 if line.startswith('>'):
                     if h is not None:
@@ -134,7 +162,7 @@ def api_seqview():
                     h, buf = line[1:], []
                 elif h is not None and line:
                     buf.append(line)
-            if h is not None:
+            if h is not None and not byte_capped:
                 _push(h, ''.join(buf))
     except (OSError, ValueError) as e:
         abort(400, f'读取失败: {e}')
@@ -142,10 +170,35 @@ def api_seqview():
     pages = max(1, (min(rec_i + 1, 20000) + per - 1) // per)
     return jsonify({'total': rec_i + 1, 'total_bp': total_bp,
                     'page': page, 'pages': pages, 'per': per,
-                    'truncated': truncated, 'rows': page_rows})
+                    'truncated': truncated, 'byte_capped': byte_capped,
+                    'rows': page_rows})
 
 
 @bp.route('/api/open_platform_dir')
 def api_open_platform_dir():
     os.startfile(check_path(PLATFORM_ROOT, must_exist=True, in_platform=True))
+    return jsonify({'ok': True})
+
+
+@bp.route('/api/open_dir', methods=['POST'])
+def api_open_dir():
+    """在资源管理器中打开一个平台内的目录（任务卡/结果面板的「打开」按钮）。
+
+    body: {path: "绝对或平台相对路径"}。check_path 强制目录位于平台或
+    自定义输出根之内，杜绝任意目录打开。
+    """
+    body = request.get_json(force=True) or {}
+    p = (body.get('path') or '').strip()
+    if not p:
+        abort(400, '缺少路径')
+    try:
+        d = check_path(p, must_exist=True, in_platform=True)
+    except (ValueError, FileNotFoundError) as e:
+        abort(400, f'无法打开（{e}）')
+    if not os.path.isdir(d):
+        # 给的是文件路径时打开其所在目录，体验更顺（结果面板常持有文件路径）
+        d = os.path.dirname(d)
+        if not os.path.isdir(d):
+            abort(400, '目录不存在')
+    os.startfile(d)
     return jsonify({'ok': True})

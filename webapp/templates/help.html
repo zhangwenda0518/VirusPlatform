@@ -42,7 +42,9 @@
   // 有序无序列表/表格/代码块/引用/分隔线）。先整体转义，再按块解析。
   (function () {
     const RAW = {{ text | tojson }};
-    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // 与 app.js 的 esc 同一口径：连引号一起转义（属性上下文也安全）
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
     // 行内元素：粗体 → 行内码 → 链接 → 斜体（顺序重要，粗体先于斜体）
     function inline(s) {
@@ -55,8 +57,11 @@
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       // 斜体（避开已生成的标签属性）
       t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-      // 链接 [text](url)
-      t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      // 链接 [text](url)：只放行 http(s)/mailto/站内锚点，堵 javascript: 协议
+      t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) => {
+        const ok = /^(https?:\/\/|mailto:|\/|#)/i.test(url);
+        return '<a href="' + (ok ? url : '#') + '" target="_blank" rel="noopener">' + txt + '</a>';
+      });
       return t;
     }
 

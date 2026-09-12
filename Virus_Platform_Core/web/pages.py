@@ -3,28 +3,20 @@
 
 含：NAV_GROUPS 导航单一数据源、模板上下文处理器、统一错误处理、
 19 个页面端点与报告静态文件服务。"""
-import json
 import os
-import re
-import shutil
-import subprocess
 import sys
-import threading
 import time
-import uuid
 
 from werkzeug.exceptions import HTTPException
 
-from flask import (Blueprint, abort, jsonify, render_template,
-                   request, send_file, send_from_directory)
+from flask import (Blueprint, current_app, jsonify, render_template,
+                   request, send_file)
 
-from vp.config import DIRS, PLATFORM_ROOT, db_path, engine_cmd
-from vp.utils import (TaskLogger, check_path, fmt_size, run_cmd, safe_open,
-                      safe_remove)
-from vp.web.common import _safe_sample
-from vp.web.state import (  # noqa: F401
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT
+from Virus_Platform_Core.utils import (check_path, safe_open)
+from Virus_Platform_Core.web.common import _safe_sample
+from Virus_Platform_Core.web.state import (  # noqa: F401
     _WWW, cfg, tool_runs_root as _tool_runs_root)
-from vp.web.tasks import tm
 
 bp = Blueprint('pages', __name__)
 
@@ -72,7 +64,7 @@ NAV_GROUPS = [
         {'id': 't-kvchain', 'title': '⚡ 一键分析（全流程）',
          'desc': '鉴定 → 过滤 → 共识 → 深度绘图 → 变异注释，一次跑完，产物收拢到汇总目录'},
         {'id': 't-kvsuite', 'title': '已知病毒识别与定量',
-         'desc': 'minibwa 比对病毒库 → 鉴定/过滤 → 共识 → 深度绘图 → 变异注释'},
+         'desc': 'minibwa 比对病毒库 → 鉴定/定量 + 过滤（默认两段；共识/绘图/变异归下游模块）'},
         {'id': 't-consensus', 'title': '共识序列分析',
          'desc': '比对到参考 → 共识序列构建（minibwa + viral_consensus）'},
         {'id': 't-variant', 'title': '病毒变异分析',
@@ -107,7 +99,6 @@ NAV_GROUPS = [
         {'id': 't-align', 'title': '序列比对（MAFFT + trimAl）', 'desc': 'MAFFT 比对 + trimAl 清剪；彩色比对查看器支持查看与编辑，结果直接送建树 / SDT'},
         {'id': 't-treebuild', 'title': '进化树构建（科/属级）', 'desc': 'GenBank 集合（全基因组 / CDS / PEP）或 FASTA → MAFFT 比对 + NJ / FastTree / IQ-TREE 建树；页内树查看'},
         {'id': 't-sdt', 'title': 'SDT 同一性分析（属级）', 'desc': '逐对 MAFFT 精确比对 → identity 矩阵 / 热图 / 分布图；NT+AA 模式同一性表 + 复合热图'},
-        {'id': 't-synteny', 'title': '同属共线性比较', 'desc': 'LoVis4u 基因组共线性图（MMseqs2 聚类）'},
     ]},
     {'id': 'result', 'label': '结果中心', 'path': '结果中心', 'items': [
         {'href': '/results', 'title': '样品结果 / 专项结果',
@@ -158,6 +149,30 @@ def _forbidden(e):
 def _http_err(e):
     """所有 HTTP 错误统一 JSON 返回（abort(400, msg) 等）。"""
     return jsonify({'error': e.description}), e.code
+
+
+@bp.app_errorhandler(Exception)
+def _unhandled(e):
+    """兜底：未捕获异常也返回 JSON，避免前端 `await r.json()` 解析 HTML 失败。
+
+    否则前端只会显示「无法连接平台服务 / SyntaxError」，把服务端参数错误
+    误报成网络故障（app.js 的 fetch 包装就是按 r.json() 解析的）。
+    """
+    import traceback as _tb
+    current_app.logger.exception('未处理异常: %s', e)
+    if request.path.startswith('/api/') or request.is_json:
+        detail = _tb.format_exc(limit=3)
+        # traceback 里的本机绝对路径（含用户名）不必回显给前端，日志里已有
+        try:
+            from Virus_Platform_Core.config import PLATFORM_ROOT
+            import tempfile as _tf
+            detail = detail.replace(str(PLATFORM_ROOT), '<platform>')
+            detail = detail.replace(os.path.abspath(_tf.gettempdir()), '<temp>')
+        except Exception:
+            pass
+        return jsonify({'error': f'服务端异常: {e.__class__.__name__}: {e}',
+                        'detail': detail}), 500
+    raise e
 
 
 @bp.route('/')
@@ -249,10 +264,28 @@ def page_results():
         rpt = check_path(os.path.join(d, '07_report', 'report.html'),
                          must_exist=False, in_platform=True)
         samples.append({'name': name, 'report': os.path.isfile(rpt),
+                        'project': _sample_project(d),
                         'mtime': time.strftime(
                             '%Y-%m-%d %H:%M',
                             time.localtime(os.path.getmtime(d)))})
     return render_template('results.html', samples=samples, archived=archived)
+
+
+def _sample_project(sample_dir):
+    """样品所属项目名（与 /api/samples 同口径：input.json 优先，清单兜底）。
+
+    全局项目筛选器要在结果中心也生效，所以这里必须把 project 一并带进模板；
+    读不到（老样品/档案损坏）返回空串，由前端归入「未分组」。
+    """
+    try:
+        from Virus_Platform_Core.pipeline import (load_project_manifest,
+                                                  load_sample_input)
+        _r1, _r2, proj = load_sample_input(sample_dir)
+        if proj:
+            return str(proj)
+        return str(load_project_manifest(sample_dir).get('project') or '')
+    except Exception:
+        return ''
 
 
 @bp.route('/report/<sample>/')
@@ -275,7 +308,8 @@ def page_report_file(sample, filename):
 @bp.route('/archive_report/<sample>/')
 def page_archive_report(sample):
     """归档样品报告（results/_archive/<sample>/）。"""
-    safe = _safe_sample(sample)
+    # 归档目录名不在 results/ 下，解析基准要指到 _archive
+    safe = _safe_sample(sample, base=os.path.join(DIRS['results'], '_archive'))
     rpt = check_path(os.path.join(DIRS['results'], '_archive', safe,
                                   '07_report', 'report.html'),
                      must_exist=True, in_platform=True)
