@@ -70,14 +70,17 @@ def main():
         check(gone not in html, f'旧结构已移除: {gone}')
     for present in ('id="t-seqprep"', 'id="t-treebuild"', 'id="t-sdt"'):
         check(present in html, f'新模块存在: {present}')
-    js = open(os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
-              encoding='utf-8').read()
+    # 比较基因组域（ictv/建树/MSA/SDT）2026-09-13 自 app.js 拆到
+    # app-compare.js：定义检查对两个文件取并集
+    _www = os.path.join(PLATFORM_ROOT, 'webapp', 'static')
+    js = ''.join(open(os.path.join(_www, _f), encoding='utf-8').read()
+                 for _f in ('app.js', 'app-compare.js'))
     for fn in ('ictvCascadeRefetch', 'ictvPreview', 'ictvDownload', 'loadTbColls',
                'tbBuild', 'gbBuildTree', 'alignRun', 'alignLoad', 'alignRender',
                'alignEditToggle', 'alignSave', 'alignSend', 'tbSourceChanged',
                'alSourceChanged', 'alFillFromSource', 'loadAlColls'):
         check(f'function {fn}' in js or f'async function {fn}' in js,
-              f'app.js 定义 {fn}')
+              f'app.js/app-compare.js 定义 {fn}')
     # 旧项目归档：样品/集合列表不再出现下划线与归档项
     r = c.get('/api/samples')
     names = [x['name'] for x in r.get_json()]
@@ -406,6 +409,8 @@ def main():
     # ---------- 4. 静态资源 ----------
     r = c.get('/static/app.js')
     check(r.status_code == 200, 'app.js 静态资源 200')
+    r = c.get('/static/app-compare.js')
+    check(r.status_code == 200, 'app-compare.js 静态资源 200')
     r = c.get('/static/i18n.js')
     check(r.status_code == 200, 'i18n.js 静态资源 200')
 
