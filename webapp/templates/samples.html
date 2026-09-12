@@ -42,7 +42,10 @@
             <button class="btn small" onclick="scScanAll(false)" data-i18n="lg.clearAll">清空</button>
             <span id="scanCount" class="hint" style="margin:0"></span>
           </div>
+          <p class="hint" style="margin:0 0 4px" data-i18n="sc.scanNameTip">样品名可直接修改（创建前纠正自动提取的名字）：</p>
           <div class="scroll-md" id="scanTable"></div>
+          <label class="chk" style="margin-top:8px"><input type="checkbox" id="scanEnq">
+            <span> 创建后加入队列依次运行</span></label>
           <div style="margin-top:10px">
             <button class="btn primary" onclick="scScanCreate(this)" data-i18n="sc.scanCreate">创建勾选样品 →</button>
           </div>
@@ -82,6 +85,9 @@
         <h2 data-i18n="pp.batchTitle">📦 批量导入（项目）</h2>
         <p class="hint" style="margin-top:4px" data-i18n="pp.batchHint">每行一条：样品名<TAB>R1 路径<TAB>R2 路径（可空）。
         创建后可勾选加入批处理队列顺序执行（队列在管道页展示）。</p>
+        <p class="hint" style="margin:6px 0 0;color:#8a6d3b">适用场景：FASTQ 分散在多个文件夹、
+        或需要自定义与文件名不同的样品名。同一文件夹里的一批 FASTQ 请优先用上方
+        「📂 从文件夹批量导入」。</p>
         <label data-i18n="pp.batchProject">项目名（可选）</label>
         <input id="batchProject" type="text" data-i18n-ph="pp.projectPh" placeholder="如 2026-烟草-课题组">
         <label data-i18n="pp.batchText">样品列表（TSV：样品名 / R1 / R2）</label>
@@ -101,6 +107,7 @@
           <select id="projFilter" onchange="gxProjChanged(this)"
                   style="flex:1;font-size:12px"></select>
         </div>
+        <div id="scErr" class="err"></div>
         <div id="scSamples"><p class="hint" data-i18n="c.loading">加载中…</p></div>
       </div>
     </div>
@@ -154,12 +161,15 @@ function scScanRender() {
   const cut = s => esc(String(s || '').split(/[\\/]/).pop());
   const rows = SCAN_ROWS.map((x, i) =>
     `<tr><td><input type="checkbox" class="scan-pick" data-i="${i}" checked style="width:auto"></td>` +
-    `<td><b>${esc(x.name)}</b></td><td>${x.r2 ? 'PE' : 'SE'}</td>` +
+    // 样品名可编辑：创建前纠正自动提取的名字（同名冲突会在创建时报错提示）
+    `<td><input class="scan-name" data-i="${i}" value="${esc(x.name)}" ` +
+    `style="width:130px;font-size:12px" title="${esc(x.name)}"></td>` +
+    `<td>${x.r2 ? 'PE' : 'SE'}</td>` +
     `<td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.r1)}">${cut(x.r1)}</td>` +
     `<td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.r2)}">${cut(x.r2)}</td></tr>`).join('');
   $('scanTable').innerHTML =
     '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
-    `<tr><th></th><th style="text-align:left">${t('sc.colName', '样品名')}</th>` +
+    `<tr><th></th><th style="text-align:left">${t('sc.colName', '样品名（可改）')}</th>` +
     `<th style="text-align:left">${t('sc.colType', '类型')}</th>` +
     '<th style="text-align:left">R1</th><th style="text-align:left">R2</th></tr>' + rows + '</table>';
   scScanCount();
@@ -186,6 +196,12 @@ async function scScanCreate(btn) {
     errBox.textContent = '';
     const idx = [...document.querySelectorAll('.scan-pick:checked')].map(c => +c.dataset.i);
     if (!idx.length) { errBox.textContent = t('sc.pickFirst', '请先勾选要创建的样品'); return; }
+    // 先收回编辑过的样品名（空值退回自动提取名）
+    document.querySelectorAll('#scanTable .scan-name').forEach(inp => {
+      const i = +inp.dataset.i;
+      const v = (inp.value || '').trim();
+      if (i < SCAN_ROWS.length && v) SCAN_ROWS[i].name = v;
+    });
     // 项目名留空 → 自动按时间生成（一个项目可含多样本、单双端混合）
     let project = val('scanProject');
     if (!project) {
@@ -210,6 +226,13 @@ async function scScanCreate(btn) {
       t('sc.batchCreated', '已创建 {n} 个样品').replace('{n}', created.length),
       { ttl: 4000 });
     if (adjusted.length) errBox.textContent = adjusted.join('，');
+    // 可选：创建后直接加入批处理队列顺序执行（与 TSV 导入同一能力）
+    if ($('scanEnq')?.checked && created.length) {
+      await fetch('/api/queue/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ samples: created, project })});
+      loadQueue();
+    }
     scLoadSamples();
   }, t('sc.creating', '⏳ 创建中…'));
 }
@@ -290,8 +313,50 @@ async function scDelete(name) {
   } catch (e) { alert(t('sc.connFail','无法连接平台服务: ') + e); }
 }
 
+/* ---- 样品表格 + 行内改名（改的是 results/ 下的真实目录名，产物随目录保留） ---- */
+let RENAME_EDIT = null;   // 处于编辑态的样品名（一次只允许一行）
+let RENAME_ERR = '';
+
+function scRenameStart(name) {
+  RENAME_EDIT = name;
+  scLoadSamples();
+  setTimeout(() => { const i = $('rnInput'); if (i) { i.focus(); i.select(); } }, 60);
+}
+
+function scRenameCancel() {
+  RENAME_EDIT = null;
+  scLoadSamples();
+}
+
+async function scRenameSave(oldName) {
+  const inp = $('rnInput');
+  const nn = (inp?.value || '').trim();
+  if (!nn || nn === oldName) { scRenameCancel(); return; }
+  try {
+    const r = await fetch(`/api/samples/${encodeURIComponent(oldName)}/rename`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_name: nn })});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      RENAME_ERR = d.error || t('sc.renameFail', '改名失败');
+      scLoadSamples();
+      return;
+    }
+    RENAME_EDIT = null;
+    RENAME_ERR = d.note || '';
+    toast(t('sc.renameTitle', '样品改名'),
+          `✔ ${oldName} → ${d.sample}`, { ttl: 4000 });
+    scLoadSamples();
+  } catch (e) {
+    RENAME_ERR = t('sc.connFail', '无法连接平台服务: ') + e;
+    scLoadSamples();
+  }
+}
+
 async function scLoadSamples() {
   const box = $('scSamples');
+  const errBox = $('scErr');
+  if (errBox) errBox.textContent = RENAME_ERR || '';
   try {
     const list = await (await fetch('/api/samples')).json();
     $('scCount').textContent = list.length;
@@ -304,15 +369,47 @@ async function scLoadSamples() {
     // 全局项目 = 默认筛选条件（gx 系列来自 app.js；本页手动选过则尊重本页）
     const cur = gxSyncProjSelect(sel, projs);
     const shown = cur ? list.filter(s => s.project === cur) : list;
-    box.innerHTML = shown.length ? shown.map(s => `
-      <div class="sample-item">
-        <div class="nm"><span>${esc(s.name)}</span>
-          <button class="btn small" style="float:right"
-                  onclick="scDelete('${esc(s.name)}')">🗑</button></div>
-        ${s.project ? `<div class="hint" style="margin:2px 0 0">🏷 ${esc(s.project)}</div>` : ''}
-        <div class="pr">${t('sc.progress','分析进度')} ${s.done}/${s.total}
-          <a href="/pipeline" style="margin-left:6px">${t('sc.goRun','去运行分析 →')}</a></div>
-      </div>`).join('') : '<p class="hint">' + t('c.noSampleProj','该项目下暂无样品') + '</p>';
+    if (!shown.length) {
+      box.innerHTML = '<p class="hint">' + t('c.noSampleProj','该项目下暂无样品') + '</p>';
+      return;
+    }
+    const cut = (p, n) => {
+      const b = String(p || '').split(/[\\/]/).pop();
+      return b.length > n ? b.slice(0, n - 1) + '…' : b;
+    };
+    const rows = shown.map(s => {
+      const editing = RENAME_EDIT === s.name;
+      // 样品名可能含引号等字符：一律 data-* + dataset 传参（防内联注入）
+      const nameCell = editing
+        ? `<input id="rnInput" data-old="${esc(s.name)}" value="${esc(s.name)}"
+             style="width:100%;min-width:120px;font-size:12px"
+             onkeydown="if(event.key==='Enter')scRenameSave(this.dataset.old);else if(event.key==='Escape')scRenameCancel()">`
+        : `<b class="mono" style="font-size:12px" title="${esc(s.name)}">${esc(s.name)}</b>`;
+      const ops = editing
+        ? `<button class="btn small primary" title="保存新名字" data-old="${esc(s.name)}" onclick="scRenameSave(this.dataset.old)">✔</button>
+           <button class="btn small" title="取消" onclick="scRenameCancel()">✖</button>`
+        : `<button class="btn small" title="改名（分析产物随目录一起保留）" data-sample="${esc(s.name)}" onclick="scRenameStart(this.dataset.sample)">✏️</button>
+           <button class="btn small danger" title="删除样品及其全部文件" data-sample="${esc(s.name)}" onclick="scDelete(this.dataset.sample)">🗑</button>`;
+      return `<tr>
+        <td style="white-space:nowrap;max-width:180px">${nameCell}</td>
+        <td style="text-align:center">${s.r2 ? 'PE' : 'SE'}</td>
+        <td class="mono" title="${esc(s.r1)}" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cut(s.r1, 20) || '—'}</td>
+        <td class="mono" title="${esc(s.r2)}" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cut(s.r2, 20) || '—'}</td>
+        <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.project || '') || '<span class=hint>—</span>'}</td>
+        <td style="text-align:center">${s.done}/${s.total}</td>
+        <td style="white-space:nowrap">${ops}
+          <a class="btn small" href="/pipeline" title="去运行分析">▶</a></td>
+      </tr>`;
+    }).join('');
+    box.innerHTML =
+      '<div class="scroll-md"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<tr><th style="text-align:left">' + t('sc.colName', '样品名') + '</th>' +
+      '<th style="text-align:left">' + t('sc.colType', '类型') + '</th>' +
+      '<th style="text-align:left">R1</th><th style="text-align:left">R2</th>' +
+      '<th style="text-align:left">' + t('sc.colProject', '项目') + '</th>' +
+      '<th style="text-align:left">' + t('sc.progress', '进度') + '</th>' +
+      '<th style="text-align:left">' + t('sc.colOps', '操作') + '</th></tr>' +
+      rows + '</table></div>';
   } catch (e) { box.innerHTML = '<p class="hint">' + t('sc.loadFail','加载失败') + '</p>'; }
 }
 

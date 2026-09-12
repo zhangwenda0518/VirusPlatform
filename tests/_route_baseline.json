@@ -95,6 +95,7 @@
   "/api/samples/<sample>/<path:rel>": "samples.api_sample_file",
   "/api/samples/<sample>/clear": "samples.api_sample_clear",
   "/api/samples/<sample>/delete": "samples.api_sample_delete",
+  "/api/samples/<sample>/rename": "samples.api_sample_rename",
   "/api/samples/archived": "samples.api_samples_archived",
   "/api/samples/scan_folder": "samples.api_samples_scan_folder",
   "/api/sdt/data": "refs.api_sdt_data",
@@ -477,6 +478,9 @@
    "POST"
   ],
   "/api/samples/<sample>/delete": [
+   "POST"
+  ],
+  "/api/samples/<sample>/rename": [
    "POST"
   ],
   "/api/samples/archived": [

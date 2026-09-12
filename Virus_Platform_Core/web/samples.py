@@ -489,6 +489,7 @@ def api_samples():
                 stages = pipeline_overview(sd)['stages']
             except Exception:
                 stages = []
+            _r1 = _r2 = None
             try:
                 _r1, _r2, project = load_sample_input(sd)
             except Exception:
@@ -504,7 +505,9 @@ def api_samples():
                         'last_status': man.get('last_status') or '',
                         'last_run': man.get('last_run') or '',
                         'done': sum(1 for s in stages if s['status'] == 'done'),
-                        'total': len(stages) or 7})
+                        'total': len(stages) or 7,
+                        # 输入档案：样品表格展示类型（PE/SE）与文件用
+                        'r1': _r1 or '', 'r2': _r2 or ''})
     return jsonify(out)
 
 
@@ -661,6 +664,63 @@ def api_pipeline_create():
         note = (f'样品名「{typed}」已按文件名安全规则登记为「{sample}」'
                 f'（目录名不能含中文/空格等字符）')
     return jsonify({'sample': sample, 'typed': typed, 'note': note})
+
+
+@bp.route('/api/samples/<sample>/rename', methods=['POST'])
+def api_sample_rename(sample):
+    """样品改名：results/<旧名> 整目录重命名，分析产物随目录一起带走。
+
+    拦截：① 有任务在运行（_sample_busy）；② 在批处理队列排队/运行中。
+    新名走与创建同一套 _safe_sample_name 规范化（非 ASCII/空格折叠成
+    '_'、截断 50，因为目录名要进 SPAdes/BLAST 等不支持中文路径的工具），
+    规范化结果与输入不同时在 note 里如实告知。input.json 的 sample
+    字段同步改写，保证档案与目录一致。"""
+    from Virus_Platform_Core.pipeline import _safe_sample_name
+    s, sd = _sample_dir(sample)
+    body = request.get_json(force=True) or {}
+    typed = str(body.get('new_name') or '').strip()
+    if not typed:
+        abort(400, '新样品名不能为空')
+    if _sample_busy(s):
+        abort(400, f'样品 {s} 有任务在运行，请先取消再改名')
+    for it in sample_queue.items:
+        if (it.get('sample') == s
+                and it.get('status') in ('queued', 'running')):
+            abort(400, f'样品 {s} 在批处理队列中（排队/运行），'
+                       f'请先在队列里移除后再改名')
+    new = _safe_sample_name(typed)
+    if new == s:
+        abort(400, '新名字与当前相同（或规范化后相同），无需改名')
+    if new.startswith('_'):
+        abort(400, f'样品名「{typed}」规范化为「{new}」——下划线开头是'
+                   f'内部保留前缀，请换一个名字')
+    target = check_path(os.path.join(DIRS['results'], new),
+                        must_exist=False, in_platform=True)
+    if os.path.isdir(target) and any(os.scandir(target)):
+        if typed != new:
+            abort(400, f'样品名「{typed}」会被规范化为「{new}」，'
+                       f'而「{new}」已存在；请换一个样品名')
+        abort(400, f'样品 {new} 已存在，请换一个样品名')
+    try:
+        os.rename(sd, target)
+    except OSError as e:
+        abort(400, f'改名失败: {e}')
+    # input.json 的 sample 字段与目录名保持一致（历史档案可读不误导）
+    try:
+        inp = os.path.join(target, '00_prep', 'input.json')
+        if os.path.isfile(inp):
+            with safe_open(inp) as f:
+                d = json.load(f)
+            if d.get('sample') == s:
+                d['sample'] = new
+                with safe_open(inp, 'wt') as f:
+                    json.dump(d, f, ensure_ascii=False, indent=2)
+    except (OSError, ValueError):
+        pass
+    note = '' if typed == new else (
+        f'样品名「{typed}」已按文件名安全规则登记为「{new}」'
+        f'（目录名不能含中文/空格等字符）')
+    return jsonify({'sample': new, 'note': note})
 
 
 @bp.route('/api/pipeline/<sample>')
