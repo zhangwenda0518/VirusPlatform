@@ -5,7 +5,7 @@
 匹配到 1 个病毒（且其注释把 NC_003530 误标为 Pepper mild mottle virus，
 实际是 Carnation ringspot virus），作为「病毒识别/组装/定量」示例偏单薄。
 
-本脚本从平台病毒参考库（virus-db/final.cluster.ref.fasta）取 3 个不同科的
+本脚本从平台病毒参考库（databases/virusref_db/final.cluster.ref.fasta）取 3 个不同科的
 植物病毒完整基因组，模拟 Illumina 双端 reads（150bp，插入 ~300bp，Q22-39）：
 
     NC_077216.1  Pepper yellows virus      Solemoviridae   6096 bp  ← 与
@@ -20,10 +20,19 @@ import gzip
 import os
 import random
 import sys
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.utils import iter_fasta  # noqa: E402
+from Virus_Platform_Core.utils import iter_fasta  # noqa: E402
 
 WANTED = {
     'NC_077216.1': 'Pepper yellows virus',
@@ -58,7 +67,8 @@ def fake_qual():
 
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ref = os.path.join(root, 'virus-db', 'final.cluster.ref.fasta')
+    ref = os.path.join(root, 'databases', 'virusref_db',
+                       'final.cluster.ref.fasta')
     ex = os.path.join(root, 'examples')
     os.makedirs(ex, exist_ok=True)
     out1 = os.path.join(ex, 'example_R1.fastq.gz')
@@ -71,7 +81,7 @@ def main():
             genomes[acc] = s.upper()
     missing = sorted(set(WANTED) - set(genomes))
     if missing:
-        print(f'  ✗ 参考库缺少: {missing}（先确认 virus-db/final.cluster.ref.fasta）')
+        print(f'  ✗ 参考库缺少: {missing}（先确认 databases/virusref_db/final.cluster.ref.fasta）')
         return 1
     print('  找到病毒基因组:', {a: len(s) for a, s in genomes.items()})
 

@@ -17,6 +17,15 @@ import os
 import shutil
 import sys
 import time
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 ROOT = r'D:\桌面\植物病毒分析平台'
 sys.path.insert(0, ROOT)
@@ -30,7 +39,7 @@ JOBS = [
         'input': EX + 'example_R1.fastq.gz',
         'input2': EX + 'example_R2.fastq.gz',
         'input_type': 'pe',
-        'db_virus': 'databases/virus/plant'}),
+        'db_virus': 'databases/kunpeng_db/plant'}),
     ('hostremoval', 'hostremoval', '宿主去除与序列提取', {
         'r1': EX + 'example_R1.fastq.gz',
         'r2': EX + 'example_R2.fastq.gz',
@@ -61,7 +70,7 @@ JOBS = [
         'r2': EX + 'example_R2.fastq.gz', 'mode': 'metaviral'}),
     ('contigs', 'contigs', 'contig 分类（组装结果再鉴定）', {
         'contigs': EX + 'example_viral_contigs.fasta',
-        'db_virus': 'databases/virus/plant'}),
+        'db_virus': 'databases/kunpeng_db/plant'}),
     ('orfa', 'orfa', 'ORF 功能注释', {
         'fasta': EX + 'example_viral_contigs.fasta'}),
     ('verify', 'verify', '候选序列验证', {

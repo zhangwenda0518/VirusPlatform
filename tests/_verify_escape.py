@@ -4,8 +4,8 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.ncbi_submit.report_html import table_html
-from vp.logan_trace import _esc_html, parse_result_table
+from Virus_Platform_Core.ncbi_submit.report_html import table_html
+from Virus_Platform_Core.logan_trace import _esc_html, parse_result_table
 
 evil = '<script>alert(1)</script>'
 th, body = table_html(['col'], [[evil]])

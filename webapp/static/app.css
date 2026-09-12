@@ -48,20 +48,39 @@ body {
 h1, h2, h3 { font-weight: 650; letter-spacing: .01em; }
 a { color: var(--green-700); }
 
-/* ---------------- 顶部导航 ---------------- */
+/* ---------------- 顶部导航 ----------------
+   宽度自适应要点（2026-09-11 修）：
+   原先是 `height: 54px` 固定高度 + `.navlinks{flex-wrap:wrap}`。一级导航有
+   13 个链接，窗口一窄（实测 ≲1500px，尤其加了右侧全局上下文条之后）
+   `.navlinks` 内部就换行，可绿色横条仍是 54px —— 第二行直接溢出到条外
+   （用户截图里"样品/项目/全局清理"掉到白底上就是这个原因）。
+
+   修法分两层，缺一不可：
+   1) 横条 `min-height` + `height: auto`：内容换行时横条跟着长高，绝不溢出。
+   2) 横条本身 **不换行**（`flex-wrap: nowrap`）+ `.navlinks{flex:1 1 auto;
+      min-width:0}`：让品牌与导航同处一行、由 `.navlinks` 内部消化换行。
+      若这里也用 wrap，宽度不够时会把整个 `.navlinks` 挤到第二行
+      （品牌独占一行、高度直接 72px）——实测踩过。
+   窄到 ≤1180px 时再切成"品牌一行 + 导航整行"，那才是这个宽度下更自然的排布。 */
 .topnav {
   display: flex; align-items: center; justify-content: space-between;
   background: linear-gradient(90deg, var(--green-950), var(--green-800) 55%, #14603b);
-  color: #fff; padding: 0 22px; height: 54px;
+  color: #fff; padding: 5px 22px; min-height: 54px;
+  flex-wrap: nowrap; column-gap: 14px;
   box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 2px 10px rgba(7, 39, 26, .28);
   position: sticky; top: 0; z-index: 10;
 }
 .brand {
   font-size: 16.5px; font-weight: 700; letter-spacing: .06em;
   display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  flex: 0 0 auto;
 }
 .brand .leaf { filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
-.navlinks { display: flex; align-items: center; flex-wrap: wrap; }
+.navlinks {
+  display: flex; align-items: center; flex-wrap: wrap;
+  row-gap: 2px; justify-content: flex-end;
+  flex: 1 1 auto; min-width: 0;
+}
 .navlinks a {
   color: #c8dfd0; text-decoration: none; margin-left: 4px;
   font-size: 13.5px; padding: 6px 11px; border-radius: 7px;
@@ -109,6 +128,108 @@ a { color: var(--green-700); }
   letter-spacing: .04em;
 }
 .langbtn:hover { background: rgba(255,255,255,.24); }
+
+/* ---------------- 全局上下文条（当前样品 / 项目）+ 全局清理 ----------------
+   常驻顶部导航，所有模块页共享同一份上下文（app.js injectGlobalCtx 注入）。
+   两个可点胶囊显示"我在分析谁"，右侧 🧹 是全局清理总闸。
+   宽度预算：这一条约占 340px，是导航变挤的主因，故用弹性宽度 +
+   断点逐步收窄（先隐去「样品」「项目」前缀字，再压数值宽度）。 */
+.navctx {
+  display: flex; align-items: center; gap: 6px; margin-left: 8px;
+  padding-left: 8px; border-left: 1px solid rgba(255,255,255,.18);
+  flex: 0 1 auto; min-width: 0;
+}
+.navctx-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  max-width: 116px; padding: 4px 9px; border-radius: 99px;
+  font-size: 12.5px; line-height: 1.5; cursor: pointer;
+  background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.20);
+  color: #eaf6ee; white-space: nowrap; overflow: hidden;
+  flex: 0 1 auto; min-width: 0;
+}
+.navctx-chip:hover { background: rgba(255,255,255,.24); }
+.navctx-chip .k { opacity: .68; font-size: 11px; flex: none; }
+.navctx-chip .v {
+  font-weight: 650; overflow: hidden; text-overflow: ellipsis;
+}
+.navctx-chip.is-empty { opacity: .62; }
+.navctx-chip.is-empty .v { font-weight: 500; font-style: italic; }
+.navctx-x {
+  background: none; border: none; color: #cfe6d8; cursor: pointer;
+  font-size: 13px; padding: 0 1px; line-height: 1; flex: none;
+}
+.navctx-x:hover { color: #fff; }
+.navctx-reset {
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  padding: 4px 10px; border-radius: 99px; flex: none;
+  background: rgba(229,72,77,.20); border: 1px solid rgba(255,160,163,.42);
+  color: #ffd9da; white-space: nowrap;
+}
+.navctx-reset:hover { background: rgba(229,72,77,.42); color: #fff; }
+
+/* 控制簇：上下文条 + 语言 + 📂 绑成一个不可拆的 flex 项。
+   否则窗口刚好差几十像素时，只有 📂 被挤到第二行（实测 1884px 的症状）。 */
+.navtail {
+  display: flex; align-items: center; flex-wrap: nowrap;
+  flex: 0 0 auto;
+}
+.navtail .langbtn { margin-left: 8px; }
+
+/* 导航宽度阶梯：先收紧自身、再收上下文条，避免任何宽度下溢出。
+   断点按实测的"刚好放不下"位置取整（13 个一级链接约占 1130px）。 */
+@media (max-width: 1560px) {
+  .navctx-chip { max-width: 104px; }
+  .navctx-chip .k { display: none; }
+}
+@media (max-width: 1360px) {
+  .navlinks a { padding: 6px 8px; margin-left: 3px; font-size: 13px; }
+  .navctx { margin-left: 5px; padding-left: 5px; gap: 4px; }
+  .navctx-chip { max-width: 92px; padding: 4px 8px; }
+  .navctx-reset { padding: 4px 8px; font-size: 12px; }
+  .navtail .langbtn { margin-left: 6px; }
+  .brand { font-size: 15.5px; }
+}
+@media (max-width: 1180px) {
+  /* 这个宽度下"品牌 + 导航"已挤不下：切成品牌一行、导航独占一行的自然排布，
+     比让品牌挂在两行导航左侧更好看，也避免 .navlinks 被压到过窄而碎成多行。 */
+  .topnav { flex-wrap: wrap; row-gap: 2px; }
+  .navlinks { flex-basis: 100%; justify-content: flex-start; }
+  .navtail { margin-left: auto; }
+  .navlinks a { padding: 5px 7px; margin-left: 2px; font-size: 12.5px; }
+  .navctx-chip { max-width: 92px; font-size: 12px; }
+  .langbtn { padding: 4px 8px; }
+}
+@media (max-width: 960px) {
+  .topnav { padding: 5px 12px; }
+  .brand { font-size: 15px; letter-spacing: .02em; }
+  .navlinks a { padding: 5px 7px; font-size: 12.5px; }
+  .navctx-chip { max-width: 78px; }
+}
+@media (max-width: 720px) {
+  .topnav { padding-top: 7px; padding-bottom: 7px; }
+  .navlinks a { padding: 5px 6px; font-size: 12px; }
+  .navctx-chip { max-width: 70px; }
+}
+
+/* 全局样品选择弹窗（复用 kvsuite 选样弹窗的视觉，独立类名避免耦合） */
+.gx-pick-row { display: flex; gap: 8px; align-items: center; margin: 0 0 8px; }
+.gx-pick-row input[type=text] { flex: 1; }
+.gx-pick-list {
+  max-height: 46vh; overflow: auto;
+  border: 1px solid var(--line-200); border-radius: 8px;
+}
+.gx-pick-list .gx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-bottom: 1px solid var(--line-100);
+  font-size: 12.5px; cursor: pointer;
+}
+.gx-pick-list .gx-item:last-child { border-bottom: none; }
+.gx-pick-list .gx-item:hover { background: var(--green-50, #eef4f0); }
+.gx-pick-list .gx-item .nm { font-weight: 650; }
+.gx-pick-list .gx-item .meta {
+  margin-left: auto; color: var(--ink-400, #8b98a5); font-size: 11.5px;
+}
+.gx-empty { padding: 14px; text-align: center; color: var(--ink-400, #8b98a5); }
 
 /* ---------------- 页面骨架 ---------------- */
 .page { max-width: 1280px; margin: 26px auto 60px; padding: 0 20px; }
@@ -182,6 +303,9 @@ input:focus, select:focus, textarea:focus {
 .err { color: var(--red-700); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
 .hint { font-size: 12px; color: var(--ink-400); margin: 8px 0; line-height: 1.65; }
 .dbbadge { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+/* 宿主库列表（构建页）：一个物种一行，标出当前/旧布局/元数据冲突 */
+.hostdblist { margin: 6px 0 10px; font-size: 13px; }
+.hostdblist .badge { padding: 1px 8px; font-size: 11px; }
 .badge {
   padding: 3px 12px; border-radius: 99px; font-size: 12px; font-weight: 600;
   border: 1px solid transparent;
@@ -269,6 +393,13 @@ table.tbl th {
   text-transform: uppercase; letter-spacing: .09em; font-weight: 700;
 }
 table.tbl tr:hover td { background: #fafcfa; }
+/* .tbl 的数字列同样右对齐 + 不换行（原规则只覆盖 .tb/.table） */
+table.tbl td.num {
+  text-align: right; font-family: Consolas, Monaco, monospace;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+table.tbl th.num { text-align: right; white-space: nowrap; }
+table.tbl th { white-space: nowrap; }
 .ok { color: #14603b; } .no { color: var(--red-700); }
 
 /* 内联报告/结果表（.tb、.table）：缺省无样式导致混乱，补统一网格 + 数字右对齐 */
@@ -362,8 +493,13 @@ html[data-theme="dark"] table.tb tr:hover td, html[data-theme="dark"] table.tabl
   padding: 12px 18px; font-weight: 700; border-bottom: 1px solid var(--line-100);
 }
 .dlgpath {
-  padding: 8px 18px; font-size: 12px; color: var(--ink-500);
-  background: #f8fbf9; font-family: var(--mono);
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 18px; background: #f8fbf9;
+}
+.dlgpath input {
+  flex: 1; font-size: 12px; color: var(--ink-500);
+  font-family: var(--mono); padding: 5px 8px;
+  border: 1px solid var(--line-100); border-radius: var(--r-sm);
 }
 .dlglist { padding: 8px 12px; overflow: auto; }
 .dlglist .fitem {
@@ -372,6 +508,40 @@ html[data-theme="dark"] table.tb tr:hover td, html[data-theme="dark"] table.tabl
 }
 .dlglist .fitem:hover { background: var(--green-50); }
 .dlglist .dir { font-weight: 600; }
+
+/* ---------------- 路径输入框「最近使用」下拉 ---------------- */
+.pathhist {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+  background: var(--surface); border: 1px solid var(--line-200);
+  border-radius: var(--r-sm); box-shadow: var(--shadow-3);
+  z-index: 70; max-height: 260px; overflow: auto; padding: 4px;
+}
+.ph-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 8px 6px; font-size: 11px; color: var(--ink-400);
+  border-bottom: 1px solid var(--line-100); margin-bottom: 4px;
+}
+.ph-head .ph-clear {
+  border: 0; background: none; cursor: pointer; font-size: 11px;
+  color: var(--ink-500); padding: 2px 6px; border-radius: 4px;
+}
+.ph-head .ph-clear:hover { background: var(--gray-100); color: var(--red-700); }
+.ph-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px;
+}
+.ph-item:hover { background: var(--green-50); }
+.ph-item::before { content: '🕘'; font-size: 11px; }
+.ph-path {
+  flex: 1; font-family: var(--mono); color: var(--ink-700);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ph-del {
+  border: 0; background: none; cursor: pointer; color: var(--ink-300);
+  font-size: 11px; padding: 2px 5px; border-radius: 4px; visibility: hidden;
+}
+.ph-item:hover .ph-del { visibility: visible; }
+.ph-del:hover { color: var(--red-700); background: var(--red-100); }
 
 /* ---------------- 管道分析页 ---------------- */
 .pipe-head {
@@ -514,6 +684,43 @@ html[data-theme="dark"] table.tb tr:hover td, html[data-theme="dark"] table.tabl
 }
 .hero h1 { margin: 0 0 7px; font-size: 25px; letter-spacing: .04em; }
 .hero p { margin: 0; opacity: .92; font-size: 13.5px; max-width: 860px; line-height: 1.8; }
+
+/* ---------------- 启动页封面（首页 hero 升级版） ----------------
+   文字封面 + 四张叙事卡（Ⅰ 背景 / Ⅱ 方法 / Ⅲ 流程 / Ⅳ 意义）。
+   文字宽度靠 .cover-txt 的 max-width 控制，不铺满整行，留出呼吸感。 */
+.hero.cover { display: block; padding: 34px 36px 32px; }
+.cover-txt { max-width: 900px; }
+/* 主标题下的一句科研定位：整张封面最重的一行 */
+.hero .cover-lead {
+  margin: 0 0 11px; font-size: 16.5px; font-weight: 650; line-height: 1.7;
+  letter-spacing: .01em; opacity: 1; color: #eafaf1;
+}
+/* 工程口径一行：与叙事行之间用一条细分隔线断开 */
+.hero .cover-eng {
+  margin: 15px 0 0; padding-top: 12px; font-size: 12px; opacity: .84;
+  border-top: 1px solid rgba(127, 224, 170, .28);
+  color: #cdeedb; letter-spacing: .01em;
+}
+/* 叙事卡：等宽自适应列，四张卡随视口自然折行 */
+.cover-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 13px; margin: 16px 0 4px;
+}
+.cover-card {
+  background: var(--surface); border: 1px solid var(--line-200);
+  border-radius: var(--r-lg); padding: 14px 16px 15px; box-shadow: var(--shadow-1);
+}
+.cover-card .cc-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 7px;
+  font-size: 13.5px; font-weight: 700; color: var(--green-900);
+}
+.cover-card .cc-head b {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 11.5px; font-family: Georgia, serif;
+  background: var(--green-100); color: var(--green-700);
+  border: 1px solid #c4e4d1;
+}
+.cover-card p { margin: 0; font-size: 12.5px; line-height: 1.78; color: var(--ink-700); }
 .sec {
   font-size: 15.5px; color: var(--green-900); margin: 28px 0 13px; font-weight: 700;
   display: flex; align-items: center; gap: 9px;
@@ -616,6 +823,16 @@ pre.logbox {
 .set-row .s-ctrl { flex: none; width: 200px; }
 .set-row .s-ctrl input[type=number], .set-row .s-ctrl input[type=text],
 .set-row .s-ctrl select { padding: 6px 10px; font-size: 12.5px; }
+/* 目录路径行：标签独占一行，输入框+按钮整行放下。
+   若仍用左右 flex，宽度 100% 的控件会把标签挤到最小内容宽，中文即变成一字一行竖排 */
+.set-row.stack { flex-wrap: wrap; row-gap: 7px; }
+.set-row.stack .s-label { flex: 1 1 100%; }
+.set-row.stack .s-ctrl {
+  flex: 1 1 100%; width: auto; min-width: 0;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.set-row.stack .s-ctrl input { flex: 1 1 140px; min-width: 0; width: auto; }
+.set-row.stack .s-ctrl .btn { flex: none; white-space: nowrap; }
 .lang-seg { display: inline-flex; border: 1px solid var(--line-200); border-radius: 99px; overflow: hidden; }
 .lang-seg button {
   border: none; background: var(--surface); padding: 5px 16px; cursor: pointer;
@@ -700,8 +917,10 @@ pre.logbox {
   .page { margin-top: 16px; }
 }
 @media (max-width: 720px) {
-  .topnav { padding: 0 12px; height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
-  .navlinks a { padding: 5px 8px; font-size: 12.5px; }
+  /* 导航在 ≤720px 的收紧已统一到顶部 .topnav 的宽度阶梯里（原处重复声明的
+     `height:auto; flex-wrap:wrap` 也移到了基础样式——横条本就该跟随内容长高，
+     否则窄窗口下换行的第二行会溢出到绿色横条之外）。 */
+  .pipe-templates { gap: 4px; }
 }
 
 /* 批量导入/队列小表 */
@@ -945,3 +1164,16 @@ th.sortable:hover { filter: brightness(0.94); }
           background: #eef3f8; color: #456; border: 1px solid #dbe4ee; }
 .badge2.ok { background: #e9f7ef; color: #217346; border-color: #cdebd8; }
 .badge2.warn { background: #fff3e0; color: #b35c00; border-color: #f0d0a0; }
+
+/* ── 总览页顶部环境状态条（数据来自 /api/selfcheck，异步渲染）── */
+.env-strip {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  font-size: 12.5px; padding: 8px 14px; margin-bottom: 14px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line-200, #e5eaef); border-radius: var(--r-md, 10px);
+}
+.env-strip .env-bit b { font-weight: 600; margin-left: 2px; }
+.env-strip .env-bit.ok b, .env-strip .env-bit.ok { color: var(--green-700, #14603b); }
+.env-strip .env-bit.warn { color: var(--amber-700, #a3651d); }
+.env-strip .env-bit.bad { color: var(--red-700, #b03a2e); }
+.env-strip a { margin-left: auto; font-size: 12px; color: var(--blue-700, #1c5a99); }

@@ -24,7 +24,7 @@
 
 ### 已经做得很好的部分（不要动）
 
-- **路径安全模型**：`vp/utils.py::check_path` 拒绝 `..` 段、写模式限定平台根内，这是正确的设计。**关键的事实是：`app.py` 里裸 `open()` 数量为 0**——所有接收用户输入的 Web 层都走了安全校验，安全边界是守住的。
+- **路径安全模型**：`Virus_Platform_Core/utils.py::check_path` 拒绝 `..` 段、写模式限定平台根内，这是正确的设计。**关键的事实是：`app.py` 里裸 `open()` 数量为 0**——所有接收用户输入的 Web 层都走了安全校验，安全边界是守住的。
   - 需要澄清的一点：`utils.py` 的注释写「`open()` 仅出现在以下两个函数内」，但**这个约定在 `vp/` 内部实际被破了 33 处**（assembly 5、hmm_annot 6、public_data 5、utils 5、config 2、contig_annot 2、ictv_db 2、phylo 2、viz 1、genome_diag 1、lovis4u_run 1、sdt_exact 1、universal_ref 1）。这些多为模块内部自己 `os.path.join` 出来的路径，不接受用户输入，风险有限，但失去了 `safe_open` 的 gzip 自动处理与编码统一（这是 CRLF 坑的防线）。建议新代码仍走 `safe_open`，存量可不动。
 - **外部工具降级链**：DIAMOND → MMseqs2 → blastp、gbdraw → DFV、aria2c → 内置 HTTP → sracha，缺件不阻断流程。
 - **断点续跑**：每阶段 `.done` 标记 + `logs/stage_perf.json` 耗时自学习 + 资源预估日志，长任务的工程化到位。
@@ -140,13 +140,13 @@ webapp/blueprints/
   trace.py       logan / submit
   api_tasks.py   任务引擎相关 API（TaskManager 单独成模块）
 ```
-迁移顺序建议从 `trace.py`（LOGAN + submit，耦合最少）开始，抽出后立刻跑一遍烟测；`app.py` 里的业务逻辑（比如 `_tool_job_*` 系列，20+ 个任务函数）应该下沉到 `vp/jobs/`——开发笔记第二节自己写了「勿在 app.py 写业务逻辑」，现在这条被破了。
+迁移顺序建议从 `trace.py`（LOGAN + submit，耦合最少）开始，抽出后立刻跑一遍烟测；`app.py` 里的业务逻辑（比如 `_tool_job_*` 系列，20+ 个任务函数）应该下沉到 `Virus_Platform_Core/jobs/`——开发笔记第二节自己写了「勿在 app.py 写业务逻辑」，现在这条被破了。
 
 **注意**：`scripts/package.py` 与 `VirusPlatform.spec` 需要同步加 hiddenimports，否则打包后 Blueprint 导入失败（笔记第 17 条踩过同类坑）。
 
 ### 6. 多样品比较分析 —— 目前完全缺失
 
-这是**科研价值最高的一块空白**。需要精确说明：单样品内部的丰度分析是有的（`vp/viz.py::fig_abundance_bar` 丰度柱状图、科/属聚合图），但**跨样品的横向比较完全没有**——全代码库搜不到 `cross_sample` / 多样品 / 样品比较 的入口，后端也只有 `api_samples`（列表）、`api_pipeline`（单样品）这类单样品 API，**没有任何跨样品聚合接口**，`results.html` 里也没有汇总/对比/多选相关的功能。
+这是**科研价值最高的一块空白**。需要精确说明：单样品内部的丰度分析是有的（`Virus_Platform_Core/viz.py::fig_abundance_bar` 丰度柱状图、科/属聚合图），但**跨样品的横向比较完全没有**——全代码库搜不到 `cross_sample` / 多样品 / 样品比较 的入口，后端也只有 `api_samples`（列表）、`api_pipeline`（单样品）这类单样品 API，**没有任何跨样品聚合接口**，`results.html` 里也没有汇总/对比/多选相关的功能。
 
 现在平台是「一个样品一条流水线跑到底，出一份报告」，但博士论文需要的是**多样品横向结论**：
 
@@ -155,7 +155,7 @@ webapp/blueprints/
 - 按产区 / 年份 / 组织部位分组的差异分析（元数据已经在 `meta_search` 的 Core14 表里了）
 - 同属病毒跨样品的 contig 集合比较
 
-建议新建 `vp/cross_sample.py` + 「结果中心 → 多样品比较」页：勾选若干已分析样品 → 读各样品 `02_virus_screen/virus_summary.tsv` 与 `08_host_analysis/host_prediction.tsv` → 出矩阵与图。**数据源都是现成的，主要工作量在聚合与可视化**，`vp/viz.py`（1291 行）里的绘图函数可直接复用。
+建议新建 `Virus_Platform_Core/cross_sample.py` + 「结果中心 → 多样品比较」页：勾选若干已分析样品 → 读各样品 `02_virus_screen/virus_summary.tsv` 与 `08_host_analysis/host_prediction.tsv` → 出矩阵与图。**数据源都是现成的，主要工作量在聚合与可视化**，`Virus_Platform_Core/viz.py`（1291 行）里的绘图函数可直接复用。
 
 ### 7. 运行清单 manifest —— 补齐可复现性
 
@@ -165,7 +165,7 @@ webapp/blueprints/
 ```
 没有参数、没有软件版本、没有数据库版本。全库搜索 `*manifest*` / `*params*` / `run.json` 均无命中——**确实不存在运行清单**。
 
-（补充澄清：平台本身是有版本号的，`vp/__init__.py:4` 定义了 `__version__ = "1.0.0"`，只是**这个值从未被写入任何产物**。`vp/config.py` 里确实没有 VERSION 常量。）
+（补充澄清：平台本身是有版本号的，`Virus_Platform_Core/__init__.py:4` 定义了 `__version__ = "1.0.0"`，只是**这个值从未被写入任何产物**。`Virus_Platform_Core/config.py` 里确实没有 VERSION 常量。）
 
 论文方法章节和审稿人追问「参考库版本 / 软件版本 / 参数」时，目前只能翻 `logs/` 人肉拼。
 
@@ -259,7 +259,7 @@ def _unhandled(e):
 
 | # | 初版说法 | 实际情况 | 已改为 |
 |---|---|---|---|
-| ❌1 | 「`vp/config.py` 里连 `VERSION` 常量都没有」（暗示平台无版本号） | `vp/__init__.py:4` 有 `__version__ = "1.0.0"`，只是从未写入产物 | 第七节：明确「平台有版本号但未落盘」，config.py 无 VERSION 仍属实 |
+| ❌1 | 「`Virus_Platform_Core/config.py` 里连 `VERSION` 常量都没有」（暗示平台无版本号） | `Virus_Platform_Core/__init__.py:4` 有 `__version__ = "1.0.0"`，只是从未写入产物 | 第七节：明确「平台有版本号但未落盘」，config.py 无 VERSION 仍属实 |
 | ❌2 | 「`open()` 只允许出现在 safe_open/check_path 两个函数内，这个约定非常正确」 | 该约定写在 `utils.py` 注释里，但 `vp/` 内部实际有 **33 处裸 `open()`**（13 个模块） | 第一节：改为「app.py 裸 open = 0（安全边界守住），但 vp/ 内部 33 处偏离约定」，并列出分布 |
 
 ### 已精确化（3 处）

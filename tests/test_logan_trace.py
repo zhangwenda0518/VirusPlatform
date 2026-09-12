@@ -4,11 +4,20 @@ import os
 import sys
 import json
 import io
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import DIRS
-from vp import logan_trace as lt
+from Virus_Platform_Core.config import DIRS
+from Virus_Platform_Core import logan_trace as lt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _logan_fixture import pick_sample, skip_if_none  # noqa: E402
@@ -241,7 +250,7 @@ def test_default_stages_and_dedup(monkeypatch):
     print('== 默认阶段与任务去重 ==')
     import app as flaskapp
     import main as cli_main
-    from vp.pipeline import DEFAULT_ANALYZE_STAGES
+    from Virus_Platform_Core.pipeline import DEFAULT_ANALYZE_STAGES
     c = flaskapp.app.test_client()
 
     check('hostana' in DEFAULT_ANALYZE_STAGES, '默认分析阶段包含 hostana')

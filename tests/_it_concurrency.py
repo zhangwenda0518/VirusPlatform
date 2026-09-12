@@ -43,7 +43,12 @@ def sleep_job(sec):
 
 
 def running_now(status=('running',)):
-    return sum(1 for r in tm.tasks.values() if r['status'] in status)
+    # 外部任务（下载批次 / 排队样品 / 存储扫描）只是任务中心里的**镜像
+    # 卡片**，由各自的子系统调度，不占 heavy/light 名额（见
+    # tests/_it_taskcenter_ext.py 第 4 节）。它们的 rec['status'] 在被
+    # provider 刷新前是登记初值 'running'，计进来会把闸门峰值撑大。
+    return sum(1 for r in tm.tasks.values()
+               if r['status'] in status and not r.get('external'))
 
 
 print('闸门上限:', tm.limits)
@@ -101,6 +106,7 @@ lpeak = 0
 for _ in range(10):
     lpeak = max(lpeak, sum(1 for r in tm.tasks.values()
                            if r['status'] == 'running'
+                           and not r.get('external')
                            and r.get('weight') == 'light'))
     time.sleep(0.1)
 check(lpeak <= LIGHT, 'light 并发峰值 %d <= %d' % (lpeak, LIGHT))

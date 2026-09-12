@@ -9,10 +9,10 @@ import shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from vp.utils import (check_path, run_cmd,
+from Virus_Platform_Core.utils import (check_path, run_cmd,
                       inject_taxid_to_fasta, inject_taxid_chunked)
-from vp import kunpeng as kp
-from vp.config import get_config
+from Virus_Platform_Core import kunpeng as kp
+from Virus_Platform_Core.config import get_config
 
 mode = sys.argv[1]
 subset = check_path(os.path.join(ROOT, 'host-db', 'subset_800mb.fa'),

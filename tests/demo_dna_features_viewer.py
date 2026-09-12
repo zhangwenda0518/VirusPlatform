@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 DNA Features Viewer 出图演示 —— 复用平台 ⑨基因组图 的 DFV 引擎
-（vp/dfv_plot.py），对 REGRESS 回归样品直接跑 run_dfv_plots。
+（Virus_Platform_Core/dfv_plot.py），对 REGRESS 回归样品直接跑 run_dfv_plots。
 
 用法:
     python tests/demo_dna_features_viewer.py
@@ -13,8 +13,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import DIRS
-from vp.dfv_plot import run_dfv_plots
+from Virus_Platform_Core.config import DIRS
+from Virus_Platform_Core.dfv_plot import run_dfv_plots
 
 
 class _Echo(object):

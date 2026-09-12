@@ -4,7 +4,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.logan_trace import parse_result_table
+from Virus_Platform_Core.logan_trace import parse_result_table
 
 raw = ('Run Accession,Organism,Location,k-mer coverage\n'
        'SRR12345,"Virus, unclassified","USA: California, Davis",0.5\n'
@@ -19,7 +19,7 @@ assert rows[0]['location'] == 'USA: California, Davis', rows[0]
 assert rows[0]['kmer_cov'] == 0.5, rows[0]
 print('CSV 解析 OK')
 
-from vp.msa_view import snp_view_data
+from Virus_Platform_Core.msa_view import snp_view_data
 import tempfile
 p = os.path.join(tempfile.gettempdir(), '_vp_aln80.fa')
 with open(p, 'w', encoding='utf-8') as f:
@@ -38,7 +38,7 @@ os.remove(p)
 print('msa_view 截断标记 OK')
 
 # primer3 amplicon 语义
-from vp import primer_design as pd
+from Virus_Platform_Core import primer_design as pd
 import random
 random.seed(7)
 seq = ''.join(random.choice('ACGT') for _ in range(1200))

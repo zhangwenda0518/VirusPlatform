@@ -4,13 +4,12 @@
 用法:
   python main.py init-taxonomy
   python main.py build-host-db --genome host-db/112863_Lycium_barbarum/genome.fa --taxid 112863
-  python main.py build-virus-db --fasta virus-db/final.cluster.ref.fasta --info virus-db/final.cluster.ref_info.tsv
+  python main.py build-virus-db --fasta databases/virusref_db/final.cluster.ref.fasta --info databases/virusref_db/final.cluster.ref_info.tsv
   python main.py analyze --r1 a_R1.fq.gz --r2 a_R2.fq.gz --sample NX-5
   python main.py report --sample NX-5        # 重新生成可视化报告
   python main.py logan-create --name 查询名 --sample NX-5   # LOGAN 溯源查询
   python main.py gb-dl --acc "NC_001367,NC_002692" -n tobamo  # 下载 GenBank 集合
-  python main.py compare -n tobamo           # 同属病毒共线性比较
-图形界面: 双击 启动平台.bat
+图形界面: 双击 启动平台-桌面窗口.bat
 """
 import os
 import re
@@ -23,9 +22,12 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from vp.config import get_config, DIRS, PLATFORM_ROOT, engine_cmd
-from vp.utils import TaskLogger, check_path
-from vp.pipeline import DEFAULT_ANALYZE_STAGES
+from Virus_Platform_Core.config import get_config, DIRS, PLATFORM_ROOT, engine_cmd
+from Virus_Platform_Core.selfcheck import (FALLBACK_MODULES,
+                                           iter_platform_modules
+                                           as _iter_platform_modules)
+from Virus_Platform_Core.utils import TaskLogger, check_path
+from Virus_Platform_Core.pipeline import DEFAULT_ANALYZE_STAGES
 
 
 def make_logger(name, echo=True):
@@ -34,7 +36,7 @@ def make_logger(name, echo=True):
 
 
 def cmd_init_taxonomy(args):
-    from vp.taxonomy import prepare_taxonomy, taxonomy_ready
+    from Virus_Platform_Core.taxonomy import prepare_taxonomy, taxonomy_ready
     logger = make_logger('taxonomy')
     prepare_taxonomy(logger=logger, force=args.force)
     print("\n✔ Taxonomy 就绪:", taxonomy_ready())
@@ -42,20 +44,36 @@ def cmd_init_taxonomy(args):
 
 
 def cmd_build_host_db(args):
-    from vp.kunpeng import build_host_db, db_ready
+    from Virus_Platform_Core.kunpeng import build_host_db, db_ready
+    from Virus_Platform_Core.config import host_db_info, host_db_name
     logger = make_logger('build_host_db')
     check_path(args.genome, must_exist=True)
     # 建库内存峰值与线程数成正比（约 1GB/线程），默认限 8
     threads = args.threads if args.threads else min(8, get_config().threads)
-    build_host_db(args.genome, args.taxid,
-                  hash_capacity=args.hash_capacity, threads=threads,
-                  logger=logger, rebuild=args.rebuild)
-    print("\n✔ 宿主库就绪" if db_ready(get_config().databases['host']) else "\n✘ 建库失败")
+    # 输出目录：--out-dir 未给则按物种命名 host-db/<taxid>_<源目录名>_host_db
+    out = build_host_db(args.genome, args.taxid, db_dir=args.out_dir,
+                        hash_capacity=args.hash_capacity, threads=threads,
+                        logger=logger, rebuild=args.rebuild,
+                        clean_mid=args.clean_mid)
+    cfg = get_config()
+    if db_ready(out):
+        cfg.set_active_host_db(out)          # 建完即设为当前，避免建了不用
+        info = host_db_info(out)
+        print(f"\n✔ 宿主库就绪: {out}")
+        print(f"  物种 = {info.get('species') or '(未查到学名)'} "
+              f"(taxid={info.get('taxid')})")
+        if info.get('conflicted'):
+            print(f"  ⚠ seqid2taxid.map 含多个 taxid {info.get('taxids_in_map')}"
+                  f" —— 元数据被历史建库污染，建议换新目录重建")
+        print(f"  已设为当前宿主库（platform.json active_host_db = "
+              f"{cfg.active_host_db}）")
+    else:
+        print("\n✘ 建库失败")
     logger.close()
 
 
 def cmd_build_virus_db(args):
-    from vp.kunpeng import build_virus_db, db_ready
+    from Virus_Platform_Core.kunpeng import build_virus_db, db_ready
     logger = make_logger('build_virus_db')
     build_virus_db(args.fasta, args.info,
                    hash_capacity=args.hash_capacity, threads=args.threads,
@@ -65,7 +83,7 @@ def cmd_build_virus_db(args):
 
 
 def cmd_analyze(args):
-    from vp.pipeline import run_analysis
+    from Virus_Platform_Core.pipeline import run_analysis
     check_path(args.r1, must_exist=True)
     if args.r2:
         check_path(args.r2, must_exist=True)
@@ -91,7 +109,7 @@ def cmd_analyze(args):
 
 
 def cmd_ncbi_dl(args):
-    from vp.ncbi_download import download_collection, list_collections
+    from Virus_Platform_Core.ncbi_download import download_collection, list_collections
     logger = make_logger(f'ncbi_dl_{args.name}')
     res = download_collection(args.term, args.name, db=args.db,
                               max_records=args.max, logger=logger)
@@ -104,7 +122,7 @@ def cmd_ncbi_dl(args):
 
 
 def cmd_ncbi_list(args):
-    from vp.ncbi_download import list_collections
+    from Virus_Platform_Core.ncbi_download import list_collections
     cols = list_collections()
     if not cols:
         print("（无已下载集合，先用 ncbi-dl 下载）")
@@ -115,7 +133,7 @@ def cmd_ncbi_list(args):
 
 
 def cmd_gb_dl(args):
-    from vp.gb_collection import download_gb_collection, list_gb_collections
+    from Virus_Platform_Core.gb_collection import download_gb_collection, list_gb_collections
     logger = make_logger(f'gb_dl_{args.name}')
     res = download_gb_collection(args.name, term=args.term,
                                  accessions=args.acc, max_records=args.max,
@@ -130,7 +148,7 @@ def cmd_gb_dl(args):
 
 
 def cmd_gb_import(args):
-    from vp.gb_collection import import_local_gb
+    from Virus_Platform_Core.gb_collection import import_local_gb
     logger = make_logger(f'gb_import_{args.name}')
     res = import_local_gb(args.name, args.files, logger=logger)
     print(f"\n✔ 集合 [{res['name']}]: 导入 {res['imported']} 条，"
@@ -139,7 +157,7 @@ def cmd_gb_import(args):
 
 
 def cmd_gb_list(args):
-    from vp.gb_collection import list_gb_collections
+    from Virus_Platform_Core.gb_collection import list_gb_collections
     cols = list_gb_collections()
     if not cols:
         print('（无 GenBank 集合，先用 gb-dl 下载或 gb-import 导入）')
@@ -156,7 +174,7 @@ def cmd_gb_list(args):
 
 
 def cmd_gb_check(args):
-    from vp.gb_collection import inspect_collection
+    from Virus_Platform_Core.gb_collection import inspect_collection
     st = inspect_collection(args.name)
     print(f"集合 [{st['name']}]（{st['dir']}）: {len(st['records'])} 条记录\n")
     print(f"{'accession':18s}{'长度':>10s}{'CDS':>5s}{'成熟肽':>6s}  物种")
@@ -169,38 +187,8 @@ def cmd_gb_check(args):
             print(f'  - {w}')
 
 
-def cmd_compare(args):
-    from vp.synteny import run_comparison
-    logger = make_logger(f'compare_{args.name or "adhoc"}')
-    files = None
-    if args.files:
-        files = [p for p in args.files.replace(';', ',').split(',')
-                 if p.strip()]
-    res = run_comparison(name=args.name, files=files,
-                         min_ident=args.min_ident, min_cov=args.min_cov,
-                         mat_peptide=not args.no_mat_peptide,
-                         order=(args.order.split(',') if args.order
-                                else None),
-                         labels=not args.no_labels, style=args.style,
-                         lovis4u_pdf=args.lovis4u, threads=args.threads,
-                         logger=logger)
-    print(f"\n✔ 比较: {res['n_genomes']} 基因组 · {res['n_genes']} 基因 · "
-          f"{res['n_clusters']} 个同源家族"
-          + (f" · {res['n_singletons']} 个无同源基因"
-             if res['n_singletons'] else ''))
-    for w in res['warnings']:
-        print(f'  ⚠ {w}')
-    print(f"共线性图 : {res['files']['html']}")
-    print(f"矢量图   : {res['files']['svg']}")
-    if res['files'].get('lovis4u_pdf'):
-        print(f"LoVis4u  : {res['files']['lovis4u_pdf']}")
-    print(f"家族清单 : {res['files']['clusters']}")
-    print(f"共享比例 : {res['files']['similarity']}")
-    logger.close()
-
-
 def cmd_report(args):
-    from vp.pipeline import run_report_only
+    from Virus_Platform_Core.pipeline import run_report_only
     logger = make_logger(f'report_{args.sample}')
     run_report_only(args.sample, logger=logger, force=args.force)
     logger.close()
@@ -208,9 +196,9 @@ def cmd_report(args):
 
 def cmd_host_analysis(args):
     import os
-    from vp.config import DIRS
-    from vp.pipeline import _safe_sample_name
-    from vp.host_analysis import predict_hosts
+    from Virus_Platform_Core.config import DIRS
+    from Virus_Platform_Core.pipeline import _safe_sample_name
+    from Virus_Platform_Core.host_analysis import predict_hosts
     sample = _safe_sample_name(args.sample)
     sample_dir = os.path.join(DIRS['results'], sample)
     logger = make_logger(f'hostana_{sample}')
@@ -223,23 +211,26 @@ def cmd_host_analysis(args):
 
 def cmd_orfa(args):
     import os
-    from vp.config import DIRS
-    from vp.pipeline import _safe_sample_name
-    from vp.orf_annot import run_orf_annotation
+    from Virus_Platform_Core.config import DIRS
+    from Virus_Platform_Core.pipeline import _safe_sample_name
+    from Virus_Platform_Core.orf_annot import run_orf_annotation, LIB_LABELS
     sample = _safe_sample_name(args.sample)
     sample_dir = os.path.join(DIRS['results'], sample)
     logger = make_logger(f'orfa_{sample}')
     s = run_orf_annotation(sample_dir, threads=args.threads, logger=logger,
-                           force=args.force)
+                           force=args.force, libs=args.libs)
     logger.close()
+    used = s.get('libs') or []
+    print("启用注释层: " + '、'.join(LIB_LABELS.get(l, l) for l in used))
+    eng = s.get('engine') or '（层1 未启用）'
     print(f"ORF 功能注释完成: {s['n_annotated']}/{s['n_orfs']} 个 ORF 获得"
-          f"有效注释，覆盖 {s['n_families']} 个病毒科（引擎 {s['engine']}）")
+          f"有效注释，覆盖 {s['n_families']} 个病毒科（引擎 {eng}）")
     for c, n in list(s['categories'].items())[:10]:
         print(f"  {c:20s}: {n}")
 
 
 def cmd_logan_create(args):
-    from vp.logan_trace import create_job, get_segment_fasta
+    from Virus_Platform_Core.logan_trace import create_job, get_segment_fasta
     d = create_job(args.name, sample=args.sample or None,
                    contig_ids=(args.contigs.split(',') if args.contigs else None),
                    pasted=args.fasta, n_seg=args.segments)
@@ -255,7 +246,7 @@ def cmd_logan_create(args):
 
 
 def cmd_logan_import(args):
-    from vp.logan_trace import import_result
+    from Virus_Platform_Core.logan_trace import import_result
     raw = open(check_path(args.result, must_exist=True), 'rb').read()
     d = import_result(args.name, args.segment, args.result, raw)
     print(f"已导入片段 s{args.segment}（{args.result}）；"
@@ -264,7 +255,7 @@ def cmd_logan_import(args):
 
 
 def cmd_logan_jobs(args):
-    from vp.logan_trace import list_jobs
+    from Virus_Platform_Core.logan_trace import list_jobs
     jobs = list_jobs()
     if not jobs:
         print("暂无 LOGAN 溯源查询任务")
@@ -276,7 +267,7 @@ def cmd_logan_jobs(args):
 
 
 def cmd_logan_batch(args):
-    from vp.logan_trace import batch_submit
+    from Virus_Platform_Core.logan_trace import batch_submit
     emails = [e.strip() for e in args.email.split(',') if e.strip()]
     logger = make_logger(f'logan_batch_{args.name}')
     r = batch_submit(args.name, emails, group=args.group,
@@ -289,7 +280,7 @@ def cmd_logan_batch(args):
 
 
 def cmd_submit_list(args):
-    from vp.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import store
     tabs = store.list_tables()
     if not tabs:
         print("暂无提交项目（submissions/ 为空）。新建：python main.py submit-init --name demo --demo")
@@ -302,8 +293,8 @@ def cmd_submit_list(args):
 
 def cmd_submit_init(args):
     import subprocess as _sp
-    from vp.ncbi_submit import store
-    from vp.ncbi_submit import unified_metadata as _um_path
+    from Virus_Platform_Core.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import unified_metadata as _um_path
     if args.demo:
         store.create_table(args.name, sample='demo')
         print(f"提交项目已创建（示例数据）: submissions/{args.name}/")
@@ -336,7 +327,7 @@ def cmd_submit_init(args):
 
 
 def cmd_submit_validate(args):
-    from vp.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import store
     issues = store.validate_table(args.name)
     if not issues:
         print("✓ 所有必填字段已填写，可以提交")
@@ -353,13 +344,13 @@ def cmd_submit_validate(args):
 
 
 def cmd_submit_fill(args):
-    from vp.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import store
     n = store.batch_fill(args.name, args.column, args.value, old_value=args.old)
     print(f"已更新 '{args.column}' 列 {n} 个单元格")
 
 
 def cmd_submit_export(args):
-    from vp.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import store
     out = store.export_files(args.name, assembler=args.assembler,
                              sequencer=args.sequencer,
                              enrichment=args.enrichment)
@@ -371,7 +362,7 @@ def cmd_submit_export(args):
 
 
 def cmd_submit_sbt(args):
-    from vp.ncbi_submit import store
+    from Virus_Platform_Core.ncbi_submit import store
     fields = {'last': args.last, 'first': args.first, 'middle': args.middle or '',
               'affil': args.affil, 'div': args.div or '', 'city': args.city,
               'sub': args.sub or '', 'country': args.country,
@@ -386,7 +377,7 @@ def cmd_submit_sbt(args):
 
 def cmd_meta_search(args):
     import subprocess as _sp
-    from vp.public_meta import search_engine
+    from Virus_Platform_Core.public_meta import search_engine
     cmd = engine_cmd(search_engine.__file__,
            '-q', args.species, '-s', args.source, '--db', args.db)
     if args.out:
@@ -404,7 +395,7 @@ def cmd_meta_search(args):
 
 def cmd_meta_info(args):
     import subprocess as _sp
-    from vp.public_meta import info_engine
+    from Virus_Platform_Core.public_meta import info_engine
     # --runs 既可以是编号列表文件，也可以是单个 SRR/CRR 编号
     if os.path.isfile(args.runs):
         runs_arg = check_path(args.runs, must_exist=True)
@@ -426,12 +417,12 @@ def cmd_meta_info(args):
 
 
 def cmd_meta_plot(args):
-    from vp.public_meta.landscape_plot import plot_sci_landscape
+    from Virus_Platform_Core.public_meta.landscape_plot import plot_sci_landscape
     plot_sci_landscape(check_path(args.input, must_exist=True), args.out)
 
 
 def cmd_host_genome(args):
-    from vp.public_meta.host_genome import main as _hg_main
+    from Virus_Platform_Core.public_meta.host_genome import main as _hg_main
     sys.argv = ['host_genome.py', '--species', args.species]
     if args.out:
         sys.argv += ['--outdir', args.out]
@@ -449,7 +440,7 @@ def cmd_host_genome(args):
 
 
 def cmd_ref_status(args):
-    from vp import virus_ref
+    from Virus_Platform_Core import virus_ref
     st = virus_ref.status()
     if not st['dir']:
         print("✘ 参考库未部署（databases/virus_ref 已移除）")
@@ -463,7 +454,7 @@ def cmd_ref_status(args):
 
 
 def cmd_ictv_update(args):
-    from vp.ictv_db import update
+    from Virus_Platform_Core.ictv_db import update
     logger = make_logger('ictv_update')
     update(logger=logger, xlsx=args.xlsx)
     cmd_ictv_status(args)
@@ -471,10 +462,10 @@ def cmd_ictv_update(args):
 
 
 def cmd_ictv_status(args):
-    from vp import ictv_db
+    from Virus_Platform_Core import ictv_db
     st = ictv_db.status()
     if not st['dir']:
-        print("✘ 未找到 databases/tax/ictv/（ICTV 参考库未部署）")
+        print("✘ 未找到 databases/tree_db/ictv_tree.db/（ICTV 参考库未部署）")
         return
     print(f"ICTV 库目录 : {st['dir']}")
     if not st['taxa_ready']:
@@ -488,14 +479,21 @@ def cmd_ictv_status(args):
 
 
 def cmd_ictv_refs(args):
-    from vp import ictv_db
+    from Virus_Platform_Core import ictv_db
+    from Virus_Platform_Core import acvirus
+    db = getattr(args, 'db', None) or acvirus.DEFAULT_DB
+    if db not in acvirus._LIBS:
+        raise SystemExit(f'未知建树库: {db}（可选 {"/".join(acvirus._LIBS)}）')
+    if not acvirus.available(db):
+        raise SystemExit(f'{db} 建树库未就绪（缺少谱系表 taxa，'
+                         f'见 tree_db/{db}_tree.db）')
     if not any((args.genus, args.family, args.species)):
         raise SystemExit('至少指定 --genus / --family / --species 之一')
     rows, total = ictv_db.select_refs(
         genus=args.genus, family=args.family, species=args.species,
-        limit=args.limit, genome='any' if args.any else 'complete')
+        limit=args.limit, genome='any' if args.any else 'complete', db=db)
     scope = args.genus or args.family or args.species
-    print(f"[{scope}] 命中 {total} 条"
+    print(f"[{scope}] 命中 {total} 条 库={db}"
           + ('' if args.any else '（仅 Complete genome）')
           + f"，按本地优先显示前 {len(rows)} 条:\n")
     print(f"{'accession':12s}{'来源':11s}{'基因组':22s}{'物种':40s}宿主组")
@@ -528,9 +526,9 @@ def cmd_tools(args):
 
 
 def cmd_db_migrate(args):
-    """数据库迁移/对接：把 databases/host-db/virus-db 复制或搬移到外置位置，
-    并切换 database_root，实现软件与数据库分离部署。"""
-    from vp.db_migrate import migrate, check
+    """数据库迁移/对接：把 databases（含 virusref_db/）与 host-db 复制或搬移到
+    外置位置，并切换 database_root，实现软件与数据库分离部署。"""
+    from Virus_Platform_Core.db_migrate import migrate, check
     if args.check:
         r = check(args.to)
         print(('\n✔ ' if r.get('ok') else '\n✘ ') + (r.get('detail')
@@ -545,10 +543,35 @@ def cmd_db_migrate(args):
     return None if r.get('ok') else False
 
 
+def cmd_samples_backfill(args):
+    """给缺 project.json 的老样品从既有产物回填清单。
+
+    project.json 由跑流程时写；在此之前的样品（或手工拷进 results/ 的目录）
+    没有清单，项目名/输入/stages_done 就缺失。这里把
+    pipeline.backfill_manifest_from_products 的反推能力暴露出来——
+    该函数此前没有任何调用点。
+    只填 project / input / stages_done；不猜 last_run / last_status
+    （它们描述"一次运行"，凭产物推断属臆测）。
+    """
+    get_config()  # 确保 DIRS 已按 platform.json（含自定义输出根）就绪
+    from Virus_Platform_Core.pipeline import backfill_all_manifests
+    r = backfill_all_manifests(dry_run=args.dry_run, only=args.sample)
+    print(f"扫描样品 {r['total']} 个，需回填 {r['backfilled']} 个，"
+          f"已有清单跳过 {r['skipped']} 个"
+          + ('（预演，未写盘）' if r['dry_run'] else ''))
+    for it in r['items']:
+        flag = '将写入' if r['dry_run'] else ('已写入' if it['wrote'] else '无需写')
+        print(f"  [{flag}] {it['sample']:32s} 项目={it['project'] or '-'} "
+              f"已完成阶段={it['stages_done']}")
+    if not r['items']:
+        print('  没有需要回填的样品')
+    return None
+
+
 def cmd_tool_runs(args):
     """输出目录管理：status / organize / archive / clean 四动作。"""
     get_config()  # 确保 DIRS 已按 platform.json（含自定义输出根）就绪
-    from vp import tool_runs_admin as tra
+    from Virus_Platform_Core import tool_runs_admin as tra
     act = args.action
     if act == 'status':
         info = tra.status()
@@ -592,20 +615,23 @@ def cmd_selfcheck(args):
     import time as _t
     ok_all = True
 
-    # 1) 核心模块导入
+    # 1) 模块导入（遍历 Virus_Platform_Core 下**全部**子模块；
+    #    枚举实现在 Virus_Platform_Core.selfcheck，web API 共用同一份）
     print('── ① 模块导入 ──')
-    mods = ['vp.config', 'vp.utils', 'vp.taxonomy', 'vp.kunpeng', 'vp.preprocess',
-            'vp.host_removal', 'vp.virus_screen', 'vp.assembly', 'vp.host_analysis',
-            'vp.orf', 'vp.orf_annot', 'vp.phylo', 'vp.primer',
-            'vp.viz', 'vp.pipeline', 'vp.msa_view']
     t0 = _t.time()
+    mods, walk_errs = _iter_platform_modules()
+    if not mods:                       # 遍历不可用时的兜底，别让自检失去意义
+        mods = FALLBACK_MODULES
     fails = []
     for m in mods:
         try:
             importlib.import_module(m)
         except Exception as e:
             fails.append((m, repr(e)))
-    print(f'  {"✔" if not fails else "✘"} {len(mods) - len(fails)}/{len(mods)} '
+    for n in walk_errs:                # 遍历阶段就导不进来的子包（如缺依赖）
+        fails.append((n + '.*', '子包导入失败，其下模块未能枚举'))
+    total = len(mods) + len(walk_errs)
+    print(f'  {"✔" if not fails else "✘"} {total - len(fails)}/{total} '
           f'({_t.time() - t0:.1f}s)')
     for m, e in fails:
         print(f'    ✘ {m}: {e}')
@@ -625,8 +651,9 @@ def cmd_selfcheck(args):
 
     # 3) 数据库
     print('── ③ 数据库 ──')
-    from vp.kunpeng import db_ready
-    from vp.taxonomy import taxonomy_ready
+    from Virus_Platform_Core.kunpeng import db_ready
+    from Virus_Platform_Core.taxonomy import taxonomy_ready
+    from Virus_Platform_Core.config import host_db_info
     checks = [
         ('NCBI Taxonomy', taxonomy_ready()),
         ('宿主库 host_db', db_ready(cfg.databases['host'])),
@@ -635,6 +662,20 @@ def cmd_selfcheck(args):
     for name, ok in checks:
         print(f'  {"✔" if ok else "✘"} {name}')
         ok_all &= ok
+        if name.startswith('宿主库'):
+            # 宿主库"是谁"必须可见：库本体不记录物种，历史上出过
+            # "目录名是枸杞、库却按 4081 番茄建"的事故，用错宿主是静默的。
+            h = host_db_info(cfg.databases['host'])
+            if h:
+                who = (f"{h.get('species')} (taxid={h.get('taxid')})"
+                       if h.get('taxid') else '身份未记录（无 host_db.json 清单）')
+                print(f'      目录 = {h.get("name")} | 物种 = {who}')
+                if h.get('conflicted'):
+                    print(f'      ⚠ 元数据冲突: seqid2taxid.map 含多个 taxid '
+                          f'{h.get("taxids_in_map")}（历史建库污染）')
+                if h.get('legacy'):
+                    print('      提示: 这是旧布局固定槽位 host/classify；'
+                          '重建后会自动迁到 host-db/<物种>_host_db/')
 
     # 4) 磁盘空间
     print('── ④ 磁盘空间 ──')
@@ -661,11 +702,26 @@ def cmd_selfcheck(args):
     # 6) 第三方依赖（对照 requirements.txt；缺必需依赖会影响打包分发）
     print('── ⑥ 第三方依赖 ──')
     try:
-        from scripts.audit_deps import analyze as _dep_analyze
+        from dev_tools.audit_deps import analyze as _dep_analyze
         dep = _dep_analyze()
-        if not dep['hard_missing']:
-            print(f"  ✔ 全部依赖就绪（扫描 {len(dep['third'])} 个，"
-                  f"requirements 已覆盖）")
+        if not dep['third']:
+            # 冻结分发：audit_deps 靠遍历源码树收集 import，而 exe 里没有 .py
+            # 源码，扫描结果恒为 0。此处若照常打 ✔，就是一句没有信息量的假阳性
+            # （2026-09-11 实测：打包版扫到 0 个却报"全部就绪"，而当时 polars
+            #  正因漏声明被 spec 排除、整个「已知病毒识别与定量」静默失效）。
+            # 如实说明不适用，别给假信心。
+            print('  – 不适用：冻结分发无源码树可扫描'
+                  '（依赖已在打包环节固化，请以 ① 模块导入 为准）')
+        elif not dep['hard_missing']:
+            print(f"  ✔ 全部依赖就绪（扫描 {len(dep['third'])} 个）")
+            # uncovered = 代码在用、但 requirements.txt 没声明。原先这里无条件
+            # 打"requirements 已覆盖"，而 uncovered 从不展示 —— 正是这个盲区
+            # 让 polars 漏声明了很久，最终演变成打包版整段功能静默失效
+            # （2026-09-11）。如实列出来。
+            if dep['uncovered']:
+                _unc = dep['uncovered']
+                print(f"  △ requirements.txt 未声明 {len(_unc)} 个: "
+                      + ', '.join(m for m, _pip in _unc))
             if dep['missing']:
                 print(f"  △ 可选依赖缺失（对应功能降级）: "
                       f"{', '.join(dep['missing'])}")
@@ -699,6 +755,12 @@ def main():
     sp.add_argument('--hash-capacity', default='256M')
     sp.add_argument('--threads', type=int, default=0,
                     help='线程数（默认自动=8；内存不足时用 4）')
+    sp.add_argument('--out-dir', default=None,
+                    help='输出库目录（默认按物种命名 '
+                         'host-db/<taxid>_<源目录名>_host_db）')
+    sp.add_argument('--clean-mid', action='store_true',
+                    help='建库后清理中间文件（library/prep，约省 3GB；'
+                         '重建时会自动再生成）')
     sp.add_argument('--rebuild', action='store_true')
     sp.set_defaults(func=cmd_build_host_db)
 
@@ -716,7 +778,7 @@ def main():
     sp.add_argument('--sample', required=True)
     sp.add_argument('--stages',
                     default=','.join(DEFAULT_ANALYZE_STAGES),
-                    help='阶段: fastp,fq2fa,host,virus,assembly,hostana,'
+                    help='阶段: fastp,fq2fa,host,kvsuite,assembly,hostana,'
                          'orf,orfa,phylo,primer,gbdraw,report')
     sp.add_argument('--db-host', default=cfg.databases['host'])
     sp.add_argument('--db-virus', default=cfg.databases['virus'])
@@ -733,7 +795,8 @@ def main():
                     choices=['blast', 'macro', 'genus', 'lineage'],
                     help='参考挑选: blast=按比对hits(默认); macro=同科建树'
                          '(目标属+同科各属背景); genus=属级树; lineage=种级树'
-                         '（后三者需分类元数据；acvirus_db/virus_ref 已移除）')
+                         '（后三者需分类元数据；旧 acvirus_db/virus_ref 已移除，'
+                         '现用 tree_db/plant_tree.db 植物病毒参考库）')
     sp.add_argument('--ncbi-refs', default=None,
                     help='NCBI 参考集合名（ncbi-dl 下载，逗号分隔可多个），'
                          '追加进进化树比对')
@@ -793,30 +856,6 @@ def main():
     sp.add_argument('-n', '--name', required=True, help='集合名')
     sp.set_defaults(func=cmd_gb_check)
 
-    sp = sub.add_parser('compare',
-                        help='同属病毒共线性比较（MMseqs2 全对全 + 交互式图）')
-    sp.add_argument('-n', '--name', default=None,
-                    help='GenBank 集合名（gb-dl/gb-import 创建的）')
-    sp.add_argument('--files', default=None,
-                    help='或直接给 .gb 文件（逗号分隔），可与 --name 并用')
-    sp.add_argument('--min-ident', type=float, default=0.30,
-                    help='家族聚类最小蛋白一致性（默认 0.30）')
-    sp.add_argument('--min-cov', type=float, default=0.50,
-                    help='家族聚类最小双侧覆盖度（默认 0.50）')
-    sp.add_argument('--no-mat-peptide', action='store_true',
-                    help='多聚蛋白基因组不改用 mat_peptide 做基因')
-    sp.add_argument('--order', default=None,
-                    help='基因组显示顺序（逗号分隔 accession 前缀）')
-    sp.add_argument('--no-labels', action='store_true',
-                    help='图上不标基因名')
-    sp.add_argument('--style', default='lovis', choices=['lovis', 'category'],
-                    help='着色风格：lovis=同源家族逐个着色（LoVis4u 画廊风，'
-                         '默认）；category=按功能类别着色+图例')
-    sp.add_argument('--lovis4u', action='store_true',
-                    help='同时调用 LoVis4u（pip install lovis4u）出原生 PDF 图')
-    sp.add_argument('--threads', type=int, default=None)
-    sp.set_defaults(func=cmd_compare)
-
     sp = sub.add_parser('report', help='对已有结果重新生成可视化报告')
     sp.add_argument('--sample', required=True)
     sp.add_argument('--force', action='store_true')
@@ -832,6 +871,10 @@ def main():
     sp = sub.add_parser('orfa', help='ORF 功能注释（⑥b，RefSeq 病毒蛋白搜索）')
     sp.add_argument('--sample', required=True)
     sp.add_argument('--threads', type=int, default=None)
+    sp.add_argument('--libs', default=None,
+                    help='启用的注释层，逗号分隔：prot（层1 序列同源）/ '
+                         'pfam（层2 Pfam HMM）/ cdd（层2 CDD 结构域）；'
+                         '缺省=全部启用。例：--libs pfam,cdd')
     sp.add_argument('--force', action='store_true')
     sp.set_defaults(func=cmd_orfa)
 
@@ -979,6 +1022,8 @@ def main():
                         help='ICTV VMR 选参：按属/科/种挑参考，缺的按需下载')
     sp.add_argument('--genus', default=None, help='属名（如 Tobamovirus）')
     sp.add_argument('--family', default=None, help='科名（如 Potyviridae）')
+    sp.add_argument('--db', default='plant', choices=['plant', 'ictv'],
+                    help='建树参考库：plant=植物口径 / ictv=全病毒界（默认 plant）')
     sp.add_argument('--species', default=None, help='种名（如 "Tobamovirus mosaic"）')
     sp.add_argument('--limit', type=int, default=20, help='最多挑多少条（默认 20）')
     sp.add_argument('--any', action='store_true',
@@ -1018,6 +1063,14 @@ def main():
     sp.add_argument('--dry-run', action='store_true',
                     help='只预演，不实际移动/删除')
     sp.set_defaults(func=cmd_tool_runs)
+
+    sp = sub.add_parser('samples-backfill',
+                        help='给缺 project.json 的老样品从既有产物回填清单')
+    sp.add_argument('--sample', action='append', default=None,
+                    help='只处理指定样品（可重复；支持非规范命名），缺省处理全部')
+    sp.add_argument('--dry-run', action='store_true',
+                    help='只报告将要写入的内容，不落盘')
+    sp.set_defaults(func=cmd_samples_backfill)
 
     sp = sub.add_parser('selfcheck', help='环境自检（模块/工具/数据库/磁盘/依赖）')
     sp.set_defaults(func=cmd_selfcheck)

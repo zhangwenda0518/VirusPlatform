@@ -12,7 +12,7 @@
  *   example_conserved_set.fasta 5 条同种近缘序列（保守区引物）
  *   example_genome.gb           带 CDS 注释的 GenBank（基因组图谱）
  *   example_tree.nwk            示例树
- *   example_synteny_A/B/C.gb    同属共线性三件套
+ *   example_synteny_A/B/C.gb    同属三基因组（GenBank 集合导入示例）
  *   example_tmv/pvy/cmv/pstvd/mix.fasta  Metabuli 示例病毒
  *
  * 新增模块只改下面的 MAP / PAGE_MAP 两个表，不要在页面里散写示例路径。
@@ -31,9 +31,7 @@
     GENOME: DIR + 'example_genome.gb',
     TMV: DIR + 'example_tmv.fasta',
     MIX: DIR + 'example_mix.fasta',
-    TREE: DIR + 'example_tree.nwk',
-    SYNTENY: DIR + 'example_synteny_A.gb,' + DIR + 'example_synteny_B.gb,' +
-             DIR + 'example_synteny_C.gb'
+    TREE: DIR + 'example_tree.nwk'
   };
 
   /* 工具卡（tools.html 里 <section class="card" id="t-xxx">）→ 字段映射。
@@ -51,7 +49,6 @@
     't-consensus': { cs_fa: 'CONTIGS', cs_reads: 'R1' },
     't-variant':   { vr_ref: 'CONTIGS' },
     't-seqprep':   null,      /* 已有自带示例按钮，保持原样 */
-    't-synteny':   null,
     't-align':     null,
     't-treebuild': null,
     't-sdt':       null,
@@ -63,12 +60,16 @@
     '/hostremoval': { hr_r1: 'R1', hr_r2: 'R2' },
     '/hostpredict': { hp_fa: 'CONTIGS' },
     '/orf':         { of_fa: 'CONTIGS' },
-    '/annotation':  { oa_fa: 'CONTIGS' },
+    '/annotation':  { oa_fa_text: 'CONTIGS_TEXT' },
     '/genome':      { gp_ann: 'GENOME' },
     '/primer':      { pd_fa: 'CONSERVED' },  /* 字段名为 primer.html 的 pd_fa */
     '/logan':       { pasteSeq: 'TMV_TEXT' },  /* 文本域：填序列内容 */
     '/samples':     { sample: 'example_reads', r1: 'R1', r2: 'R2' },
-    '/meta':        { mtSpecies: 'Tobacco mosaic virus', mtSource: 'All' }
+    /* 该框是「物种拉丁名」= 检索**宿主/物种**的测序数据，不是病毒名：
+       填病毒名（曾写 Tobacco mosaic virus）会让人以为在按病毒检索，且与
+       placeholder「如 Lycium barbarum」和平台示例宿主（host-db/112863_
+       Lycium barbarum、提交示例的 Host 字段）自相矛盾。统一用枸杞。 */
+    '/meta':        { mtSpecies: 'Lycium barbarum', mtSource: 'All' }
   };
 
   var AUTO_KEY = 'vp_example_autofill';
@@ -133,14 +134,21 @@
     return true;
   }
 
-  /* kvsuite / kvchain 要的是样品名而不是文件路径：用示例 reads 建一个样品 */
+  /* kvsuite / kvchain 要的是样品名而不是文件路径：用示例 reads 建一个样品。
+     两张卡各有自有的样品输入框（kvsuite=kv_samples / 一键全流程=kvc_samples），
+     对应卡片各填自己的那个；两个都在时都填，便于两页来回对照。 */
   function fillKvsuiteExample() {
-    var el = $('kv_samples');
-    if (!el) return 0;
-    el.value = 'EXAMPLE';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    return 1;
+    var ids = ['kv_samples', 'kvc_samples'];
+    var n = 0;
+    ids.forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.value = 'EXAMPLE';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      n++;
+    });
+    return n;
   }
 
   /* 取 example_tmv.fasta 的序列内容（logan 粘贴框用） */
@@ -297,8 +305,7 @@
     '/orf': 'orf', '/annotation': 'orfa', '/genome': 'genoplot',
     '/primer': 'primer', '/hostremoval': 'hostremoval',
     '/hostpredict': 'hostpredict',
-    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan',
-    't-synteny': 'synteny'
+    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan'
   };
 
   function resultModule(idOrPath) {

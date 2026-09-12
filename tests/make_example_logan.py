@@ -177,7 +177,7 @@ def main() -> int:
     # 3) 固化报告产物
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
-    from vp.logan_trace import logan_root
+    from Virus_Platform_Core.logan_trace import logan_root
     jdir = os.path.join(logan_root(), JOB)
     os.makedirs(OUT, exist_ok=True)
     copied = []

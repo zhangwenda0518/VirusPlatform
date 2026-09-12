@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
-"""比较基因组集成测试：GenBank 集合（导入/巡检/清单）→ 同属共线性 → 集合建树
+"""GenBank 集合集成测试：导入/巡检/清单 → 集合建树
 → 结果中心 MSA / 树 / SDT API 的 gb: 伪样品链路。"""
 import io
+import json
 import os
 import sys
 import random
 import shutil
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -14,8 +24,8 @@ from Bio.SeqRecord import SeqRecord  # noqa: E402
 from Bio.SeqFeature import SeqFeature, FeatureLocation  # noqa: E402
 from Bio import SeqIO  # noqa: E402
 
-from vp.config import DIRS  # noqa: E402
-from vp.utils import check_path  # noqa: E402
+from Virus_Platform_Core.config import DIRS  # noqa: E402
+from Virus_Platform_Core.utils import check_path  # noqa: E402
 
 AA = 'ACDEFGHIKLMNPQRSTVWY'
 COLL = 'it_synteny'
@@ -66,12 +76,16 @@ def make_gb(acc, organism, prots):
     return rec
 
 
-work = check_path(os.path.join(DIRS['results'], 'it_synteny_work'), in_platform=True)
+# 工作目录必须以 '_' 开头：results/ 下非 '_' 开头的目录会被当成真实样品
+# 出现在样品列表 / 项目筛选器里（这个目录名以前叫 it_synteny_work，
+# 于是每次跑测试都在用户的样品列表里多一个假样品）。
+work = check_path(os.path.join(DIRS['results'], '_it_synteny_work'),
+                  in_platform=True)
 shutil.rmtree(work, ignore_errors=True)
 os.makedirs(work, exist_ok=True)
 
 # 清掉同名集合（重跑幂等）
-from vp.gb_collection import (build_collection_phylo, gb_collection_dir,  # noqa: E402
+from Virus_Platform_Core.gb_collection import (build_collection_phylo, gb_collection_dir,  # noqa: E402
                               import_local_gb, inspect_collection,
                               read_manifest)
 import shutil as _sh  # noqa: E402
@@ -117,24 +131,6 @@ st2 = inspect_collection(COLL)
 check(any('NC_900009' in w for w in st2['warnings']),
       f'无 CDS 记录进警告: {st2["warnings"]}')
 
-# ---------- 3. 同属共线性比较（MMseqs2 全对全） ----------
-from vp.synteny import run_comparison  # noqa: E402
-cmp_res = run_comparison(name=COLL, logger=_Log())
-check(cmp_res['n_genomes'] == 3,
-      f'参与比较基因组数 = {cmp_res["n_genomes"]}（无 CDS 记录被跳过）')
-check(any('NC_900009' in w for w in cmp_res['warnings']),
-      '跳过记录出现在比较警告中')
-check(cmp_res['n_clusters'] == 8, f'同源家族数 = {cmp_res["n_clusters"]}（期望 8）')
-pairs = {(p['a'], p['b']): p for p in cmp_res['pairs']}
-close = pairs[('NC_900001', 'NC_900002')]
-check(close['shared'] == 8 and close['ident'] > 70,
-      f'近缘对共享 8 家族 identity {close["ident"]:.0f}%')
-far = pairs[('NC_900001', 'NC_900003')]
-check(far['ident'] is None or far['ident'] < 60,
-      f'远缘对 identity {far["ident"]} 低于近缘对')
-for k in ('html', 'svg', 'png', 'clusters', 'similarity', 'faa', 'm8'):
-    check(os.path.isfile(cmp_res['files'][k]), f'产物存在: {os.path.basename(cmp_res["files"][k])}')
-
 # ---------- 4. 集合建树（MAFFT + FastTree） ----------
 ph = build_collection_phylo(COLL, tree_tool='fasttree', logger=_Log())
 pdir = os.path.join(gb_collection_dir(COLL), 'phylo')
@@ -153,8 +149,8 @@ r = c.get('/api/gb/collections')
 check(r.status_code == 200, '/api/gb/collections 200')
 cols = r.get_json()
 mine = next(x for x in cols if x['name'] == COLL)
-check(mine['has_compare'] and mine['has_phylo'],
-      f'集合标记 has_compare/has_phylo = {mine["has_compare"]}/{mine["has_phylo"]}')
+check(mine['has_phylo'],
+      f'集合标记 has_phylo = {mine["has_phylo"]}')
 check(any('NC_900009' in w for w in mine['warnings']),
       '列表接口携带持久化警告')
 
@@ -189,7 +185,7 @@ check(r.status_code == 400, '非法 tree_tool 返回 400')
 
 # ---------- 6. 独立工作区端点：MSA 数据与自定义树文件 ----------
 import shutil as _s2  # noqa: E402
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 fake_run = 'structcmp_itsynteny'
 rundir = os.path.join(PLATFORM_ROOT, 'run', 'tool_runs', fake_run)
@@ -202,7 +198,7 @@ r = c.get('/api/tool/msa_data?run=../evil')
 check(r.status_code in (400, 404), 'msa_data 运行名注入被拒')
 _s2.rmtree(rundir, ignore_errors=True)
 
-r = c.get(f'/api/tree/file?path=databases/misc/gb/{COLL}/phylo/tree.nwk')
+r = c.get(f'/api/tree/file?path=run/gb_collections/{COLL}/phylo/tree.nwk')
 check(r.status_code == 200 and r.get_json()['newick'].endswith(';'),
       '/api/tree/file 读取平台内树文件')
 r = c.get('/api/tree/file?path=results/nothing.not')
@@ -216,12 +212,12 @@ d1 = appmod2._resolve_virus_db(None)
 check(d1.endswith(('plant', 'virus_db')), '缺省 → 主病毒库')
 d2 = appmod2._resolve_virus_db('refvirus')
 check(d2.endswith(('ref', 'refvirus_db')), '内置键名 refvirus → refvirus_db')
-d3 = appmod2._resolve_virus_db('databases/virus/rvdb')
-check(d3.endswith(('rvdb', 'rvdb_db')), '平台相对路径解析')
+d3 = appmod2._resolve_virus_db('databases/kunpeng_db/ref')   # RVDB 库已移除
+check(d3.endswith(('ref', 'refvirus_db')), '平台相对路径解析')
 
 # contigs 运行携带不存在的库 → 400（先于输入校验或任务启动被拒）
 fa_tmp = os.path.join(work, 'two_contigs.fasta')
-from vp.utils import write_fasta_record  # noqa: E402
+from Virus_Platform_Core.utils import write_fasta_record  # noqa: E402
 with open(fa_tmp, 'wt') as f:
     write_fasta_record(f, 'ctg1', 'ACGT' * 200)
     write_fasta_record(f, 'ctg2', 'ACGT' * 150)
@@ -242,4 +238,8 @@ if r.status_code == 200:
                ignore_errors=True)
     check(not os.path.isdir(os.path.join(PLATFORM_ROOT, 'run', 'tool_runs', d2['run'])),
           '测试运行目录已清理（不污染下拉列表）')
+
+# 工作目录用完即删，不给用户留下任何测试残留
+shutil.rmtree(work, ignore_errors=True)
+check(not os.path.isdir(work), '测试工作目录已清理（不污染样品列表）')
 print('SYNTENY INTEGRATION TESTS PASSED')

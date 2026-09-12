@@ -1,0 +1,40 @@
+<!-- 文件 / 目录选择对话框（共享片段，勿在页面里重复内联）
+
+     必读：app.js 的 browse() / browseDir() 会**直接取**这几个 id ——
+     #dlgMask、#dlgPath、#dlgList、#dlgPickDir。缺任何一个都会抛
+     TypeError（Cannot read properties of null），按钮表现为"死键"：
+     点了完全没反应，控制台才有报错，用户侧极难自查。
+
+     #dlgPath 是路径栏（input）：既显示当前目录，也支持粘贴路径回车
+     （jumpBrowse()）直接跳转——文件模式选中该文件，目录模式跳进目录。
+     loadBrowse() 写它的 .value（不是 textContent）。
+
+     规则：页面里只要出现 onclick="browse(...)" 或 "browseDir(...)"
+     （含 app.js 动态生成的），就必须写一行
+         {% raw %}{% include "_browse_dlg.html" %}{% endraw %}
+     （本行用 raw 包住是必须的：HTML 注释不是 Jinja 注释，直接写会被真执行
+      → 片段自己 include 自己 → 递归 → 整页 500）
+     自检：python tests/_check_browse_dlg.py
+
+     2026-09-11：settings / results / submit 三页曾因漏带而「浏览」按钮失效，
+     故抽出本片段统一维护。 -->
+<div id="dlgMask" class="dlgmask" style="display:none">
+  <div class="dlg">
+    <!-- 标题刻意**不带** data-i18n：browse()/browseDir() 每次打开都会按当前语言
+         写入 t('c.chooseFile') / t('c.chooseDir')。若挂了 data-i18n，工具页等
+         页面在异步重渲染后会再跑一遍 applyI18n()，把刚写好的「选择目录」覆盖回
+         「选择文件」——两处争抢同一个 textContent，谁后到谁赢。 -->
+    <div class="dlghead"><span id="dlgTitle">选择文件</span>
+      <button class="btn small" onclick="closeDlg()">✕</button></div>
+    <div class="dlgpath">
+      <input id="dlgPath" type="text" spellcheck="false"
+             placeholder="粘贴路径，回车跳转/选中" data-i18n-ph="c.pathJumpPh"
+             onkeydown="if(event.key==='Enter')jumpBrowse()">
+      <button class="btn small" onclick="jumpBrowse()" data-i18n="c.jump">跳转</button>
+    </div>
+    <div id="dlgList" class="dlglist"></div>
+    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
+      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
+    </div>
+  </div>
+</div>

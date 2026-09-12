@@ -22,7 +22,34 @@
         <p class="hint" data-i18n="sc.hint">独立模块：登记样品（样品名 + R1/R2）或按 TSV 批量导入，
         不启动分析。创建后可在本页管理；运行全流程分析请到「自动化分析流程」页选样品。</p>
 
-        <h2 data-i18n="pp.newSample">新建样品</h2>
+        <h2 data-i18n="sc.scanTitle">📂 从文件夹批量导入（推荐）</h2>
+        <p class="hint" style="margin-top:4px" data-i18n="sc.scanHint">
+          选一个 FASTQ 文件夹即可：自动识别单/双端（按 _R1/.R1/-R1 命名配对 R2）、
+          自动提取样本名（GQMIX.R1.fq.gz → GQMIX），项目名自动用文件夹名（可改）。</p>
+        <label data-i18n="sc.scanDirLbl">FASTQ 文件夹</label>
+        <div class="filerow">
+          <input id="scanDir" type="text" data-i18n-ph="sc.scanDirPh" placeholder="点击 📂 选择文件夹">
+          <button class="btn small" onclick="browseDir('scanDir')" title="选择文件夹">📂</button>
+        </div>
+        <label data-i18n="sc.scanProjectLbl">项目（扫描后自动填文件夹名，可改）</label>
+        <input id="scanProject" type="text" data-i18n-ph="pp.projectPh" placeholder="留空 = 自动按时间生成；可手填如 2026-烟草-课题组">
+        <div style="margin-top:10px">
+          <button class="btn small" onclick="scScan(this)" data-i18n="sc.scanBtn">🔍 扫描文件夹</button>
+        </div>
+        <div id="scanBox" style="display:none;margin-top:10px">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+            <button class="btn small" onclick="scScanAll(true)" data-i18n="lg.selectAll">全选</button>
+            <button class="btn small" onclick="scScanAll(false)" data-i18n="lg.clearAll">清空</button>
+            <span id="scanCount" class="hint" style="margin:0"></span>
+          </div>
+          <div class="scroll-md" id="scanTable"></div>
+          <div style="margin-top:10px">
+            <button class="btn primary" onclick="scScanCreate(this)" data-i18n="sc.scanCreate">创建勾选样品 →</button>
+          </div>
+        </div>
+        <div id="scanErr" class="err"></div>
+
+        <h2 data-i18n="pp.newSample" style="margin-top:18px">新建样品</h2>
         <label data-i18n="sc.nameLabel">样品名（留空 = 按文件名自动命名）</label>
         <input id="sample" type="text" data-i18n-ph="sc.namePh" placeholder="留空则自动：Lycium_barbarum_R1.fastq.gz → Lycium_barbarum">
         <label class="req" data-i18n="pp.r1">R1 FASTQ（正向）</label>
@@ -71,7 +98,7 @@
       <div class="card">
         <h2><span data-i18n="sc.samplesHeading">样品（</span><span id="scCount">0</span>）</h2>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-          <select id="projFilter" onchange="scLoadSamples()"
+          <select id="projFilter" onchange="gxProjChanged(this)"
                   style="flex:1;font-size:12px"></select>
         </div>
         <div id="scSamples"><p class="hint" data-i18n="c.loading">加载中…</p></div>
@@ -83,17 +110,7 @@
 </div>
 
 <!-- 文件/目录选择对话框 -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -106,6 +123,90 @@ function val(id) { return ($(id)?.value || '').trim(); }
 $('subsample_on')?.addEventListener('change', () => {
   $('sub_row').style.display = $('subsample_on').checked ? '' : 'none';
 });
+
+/* ---- 从文件夹批量导入：扫描 → 预览 → 一键创建 ---- */
+let SCAN_ROWS = [];
+
+async function scScan(btn) {
+  return withBtn(btn, async () => {
+    const errBox = $('scanErr');
+    errBox.textContent = '';
+    if (!val('scanDir')) { errBox.textContent = t('sc.needFolder', '请先选择文件夹'); return; }
+    const r = await fetch('/api/samples/scan_folder', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: val('scanDir') })});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { errBox.textContent = d.error || t('c.loadFail', '加载失败'); return; }
+    SCAN_ROWS = d.samples || [];
+    if (!$('scanProject').value) $('scanProject').value = d.project || '';
+    $('scanBox').style.display = '';
+    scScanRender();
+  }, t('c.loading', '加载中…'));
+}
+
+function scScanRender() {
+  const cut = s => esc(String(s || '').split(/[\\/]/).pop());
+  const rows = SCAN_ROWS.map((x, i) =>
+    `<tr><td><input type="checkbox" class="scan-pick" data-i="${i}" checked style="width:auto"></td>` +
+    `<td><b>${esc(x.name)}</b></td><td>${x.r2 ? 'PE' : 'SE'}</td>` +
+    `<td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.r1)}">${cut(x.r1)}</td>` +
+    `<td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.r2)}">${cut(x.r2)}</td></tr>`).join('');
+  $('scanTable').innerHTML =
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    `<tr><th></th><th style="text-align:left">${t('sc.colName', '样品名')}</th>` +
+    `<th style="text-align:left">${t('sc.colType', '类型')}</th>` +
+    '<th style="text-align:left">R1</th><th style="text-align:left">R2</th></tr>' + rows + '</table>';
+  scScanCount();
+}
+
+function scScanCount() {
+  const n = document.querySelectorAll('.scan-pick:checked').length;
+  $('scanCount').textContent =
+    t('sc.pickedN', '已选 {n} / {m} 个样品').replace('{n}', n).replace('{m}', SCAN_ROWS.length);
+}
+
+function scScanAll(on) {
+  document.querySelectorAll('.scan-pick').forEach(c => { c.checked = !!on; });
+  scScanCount();
+}
+
+document.addEventListener('change', e => {
+  if (e.target && e.target.classList && e.target.classList.contains('scan-pick')) scScanCount();
+});
+
+async function scScanCreate(btn) {
+  return withBtn(btn, async () => {
+    const errBox = $('scanErr');
+    errBox.textContent = '';
+    const idx = [...document.querySelectorAll('.scan-pick:checked')].map(c => +c.dataset.i);
+    if (!idx.length) { errBox.textContent = t('sc.pickFirst', '请先勾选要创建的样品'); return; }
+    // 项目名留空 → 自动按时间生成（一个项目可含多样本、单双端混合）
+    let project = val('scanProject');
+    if (!project) {
+      const d = new Date(), pad = n => String(n).padStart(2, '0');
+      project = '项目_' + d.getFullYear() + pad(d.getMonth() + 1)
+        + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes());
+    }
+    const created = [], adjusted = [];
+    for (const i of idx) {
+      const x = SCAN_ROWS[i];
+      const res = await apiCreateSample({
+        sample: x.name, r1: x.r1, r2: x.r2 || null, project });
+      if (!res.ok) {
+        if (res.conn) setConnBanner(true);
+        errBox.textContent = `${x.name}: ${res.error}`;
+        return;
+      }
+      created.push(res.data.sample);
+      if (res.data.note) adjusted.push(`${x.name} → ${res.data.sample}`);
+    }
+    toast(t('sc.batchImport', '批量导入'),
+      t('sc.batchCreated', '已创建 {n} 个样品').replace('{n}', created.length),
+      { ttl: 4000 });
+    if (adjusted.length) errBox.textContent = adjusted.join('，');
+    scLoadSamples();
+  }, t('sc.creating', '⏳ 创建中…'));
+}
 
 async function scCreate(btn) {
   return withBtn(btn, async () => {
@@ -123,7 +224,10 @@ async function scCreate(btn) {
     errBox.textContent = res.error; return;
   }
   $('r1').value = ''; $('r2').value = ''; $('sample').value = '';
-  toast(t('sc.createSample', '创建样品'), `✔ ${body.sample || t('sc.autoName', '（按 R1 自动命名）')}`, {ttl: 4000});
+  // 后端可能规范化过样品名（中文/空格 → '_'）：显式告知实际登记名
+  const actual = (res.data && res.data.sample) || body.sample;
+  toast(t('sc.createSample', '创建样品'), `✔ ${actual}`, {ttl: 4000});
+  if (res.data && res.data.note) errBox.textContent = res.data.note;
   scLoadSamples();
   }, t('sc.creating','⏳ 创建中…'));
 }
@@ -137,6 +241,7 @@ async function scBatch(btn) {
     .map(l => l.trim()).filter(l => l && !l.startsWith('#'));
   if (!lines.length) { errBox.textContent = t('pp.needRows','请至少粘贴一行样品信息'); return; }
   const created = [];
+  const adjusted = [];
   for (const line of lines) {
     const parts = line.split(/\t| {2,}|,/).map(s => s.trim());
     const [sample, r1, r2] = parts;
@@ -149,10 +254,16 @@ async function scBatch(btn) {
       errBox.textContent = `${sample}: ${res.error}`;
       return;
     }
-    created.push(sample);
+    // 用后端返回的实际目录名（可能被规范化），保证入队/展示与磁盘一致
+    created.push(res.data.sample);
+    if (res.data.note) adjusted.push(`${sample} → ${res.data.sample}`);
   }
   $('batchText').value = '';
   toast(t('sc.batchImport','批量导入'), t('sc.batchCreated','已创建 {n} 个样品').replace('{n}', created.length), {ttl: 4000});
+  if (adjusted.length) {
+    errBox.textContent = t('pp.nameAdjustedN', '').replace('{n}', adjusted.length)
+      + '：' + adjusted.join('，');
+  }
   scLoadSamples();
   if ($('batchEnq')?.checked && created.length) {
     await fetch('/api/queue/add', {
@@ -184,11 +295,9 @@ async function scLoadSamples() {
     }
     const sel = $('projFilter');
     const projs = [...new Set(list.map(s => s.project).filter(Boolean))];
-    const cur = sel.value;
-    sel.innerHTML = `<option value="">${t('pp.allProjects','全部项目')}</option>` +
-      projs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
-    if (projs.includes(cur)) sel.value = cur;
-    const shown = sel.value ? list.filter(s => s.project === sel.value) : list;
+    // 全局项目 = 默认筛选条件（gx 系列来自 app.js；本页手动选过则尊重本页）
+    const cur = gxSyncProjSelect(sel, projs);
+    const shown = cur ? list.filter(s => s.project === cur) : list;
     box.innerHTML = shown.length ? shown.map(s => `
       <div class="sample-item">
         <div class="nm"><span>${esc(s.name)}</span>

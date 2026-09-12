@@ -1177,10 +1177,23 @@ async function aiFillStart() {
 async function aiSummary(which, btn) {
   await withBtn(btn, async () => {
     try {
+      // async：单次 DeepSeek 调用客户端超时 180s，同步跑界面只有按钮文案。
+      // 改后台任务 → 任务中心可见进度/日志/取消；结果读 result.stats.summary。
       const d = await jfetch('/api/meta/ai_summary', {method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: MT.project, which})});
-      $('sumText').value = d.summary || '';
+        body: JSON.stringify({name: MT.project, which, async: true})});
+      if (!d.task) throw new Error(d.summary || '任务未启动');
+      let snap = null;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 2000));
+        snap = await jfetch(`/api/task/${d.task}?log_lines=20`);
+        if (snap.status !== 'running') break;
+      }
+      if (snap.status !== 'done') {
+        throw new Error(snap.error || (snap.status === 'cancelled' ? '任务已停止' : 'AI 生成失败'));
+      }
+      const st = (snap.result && snap.result.stats) || {};
+      $('sumText').value = st.summary || '';
       $('sumModal').style.display = 'flex';
     } catch (e) { alert(e.message); }
   }, '⏳ AI 生成中…');
@@ -1205,7 +1218,8 @@ async function loadViz(which, force) {
   }
   box.innerHTML = `<p class="hint">${t('c.loading', '加载中…')}</p>`;
   try {
-    const d = await jfetch(`/api/meta/overview?name=${encodeURIComponent(MT.project)}&which=${which}`);
+    const d = await jfetch(`/api/meta/overview?name=${encodeURIComponent(MT.project)}&which=${which}`
+      + (force ? '&force=1' : ''));   // 刷新按钮绕过服务端响应缓存
     const cols = d.columns;
     const cur = MT.vizField[which] && cols.includes(MT.vizField[which])
       ? MT.vizField[which] : (cols.includes('Tissue') ? 'Tissue' : cols[0]);

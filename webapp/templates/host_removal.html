@@ -48,7 +48,7 @@
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           <div class="gp-item">
             <label data-i18n="hr.confLabel">分类置信度（0~1，越大越严格）</label>
-            <input id="hr_conf" type="number" step="0.05" value="0" min="0" max="1"
+            <input id="hr_conf" type="number" step="0.05" value="0.2" min="0" max="1"
                    title="kunpeng -T：分值≥阈值的 read 才判为宿主。0=最灵敏；0.05~0.2 常规" data-i18n-title="hr.confTitle">
           </div>
           <div class="gp-item">
@@ -64,7 +64,17 @@
         </div>
 
         <div style="margin-top:12px">
+          <label style="margin-top:12px" data-i18n="tk.batchSamplesLbl">⏩ 按样品批量（📋 多选，可按项目全选；自动取各样品登记的 R1/R2，单双端自动识别）</label>
+          <div class="filerow">
+            <input id="hr_samples" type="text" placeholder="点右侧 📋 选样品（可多选）" data-i18n-ph="tk.batchSamplesPh">
+            <button class="btn small" onclick="kvPickSamples('hr_samples')" data-i18n-title="tk.pickSamplesTitle">📋</button>
+          </div>
+          <div style="margin-top:6px">
+            <button class="btn" onclick="batchRunForSamples(this,'hostremoval','hr_samples',(nm,d)=>{const p=_peParams(nm,d);return {r1:p.r1,r2:p.r2||'',confidence:hrConf(),db:val('hr_db')};})" data-i18n="hr.batchBtn">⏩ 批量去宿主（逐样品提交）</button>
+          </div>
+          <div style="margin-top:12px">
           <button class="btn primary" onclick="runHostRemoval(this)" data-i18n="hr.runBtn">▶ 运行宿主去除</button>
+          </div>
         </div>
 
         <div class="tool-out">
@@ -82,17 +92,7 @@
 </div>
 
 <!-- 文件/目录选择对话框（与其它页共用 app.js 逻辑） -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -106,12 +106,20 @@ function hrRows() {
 
 function val(id) { return ($(id)?.value || '').trim(); }
 
+// 置信度：输入框为空或非法时回退默认 0.2；显式填 0 时保留 0（最灵敏）
+function hrConf() {
+  const raw = val('hr_conf');
+  if (raw === '') return 0.2;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0.2;
+}
+
 async function runHostRemoval(btn) {
   const pe = $('hr_type').value === 'pe';
   if (!val('hr_r1')) { alert(t('hr.needR1','请选择 R1 FASTQ')); return; }
   if (pe && !val('hr_r2')) { alert(t('hr.needR2','双端输入需同时选择 R2 FASTQ')); return; }
   const params = { r1: val('hr_r1'), r2: pe ? val('hr_r2') : '',
-                   confidence: +val('hr_conf') || 0, db: val('hr_db') };
+                   confidence: hrConf(), db: val('hr_db') };
   try {
     const r = await fetch('/api/tool/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -4,12 +4,21 @@ import os
 import sys
 import json
 import random
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import DIRS  # noqa: E402
-from vp.utils import check_path, safe_open, write_fasta_record  # noqa: E402
-from vp.phylo import build_phylo, resolve_ncbi_refs  # noqa: E402
+from Virus_Platform_Core.config import DIRS  # noqa: E402
+from Virus_Platform_Core.utils import check_path, safe_open, write_fasta_record  # noqa: E402
+from Virus_Platform_Core.phylo import build_phylo, resolve_ncbi_refs  # noqa: E402
 
 BASES = 'ACGT'
 work = check_path(os.path.join(DIRS['results'], '_it_phylo'), in_platform=True)
@@ -26,8 +35,8 @@ def mutate(base_seq, k, n_mut=60):
 
 
 # TMV 全基因组（NC_001367.1, 6395bp）作为"contig 种子"
-from vp.ncbi_download import collection_dir
-from vp.utils import iter_fasta  # noqa: E402
+from Virus_Platform_Core.ncbi_download import collection_dir
+from Virus_Platform_Core.utils import iter_fasta  # noqa: E402
 smoke_dir = collection_dir('_smoke_tmv')
 smoke_fa = os.path.join(smoke_dir, 'refs.fa')
 smoke_mark = os.path.join(smoke_dir, '_synthetic.marker')
@@ -81,17 +90,17 @@ print('extra refs:', extra)
 # 40kb×40kb 的 DP 是 O(L²)，34 条 ~1Mb 的比对实测 20 分钟无输出；本测试
 # 验证的是 MAFFT→trimAl→FastTree 链路与 extra_refs 合并，用小参考池
 # 既快又确定。
-import vp.phylo as _phylo  # noqa: E402
+import Virus_Platform_Core.phylo as _phylo  # noqa: E402
 _phylo.find_virus_ref_fasta = lambda: smoke_fa
 try:
-    import vp.virus_ref as _virus_ref  # noqa: E402
+    import Virus_Platform_Core.virus_ref as _virus_ref  # noqa: E402
     _virus_ref.available = lambda: False
 except Exception:
     pass
 try:
     # ICTV gb_cache 里缓存过 40kb 级古菌病毒基因组，混进来会让 MAFFT 的
     # O(L²) DP 跑上几十分钟；本测试只验证链路，故屏蔽该参考源。
-    import vp.ictv_db as _ictv_db  # noqa: E402
+    import Virus_Platform_Core.ictv_db as _ictv_db  # noqa: E402
     _ictv_db._refs_fa_path = lambda: None
     _ictv_db._gb_cached_accs = lambda: set()
 except Exception:

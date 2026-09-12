@@ -29,15 +29,19 @@
   <div class="rs-sec" id="sec-samples">
   <div class="card">
     <h2><span data-i18n="rs.title">已分析样品</span>
+      <select id="resProjFilter" title="按项目筛选（与顶部全局项目同步）"
+              style="font-size:12px;margin-left:auto;max-width:190px"
+              onchange="gxProjChanged(this)"></select>
       <button class="btn small" onclick="location.reload()" data-i18n="c.refresh">刷新</button></h2>
     {% if not samples %}
     <p class="hint" data-i18n="rs.noResult">暂无结果。到「样品分析」页运行一个样品，或确认 results/ 目录。</p>
     {% endif %}
     <table class="tbl" id="sampleTbl">
-      <tr><th data-i18n="rs.sample">样品</th><th data-i18n="rs.mtime">最近运行</th><th data-i18n="rs.report">报告</th><th data-i18n="rs.ops">操作</th></tr>
+      <tr><th data-i18n="rs.sample">样品</th><th data-i18n="rs.project">项目</th><th data-i18n="rs.mtime">最近运行</th><th data-i18n="rs.report">报告</th><th data-i18n="rs.ops">操作</th></tr>
       {% for s in samples %}
-      <tr>
+      <tr data-project="{{ s.project }}">
         <td>{{ s.name }}</td>
+        <td>{% if s.project %}<span class="hint">🏷 {{ s.project }}</span>{% else %}<span class="no">—</span>{% endif %}</td>
         <td>{{ s.mtime }}</td>
         <td>{% if s.report %}<span class="ok" data-i18n="rs.has">✔ 有</span>{% else %}<span class="no">—</span>{% endif %}</td>
         <td>
@@ -53,7 +57,7 @@
         </td>
       </tr>
       <tr class="filerow-tr" style="display:none">
-        <td colspan="4"><div class="filelist" id="files_{{ s.name }}"></div></td>
+        <td colspan="5"><div class="filelist" id="files_{{ s.name }}"></div></td>
       </tr>
       {% endfor %}
     </table>
@@ -236,6 +240,9 @@
   import { Canvg } from '/static/vendor/archaeopteryx/canvg.js';
   window.Canvg = Canvg;
 </script>
+
+{% include "_browse_dlg.html" %}
+
 <script src="/static/plotly.min.js?v={{ asset_v }}"></script>
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -435,17 +442,12 @@ async function loadHub() {
     const [cols, jobs] = await Promise.all([
       fetch('/api/gb/collections').then(r => r.json()),
       fetch('/api/logan/jobs').then(r => r.json())]);
-    const syn = cols.filter(c => c.has_compare);
     const log = jobs.filter(j => j.has_report);
-    if (!syn.length && !log.length) {
+    if (!log.length) {
       box.innerHTML = `<p class="hint">${t('hub.none')}</p>`;
       return;
     }
     let html = '';
-    if (syn.length) {
-      html += `<div class="subh">${t('hub.synteny')}</div>` + syn.map(c =>
-        `<a class="btn small" style="margin:3px 8px 3px 0" href="/compare/${encodeURIComponent(c.name)}/" target="_blank">🧬 ${esc(c.name)}（${c.n_records} 基因组）</a>`).join('');
-    }
     if (log.length) {
       html += `<div class="subh" style="margin-top:10px">${t('hub.logan')}</div>` + log.map(j =>
         `<a class="btn small" style="margin:3px 8px 3px 0" href="/logan/report/${encodeURIComponent(j.name)}/" target="_blank">🧭 ${esc(j.name)}</a>`).join('');
@@ -478,6 +480,8 @@ async function loadSpecialRuns() {
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <b class="mono">${esc(run.name)}</b>
           <span class="hint">${t('rs.nFiles').replace('{n}', files.length)}</span>
+          ${run.out_dir ? `<span class="hint mono" style="user-select:all" title="${esc(run.out_dir)}">📁 ${esc(run.out_dir)}</span>
+          <button class="btn small" style="padding:1px 8px" data-d="${esc(run.out_dir)}" onclick="copyText(this.dataset.d)" title="${t('c.copyPath', '复制路径')}">⧉</button>` : ''}
           <button class="btn small" onclick="toggleRunFiles('${esc(run.name)}')">${open ? t('rs.collapse') : '📁 ' + t('c.files')}</button>
           ${isContig ? `<a class="btn small primary" target="_blank" href="/api/tool/report?run=${esc(run.name)}">📊 分类报告</a>` : ''}
           <button class="btn small" onclick="openRunDir('${esc(run.name)}')" data-i18n="rs.openDirRun">📂 打开目录</button>

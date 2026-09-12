@@ -11,7 +11,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_FA = os.path.join(EX, 'example_viral_contigs.fasta')
@@ -58,7 +58,7 @@ check(os.path.isfile(EX_FA) and os.path.isfile(EX_GB) and os.path.isfile(EX_SET)
 
 # ---------- 1. ORF 预测（orfipy + pyrodigal） ----------
 print('--- 1. ORF 预测 ---')
-# orfipy 已从默认工具集移除（见 vp/orf.py 模块 docstring：6 框 start-stop 仅
+# orfipy 已从默认工具集移除（见 Virus_Platform_Core/orf.py 模块 docstring：6 框 start-stop 仅
 # 显式指定时运行），这里显式要求三件套，保证 orfipy 分支也有回归覆盖。
 orf_run, res = run_tool(c, tm, 'orf',
                         {'fasta': EX_FA, 'min_aa': 100,
@@ -189,26 +189,33 @@ for want in (gp_run, pr_run, sc_run, ctg_run):
     check(want in names, f'运行列表含 {want}')
 
 # ---------- 8. 在线分析（NCBI blastn / CDD；无网络自动跳过） ----------
-print('--- 8. 在线 NCBI 分析（blastn / CDD，失败自动跳过） ---')
-r = c.post('/api/tool/analyze',
-           json={'run': ctg_run, 'contig': ctg_id, 'action': 'blastn'})
-if r.status_code == 200:
-    tid = r.get_json().get('task')
-    if tid:
-        try:
-            rec = wait_task(tm, tid, timeout=1500)
-            if rec['status'] == 'done':
-                r2 = c.get(f'/api/tool/analysis?run={ctg_run}'
-                           f'&contig={ctg_id}&action=blastn')
-                hits = (r2.get_json() or {}).get('hits') or []
-                check(True, f'BLASTN 在线分析完成，{len(hits)} 条命中')
-            else:
-                print('  SKIP BLASTN（任务未成功，离线或 NCBI 限流）')
-        except RuntimeError as e:
-            print(f'  SKIP BLASTN（{e}）')
-    else:
-        check(r.get_json().get('cached'), 'blastn 结果已缓存')
+# 该段耗时完全由 NCBI 网络往返决定（实测 200s~400s+，限流时更久），
+# 是整套测试里唯一的不确定项。用 VP_SKIP_ONLINE=1 可跳过（CI/快速回归），
+# 超时也从 1500s 收到 240s——在线服务不可达时没必要干等 25 分钟。
+_online_off = os.environ.get('VP_SKIP_ONLINE', '').strip() in ('1', 'true', 'yes')
+if _online_off:
+    print('--- 8. 在线 NCBI 分析：VP_SKIP_ONLINE=1，跳过 ---')
 else:
-    print('  SKIP BLASTN（启动被拒，离线环境）')
+    print('--- 8. 在线 NCBI 分析（blastn / CDD，失败自动跳过） ---')
+    r = c.post('/api/tool/analyze',
+               json={'run': ctg_run, 'contig': ctg_id, 'action': 'blastn'})
+    if r.status_code == 200:
+        tid = r.get_json().get('task')
+        if tid:
+            try:
+                rec = wait_task(tm, tid, timeout=240)
+                if rec['status'] == 'done':
+                    r2 = c.get(f'/api/tool/analysis?run={ctg_run}'
+                               f'&contig={ctg_id}&action=blastn')
+                    hits = (r2.get_json() or {}).get('hits') or []
+                    check(True, f'BLASTN 在线分析完成，{len(hits)} 条命中')
+                else:
+                    print('  SKIP BLASTN（任务未成功，离线或 NCBI 限流）')
+            except RuntimeError as e:
+                print(f'  SKIP BLASTN（{e}）')
+        else:
+            check(r.get_json().get('cached'), 'blastn 结果已缓存')
+    else:
+        print('  SKIP BLASTN（启动被拒，离线环境）')
 
 print('ANNOTATE GROUP INTEGRATION TESTS PASSED')

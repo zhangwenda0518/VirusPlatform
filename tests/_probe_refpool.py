@@ -11,11 +11,20 @@ import os
 import sys
 import shutil
 import json
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vp.config import DIRS  # noqa: E402
-from vp.utils import safe_open, write_fasta_record, iter_fasta  # noqa: E402
-from vp.phylo import build_phylo, MAX_REF_LEN  # noqa: E402
+from Virus_Platform_Core.config import DIRS  # noqa: E402
+from Virus_Platform_Core.utils import safe_open, write_fasta_record, iter_fasta  # noqa: E402
+from Virus_Platform_Core.phylo import build_phylo, MAX_REF_LEN  # noqa: E402
 
 ARCHAEAL = ('Sulfolobus', 'Betalipothrixvirus', 'Acidianus', 'Captovirus',
             'Sulfobales', 'Lipothrixvirus', 'Twarogvirinae', 'Rudivirus')

@@ -11,7 +11,7 @@ import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
@@ -117,11 +117,11 @@ def main():
     # ---------- 3. 基因级建树 ----------
     # 架构变更（2026-09-10）：/api/gb/phylo 只建全基因组树（molecule 固定
     # genome），基因级建树改由「序列比对」模块挑选序列集完成——见
-    # vp/web/refs.py:api_gb_phylo 的 docstring。因此这里改为：
+    # Virus_Platform_Core/web/refs.py:api_gb_phylo 的 docstring。因此这里改为：
     #   ① 断言 API 按新契约忽略 molecule/gene，产物只落 phylo/；
     #   ② 直接用库函数验证基因级（PEP/CDS）建树能力仍在。
     print('--- 3. 基因级建树（CDS/PEP）---', flush=True)
-    from vp.gb_collection import gb_collection_dir  # noqa: E402
+    from Virus_Platform_Core.gb_collection import gb_collection_dir  # noqa: E402
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)
     r = c.post('/api/gb/import', json={'name': COLL, 'files': EX_SYNTENY})
     tid = r.get_json().get('task')
@@ -144,7 +144,7 @@ def main():
     check(os.path.isfile(os.path.join(gdir, 'combined.fa')), 'combined.fa')
 
     # ② 库层基因级建树（PEP / CDS）仍可用
-    from vp.gb_collection import build_collection_phylo  # noqa: E402
+    from Virus_Platform_Core.gb_collection import build_collection_phylo  # noqa: E402
     res = build_collection_phylo(COLL, tree_tool='fasttree', molecule='pep',
                                  gene='coat protein')
     gdir = os.path.join(gb_collection_dir(COLL), 'gene_trees',

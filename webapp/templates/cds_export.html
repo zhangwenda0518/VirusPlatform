@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CDS / PEP 提取产物 - 植物病毒分析平台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="vp-lang" content="{{ lang }}">
+<script>try{if(localStorage.getItem("vp_theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+<link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+</head>
+<body>
+{% include "_nav.html" %}
+
+<div class="page">
+  <div class="tools-layout group-layout">
+    {% include "_group_nav.html" %}
+    <main class="group-main">
+  <div class="layout">
+    <div class="col">
+      <div class="card">
+        <h1 data-i18n="cd.title">🧬 CDS / PEP 提取产物</h1>
+        <p class="hint" data-i18n="cd.hint">独立模块：解析 GenBank 集合内全部记录，按病毒分组列出每条 CDS
+        的基因名 / 产物 / 起始 / 终止 / 长度；勾选需要的 CDS（可双击基因名改写），
+        右侧汇总后「📤 导出」——同名 CDS 归入同一个文件。产物落在集合的
+        <code>extract/selected/</code>：<code>CDS.fa</code> / <code>PEP.fa</code>（汇总）、
+        <code>CDS/&lt;基因&gt;.fa</code> 与 <code>PEP/&lt;基因&gt;.fa</code>（按基因名归组）。</p>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0">
+          <label class="lbl" data-i18n="cd.collLabel">GenBank 集合</label>
+          <select id="cpColl" style="max-width:320px">
+            <option value="" data-i18n="cd.optPickColl">（选择集合）</option>
+          </select>
+          <button class="btn small" onclick="cdsPickOpen()" data-i18n="cd.openBtn">🔬 解析并挑选</button>
+        </div>
+
+        <div id="cdsPickPanel" style="display:none;margin:8px 0">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            <label class="lbl" data-i18n="cd.famLabel">科</label>
+            <select id="cpFam" style="max-width:220px" onchange="cdsPickRender()">
+              <option value="" data-i18n="cd.allOpt">（全部）</option>
+            </select>
+            <label class="lbl" data-i18n="cd.genLabel">属</label>
+            <select id="cpGen" style="max-width:220px" onchange="cdsPickRender()">
+              <option value="" data-i18n="cd.allOpt">（全部）</option>
+            </select>
+            <label class="chk"><input type="checkbox" id="cpShowHyp" onchange="cdsPickRender()">
+              <span data-i18n="cd.showHyp">显示假想蛋白</span></label>
+            <span class="hint" id="cpCount"></span>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <div id="cpTable" class="tbl-scroll" style="flex:1;min-width:0"></div>
+            <div style="width:320px;flex:none">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <b data-i18n="cd.selTitle">已选候选</b>
+                <button class="btn small" onclick="cdsPickClear()" data-i18n="cd.clearBtn">清空</button>
+              </div>
+              <div id="cpSel" class="tbl-scroll" style="max-height:420px"></div>
+              <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn small primary" onclick="cdsPickExport()" data-i18n="cd.exportBtn">📤 导出 CDS + PEP</button>
+                <button class="btn small" onclick="cdsPickSave()" data-i18n="cd.saveBtn">💾 保存选择</button>
+              </div>
+              <div id="cpMsg" class="hint" style="margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tool-out">
+          <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+          <div class="toolrun" id="toolrun-cdsexport"></div>
+        </div>
+      <div class="rh" id="rh-cdsexport"></div>
+      </div>
+    </div>
+  </div>
+    </main>
+  </div>
+</div>
+
+<script src="/static/i18n.js?v={{ asset_v }}"></script>
+<script src="/static/app.js?v={{ asset_v }}"></script>
+<script src="/static/cds_export.js?v={{ asset_v }}"></script>
+</body>
+</html>

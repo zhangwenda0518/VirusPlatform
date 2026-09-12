@@ -1,16 +1,13 @@
 # 植物病毒分析平台（Windows 本地版）
-
 基于 **kunpeng**（超低内存宏基因组分类器）的本地植物病毒诊断与深度分析平台。
-鼠标点击即可完成：宿主去除 → 病毒筛查 → 组装 → ORF 预测 → ORF 功能注释 → 进化树/SDT → 引物设计 → 基因组图 → 可视化报告。
-
+鼠标点击即可完成：宿主去除 → 已知病毒识别与定量 → 组装 → ORF 预测 → ORF 功能注释 → 进化树/SDT → 引物设计 → 基因组图 → 可视化报告。
 ## 功能总览
-
 | 阶段 | 工具 | 输出 |
 |------|------|------|
 | ⓪ Fastp 质控（可选） | fastp | clean reads、质控报告 |
 | ⓪b FASTQ→FASTA 转换（可选，推荐） | seqkit fq2fa | conv_R1/R2.fa.gz（分类提速） |
 | ① 宿主去除 | kunpeng（宿主库） | kept_R1/R2.fastq.gz、宿主占比统计 |
-| ② 病毒筛查 | kunpeng（病毒库） | kreport2、种/属/科汇总表 |
+| ②b 已知病毒识别与定量 | kvsuite（定量引擎 salmon，比对已知病毒参考；共识段内部固定 minibwa） | 鉴定表、二次过滤定量表、比对 BAM + 深度、提取的病毒 reads |
 | ③ 组装与分类 | SPAdes（metaviral/rna/meta）+ kunpeng + BLAST | contigs、病毒 contig 注释表 |
 | ④ 宿主预测 | ICTV 宿主概率级联 | host_prediction.tsv、桑基/旭日图 |
 | ⑥ ORF 预测 | pyrodigal + pyrodigal-rv（orfipy 仅显式指定时运行） | faa/ffn/gff（+ orfipy pep/nt/bed） |
@@ -19,33 +16,28 @@
 | ⑧ 引物设计 | primer3（保守区 / 全长两种模式，含热力学评分） | primers.tsv |
 | ⑨ 基因组图 | gbdraw 首选（SVG 圈图 + 线图）；缺则用 dna_features_viewer（DFV，按功能类别着色） | 09_genome_plots/*.svg |
 | ⑩ 可视化报告 | plotly + pycirclize + matplotlib + gbdraw/DFV | report.html |
-
 **进度与预估**：任务卡实时显示全局进度条、已运行时长与**预计剩余时间**
 （平台按每阶段历史耗时自学习，越用越准）；kunpeng 分类以 chunk 中间盘
 增长近似上报进度，SPAdes 按 k-mer 阶段上报。每阶段开始/结束在日志中
 输出**资源预估**（线程 / 内存 / 磁盘）与**实际耗时**，分类阶段结束额外
 输出"预估 vs 实测"磁盘核对行。
-
 ## 界面（按分析工作流布局）
-
 顶部导航即工作流顺序：**总览 · 分析流程 · 结果中心 · 专项分析 · 数据下载 ·
 公共数据检索 · 数据库 · 公共病毒组 · LOGAN 溯源 · 提交准备 · 设置 · 手册**
 （🌐 一键切换中/英文；📂 打开平台目录）。
-
-- **总览**：数据库状态卡片 + 分析工作流入口（按 建库→分析→结果→专项→溯源 排序）
+- **总览**：**启动页封面**（平台定位一句话 + 「背景 / 方法 / 流程 / 意义」四张
+  叙事卡）+ 数据库状态卡片 + 分析工作流入口（按 建库→分析→结果→专项→溯源 排序）
   + 最近样品
 - **分析流程**（原"分析管道"）：新建样品 + 按功能模块分组的 13 步级联流程（详见下文）
 - **结果中心**（原"结果"）：已分析样品（报告/目录/文件/删除）+ **专项结果入口**
-  （共线性比较图、LOGAN 溯源报告在此聚合）+ SDT / MSA / 进化树交互查看器
+  （LOGAN 溯源报告在此聚合）+ SDT / MSA / 进化树交互查看器
 - **专项分析**（原"工具箱"）：不分样品流程的独立分析，分两区——
   🧬 单步工具（质控 / 病毒鉴定提取 / 组装 / contig 分类与深度分析四件套）·
-  🧬 参考数据与比较分析（NCBI 参考下载、同属共线性比较）
+  🧬 参考数据与比较分析（NCBI 参考下载、GenBank 集合）
 - **数据与库**（原"数据库"）：Taxonomy / 宿主库构建（病毒库预置）
 - **设置**：界面语言、全局线程数、NCBI 邮箱、**17 项分析默认参数**，保存即生效；
   分析流程页各步骤卡片初值自动带出设置页默认，仍可逐步覆盖
-
 ## 设置中心 · 中英双语 · 任务结果预览
-
 - **中英双语**：导航栏 🌐 一键切换（或到「设置」页切换），前端界面与后端阶段名/
   卡片摘要同步切换；偏好写入 platform.json，重开页面保持。
 - **存储与磁盘**（设置 → 存储与磁盘）：盘剩余容量条 + 各目录占用明细
@@ -64,8 +56,8 @@
   任务卡自动展开**结果预览面板**——样品任务显示各阶段关键数字 + 「打开报告」；
   工具任务显示统计值 + 产物文件清单（可直接下载）；同时弹出自消失 toast 提示，
   页面在后台时发系统通知。
-- **阶段产物在线预览**：分析管道 9 个阶段卡片（fastp 质控报告 / ①宿主 / ②筛查 /
-  ③组装 / ④宿主桑基图 / ⑥b ORF 注释表 / ⑧引物表 / ⑩主报告）
+- **阶段产物在线预览**：分析管道 9 个阶段卡片（fastp 质控报告 / ①宿主 / ②b 已知病毒
+  识别与定量 / ③组装 / ④宿主桑基图 / ⑥b ORF 注释表 / ⑧引物表 / ⑩主报告）
   带「📊 查看」按钮——表格就地弹窗浏览（含下载），HTML 报告新窗口打开。
 - **样品管理**：「结果」页可删除样品（含全部产物；有任务运行时拒绝删除）。
 - **公共数据下载**（导航"数据下载"）：粘贴 SRR/ERR/DRR（ENA 直下 FASTQ.GZ）、
@@ -77,25 +69,36 @@
 - **项目管理与批处理队列**：分析流程页"批量导入"卡（TSV：样品名/R1/R2 +
   项目名）批量建样并入队；队列顺序执行（同时只跑一个样品），实时进度面板；
   样品列表按项目标签筛选。
-
 ## 快速开始（图形界面）
-
-1. 双击 **`启动平台.bat`** → 浏览器自动打开平台页面（默认 `http://127.0.0.1:8900`；
-   若默认端口被系统占用/保留会自动改用其他端口，以黑窗口里打印的地址为准）
-2. 进入 **数据库** 页，按顺序完成（仅首次）：
+**两种启动模式，按需选**（命令行开关优先于环境变量）：
+| 启动方式 | 命令 | 说明 |
+|---|---|---|
+| 独立桌面窗口 | 双击 **`启动平台-桌面窗口.bat`**（或 `python app.py --gui`） | pywebview/WebView2 壳住本地页面，无地址栏；缺 WebView2 时自动回退浏览器 |
+| 网页模式 | 双击 **`启动平台-网页.bat`**（或 `python app.py --web`） | 在默认浏览器打开；地址也会打印在控制台，可复制到别的浏览器 |
+| 自动（默认） | 双击 **`启动平台-桌面窗口.bat`**（或 `python app.py`） | 优先桌面窗口，不可用则回退浏览器 |
+- 端口从 8765 起依次探测（8765→8900→8989→…），被占用/被系统保留时自动顺延，
+  **以控制台打印的地址为准**；只监听 `127.0.0.1`，不对外网开放。
+- 兼容旧写法：`set VP_GUI=browser` 等价于 `--web`，`VP_GUI=gui` 等价于 `--gui`。
+- 打包版同理：`VirusPlatform.exe --web` 即网页模式。
+- 桌面窗口模式：关闭窗口即退出；网页模式：关闭控制台窗口即退出。
+1. 启动后进入 **数据库** 页，按顺序完成（仅首次）：
    - ① 下载 NCBI Taxonomy（~57MB）
    - ② 宿主库：选择任意物种的基因组 FASTA（NCBI 下载、自行组装均可），
-     填入宿主物种的 **NCBI TaxID**（如 4081 烟草、112863 枸杞），点击构建。
+     填入宿主物种的 **NCBI TaxID**（如 4081 番茄、112863 枸杞），点击构建。
      TaxID 自动校验：不存在/已被合并（如旧编号并回新编号）会在建库前直接提示，
      不会白跑。序列名自动规范化：任意格式的 FASTA 头（含空格描述、特殊字符、
      重复/空 ID、旧 taxid 标签）均可，平台统一清理并注入标签。
-   - 病毒库无需构建：平台已预置（`databases/virus_db`）
+     输出目录默认按物种命名 `host-db/<TaxID>_<源目录名>_host_db/`，建完即设为
+     「当前宿主库」；同一份基因组换 TaxID 重建时请勾「重建」，否则会因库已存在
+     而跳过（日志会写明）。多个宿主库可在页面列表里一键「设为当前」。
+   - 病毒库无需构建：平台已预置（`databases/virusref_db` 已知病毒参考库 +
+     `databases/kunpeng_db` 分类库）
 3. 打开 **分析管道**（主页「总览」→「分析管道」，或导航栏直达）：
    - **新建样品**：填样品名、选 R1/R2（点击 📁 在平台目录内浏览；单端数据 R2 留空），
      可勾选"截取子样本"先小规模验证；
    - 管道按**功能模块分组**显示（PhyloSuite 风格）：🧹测序数据预处理
      （⓪Fastp质控·可选 → ⓪b FASTQ→FASTA转换·可选 → ①宿主去除）→
-     🦠病毒鉴定（②筛查与提取）→ 🧬病毒组装（③组装·分类·病毒contigs提取）→
+     🦠病毒鉴定（②b 已知病毒识别与定量：识别 + 定量）→ 🧬病毒组装（③组装·分类·病毒contigs提取）→
      🧲宿主预测（④ICTV宿主判定）→
      🔬下游分析（⑥ORF → ⑥b ORF功能注释 → ⑦进化树与SDT → ⑧引物设计 → ⑨基因组图gbdraw）→
      📄报告（⑩可视化），
@@ -113,33 +116,26 @@
    - 组装说明：metaviral 模式低深度样品可能拼不出 contigs，平台自动改用 rna 模式重试；
      单端数据 metaviral/meta 自动转 rna（SPAdes 宏基因组模式不使用单端 reads）。
 4. 完成后到 **分析结果** 页打开报告
-
 > 小提示：首次跑大样品前，可把「子采样」设为 100000（10 万对 reads）先快速验证全流程。
-
 ## 命令行（CLI）用法
-
 ```bat
 python main.py tools                                   :: 查看工具探测状态
 python main.py selfcheck                               :: 环境自检（模块/工具/数据库/磁盘）
 python main.py init-taxonomy                           :: 下载 NCBI taxonomy
 python main.py build-host-db --genome host-db\genome.fa --taxid 4081
-python main.py build-virus-db --fasta virus-db\final.cluster.ref.fasta --info virus-db\final.cluster.ref_info.tsv
+python main.py build-virus-db --fasta databases\virusref_db\final.cluster.ref.fasta --info databases\virusref_db\final.cluster.ref_info.tsv
 python main.py analyze --r1 fastq\NX-5_S2_L001_R1_001.fastq.gz --r2 fastq\NX-5_S2_L001_R2_001.fastq.gz --sample NX-5
 python main.py analyze --r1 ... --r2 ... --sample T1 --stages virus,orf --subsample 200000
 python main.py report --sample NX-5                    :: 重新生成可视化报告
 python main.py orfa --sample NX-5                      :: 只跑 ⑥b ORF 功能注释
 ```
-
 分析阶段可自由组合：`subsample,fastp,fq2fa,host,virus,assembly,hostana,orf,orfa,phylo,primer,gbdraw,report`。
 每阶段有断点标记（`.done` 文件），中断后重跑自动跳过已完成阶段（`--force` 强制重跑）。
 常用开关：`--no-fq2fa` 关闭预转换；`--gbdraw-max 20` 调整出图条数；
 `--gbdraw-fasta x.fa --gbdraw-ann x.gff`（或 `--gbdraw-ann x.gb`）用自备文件出图。
-
 ## 公共数据检索（meta_search，源自 MMPV-RNA public_metadata_pipeline）
-
 按物种检索 NCBI SRA + CNCB GSA 公共测序数据，提取统一元数据，勾选 Run
 一键转入「数据下载」→ 分析流程，形成"检索 → 下载 → 分析"闭环。
-
 ```bat
 python main.py meta-search --species "Lycium chinense"               :: SRA+GSA 双引擎检索（详细模式）
 python main.py meta-search --species "Lycium chinense" --db sra --source TRANSCRIPTOMIC --no-detailed
@@ -148,7 +144,6 @@ python main.py meta-info --runs SRR24100141                          :: 单个 R
 python main.py meta-plot --input meta_search\...\SRA_GSA_Merged_Final.csv   :: SCI 级元数据可视化
 python main.py host-genome --species "Lycium barbarum" --include-organelles :: 宿主基因组下载（供建宿主库）
 ```
-
 - 产物在 `meta_search/<物种>/`：`search/SRA_GSA_Merged_Final.csv`（检索表 +
   download_links.csv 直链）、`info/Global_Unified_Metadata_Core14|Full.csv/tsv`
   （14 列核心表 + 34 列全维表）、`plot/`（时间/机构/组织/地理出版级图组）。
@@ -157,9 +152,7 @@ python main.py host-genome --species "Lycium barbarum" --include-organelles :: �
 - 下载环节复用平台「数据下载」（ENA/NGDC 直下 + aria2c + fasterq-dump），
   不引入原管线的 prefetch 下载链路；建宿主库仍用平台 `build-host-db`
   （kunpeng），`host-genome` 只负责把宿主基因组 FASTA 下载到位。
-
 ## NCBI 提交准备（submissions，源自 MMPV-RNA submission_gui / virome_submission_pipeline）
-
 以 `unified_metadata.csv` 一张表驱动 GenBank + BioSample 提交准备：在线编辑
 （双击单元格、占位符橙色高亮、Ctrl/Shift 多选删行、点表头列排序、每列填充
 进度）、批量填充/快速填充、必填字段校验，一键生成 source.src / miuvig.tsv /
@@ -168,7 +161,6 @@ assembly.tsv / BioSample 注册表 / template.sbt / 交互式提交报告（repo
 内置示例（6 行 Demo / 公共数据样例 / 自测样例）、项目另存为、提交文件预览
 在线编辑（.sqn 二进制锁定）、BioSample 导出可选含占位符行、物种名 NCBI
 Taxonomy 在线校验、序列 FASTA 提取（sequences.fsa）与整包 zip 下载。
-
 ```bat
 python main.py submit-list                                    :: 列出提交项目
 python main.py submit-init --name nx6 --taxonomy taxonomy.tsv --authors "Zhang, Wenda" --title "..."
@@ -178,7 +170,6 @@ python main.py submit-validate --name nx6                     :: 必填字段校
 python main.py submit-export --name nx6                       :: 生成全部提交产物
 python main.py submit-sbt --name nx6 --last Zhang --first Wenda --affil "Ningxia University" --city Yinchuan --country China --email me@x.com
 ```
-
 - 产物在 `submissions/<项目名>/`：unified_metadata.csv（中枢表，Web 端在线
   编辑）、source.src（GenBank source modifiers，含 source_individual/ 按病毒
   拆分）、biosample_template.tsv（BioSample 批量注册）、miuvig.tsv/assembly.tsv
@@ -187,37 +178,42 @@ python main.py submit-sbt --name nx6 --last Zhang --first Wenda --affil "Ningxia
 - Windows 适配说明：不引入原管线的 suvtk/tbl2asn（Linux 依赖）；特征表
   (.tbl) 与 Sequin 包构建不在本模块范围——用 BankIt 网页向导提交
   source.src + 序列即可；若后续需要 .sqn，可在装有 suvtk 的环境补跑。
-
 ## 建树参考库（tree_db：plant_tree.db 植物病毒库）
-
 位于 `databases/tree_db/`，由原 `acvirus_db` 收敛为单一植物病毒库，供⑦进化
-分析与选参层本地命中判定使用（`vp/acvirus.py`，库名固定 `plant`）。
-
+分析与选参层本地命中判定使用（`Virus_Platform_Core/acvirus.py`）。口径可选：`plant`（默认，
+预下载的植物病毒库）或 `ictv`（全病毒界，用 `tree_db/ictv_tree.db` 的 VMR 谱系挑
+accession 后按需下载，不预下载序列）。
 ```bat
 python main.py ref-status                              :: 查看参考库版本与统计
 python main.py analyze ... --tree-sampling lineage     :: ⑦建树参考按分类抽样
 ```
-
-- `databases/virus_ref/`：非冗余植物病毒参考库（8,465 条 98% ANI 聚类代表 +
-  5,773 条完整基因组子集 + ~199K 全量 + DATA_VERSION 版本锚点），源自
-  plant_virus_db_pipeline。④⑦步分析直接取用：
-  ④ 宿主预测用其 ICTV 谱系 + 已知宿主交叉验证（预测宿主 ∉ 已知宿主类别
-  → `host_check=WARN`，报告标黄）；⑦ 参考池优先 RefSeq/完整基因组。
-  `ref_meta.tsv` 为规范化元数据缓存（首次使用自动构建：Segment 归一 +
-  本地 taxonomy 谱系补全，ICTV 种覆盖 10%→100%）。
-- `databases/tree_db/plant_tree.db/`：植物病毒参考库（建树/选参唯一来源），
+- `databases/virus_ref/`（**可选，平台默认不带**）：非冗余植物病毒参考库
+  （8,465 条 98% ANI 聚类代表 + 5,773 条完整基因组子集 + ~199K 全量 +
+  DATA_VERSION 版本锚点），源自 plant_virus_db_pipeline。属于**自备数据源**：
+  从外部拿到后整体放进该目录即可启用，平台无需改配置。
+  启用后 ④⑦ 步直接取用：④ 宿主预测用其 ICTV 谱系 + 已知宿主交叉验证
+  （预测宿主 ∉ 已知宿主类别 → `host_check=WARN`，报告标黄）；⑦ 参考池优先
+  RefSeq/完整基因组。`ref_meta.tsv` 为规范化元数据缓存（首次使用自动构建：
+  Segment 归一 + 本地 taxonomy 谱系补全，ICTV 种覆盖 10%→100%）。
+  **该目录不存在时平台照常运行**：`virus_ref.available()` 为 False，各调用点
+  回退到自带数据 —— ④ 用 `databases/virusref_db/final.cluster.ref_info.tsv`，⑦ 用
+  `databases/virusref_db/final.cluster.ref.fasta`（`python main.py ref-status` 会提示
+  「参考库未部署」）。`universal_ref` 建通用库时会按需重建其 `universal/` 子目录。
+- `databases/tree_db/plant_tree.db/`：植物病毒参考库（plant 口径的**预下载**库），
   `ref_info` 的 45 个科（6,150 条）+ 补齐 3 科（Ourmiaviridae 13 /
   Ambiguiviridae 3 / Pestiviridae 1，取自平台 ref 库），共 **48 科 /
   452 属 / 6,167 条**。`plant_meta.tsv` 的 `Seq_Source` 列标明每条来源
   （`ictv_db` / `ref_db`）。植物库未收录的序列由选参层联网补齐（实测
   单科缺口通常是个位数：Geminiviridae 13 条 / Potyviridae 5 条）。
-  （原 `ictv_tree.db` 全病毒库已按设计移除，不再参与选参与建树。）
-- `databases/ictv_db/`：ICTV VMR 参考库（vp/ictv_db.py）——官方
+  （`tree_db/` 只保留 plant 这一份预下载库：ictv 口径**不再预下载**全病毒界序列
+  ——`ictv_tree.db/all_virus.fasta`（559MB）已按设计移除，改由下面
+  `tree_db/ictv_tree.db/` 的 VMR 谱系挑 accession + **按需下载**。两种口径的选择本身
+  保留不变：前端「参考序列获取」页的「库」下拉，或 `ictv-refs --db plant|ictv`。）
+- `databases/tree_db/ictv_tree.db/`：ICTV VMR 参考库（Virus_Platform_Core/ictv_db.py）——官方
   [VMR 当前版 xlsx](https://ictv.global/vmr/current?fid=15873) 解析出的
   全病毒分类元数据（MSL41: 22,785 条 accession / 4,068 属 / 393 科）+
   按需下载的参考序列缓存。定位：谱系比 acvirus 旧表更新（MSL 换版的
   种改名/科重分类即时生效），序列层"本地优先、缺了才下"：
-
 ```bat
 python main.py ictv-status                              :: 库状态（MSL 版本/覆盖）
 python main.py ictv-update                              :: 在线下载 VMR → 解析 taxa.txt
@@ -225,7 +221,6 @@ python main.py ictv-update --xlsx VMR_MSL42.xlsx        :: 手动放入的 xlsx 
 python main.py ictv-refs --genus Tobamovirus            :: 选参预览（本地优先）
 python main.py ictv-refs --genus Nepovirus --download   :: 缺的 accession 按需下载
 ```
-
   分层：①解析层 VMR xlsx → `taxa.txt`（沿用 acvirus 谱系列 + 病毒名/
   基因组完整性/Baltimore/宿主组扩展列，多 accession 分段行拆分）+
   `DATA_VERSION` 锚点；②选参层按属/科/种过滤，本地已有（plant_tree.db
@@ -234,7 +229,7 @@ python main.py ictv-refs --genus Nepovirus --download   :: 缺的 accession 按�
   `gb_refs.fa`；④兜底：⑦步只读接入（谱系并入分类索引、缓存序列并入
   参考池），不在分析中联网，未下载时自动回退 plant_tree.db。
   预览列 Source 直接显示命中库名（`plant_tree.db` / `gb_cache` / `ncbi`）。
-  下载的 .gb 保留特征注释，可同时供同属共线性比较（synteny）取用。
+  下载的 .gb 保留特征注释，供建树 / CDS 提取取用。
 - ⑦步 `--tree-sampling`：`blast`=按比对 hits（默认）；`macro`=同科建树
   （目标属 + 同科各属 3 条背景）；`genus`=属级树；`lineage`=种级树
   （移植 246 服务器 acvirus_tree_pro 的层级抽样策略）。
@@ -242,12 +237,9 @@ python main.py ictv-refs --genus Nepovirus --download   :: 缺的 accession 按�
   两个 Info.tsv + DATA_VERSION）从 pipeline 服务器/246 拷入
   `databases/virus_ref/` 整体替换即可，平台按 DATA_VERSION 自动重建
   元数据缓存与 BLAST 库。
-
 ## 宿主预测模块（④，ICTV 级联）
-
 吸收自 MMPV-RNA virome_discovery_pipeline 的 C9 方法，对 ③组装 产出的
 病毒 contigs 判定感染宿主类别：
-
 1. contig → **kunpeng 对 contigs 的分类判定**（kunpeng_taxid，kraken2 同构输出
    的 C 行）→ 病毒库 info.tsv 同 taxid 的 ICTV 分类（种/属/科）；
    LCA 判到上级节点（属/科级）时经 nodes/names.dmp 谱系解析还原完整分类
@@ -259,21 +251,20 @@ python main.py ictv-refs --genus Nepovirus --download   :: 缺的 accession 按�
    taxonomy 归类到宿主类别（带缓存）；
 4. 决策：两者一致 = Agree；不一致时 NCBI 元数据（一手证据）优先；仅其一
    用其一；全无 = Unknown。
-
 输出（`08_host_analysis/`）：host_prediction.tsv（逐 contig 明细）、
 host_summary.tsv、按宿主拆分的 `{类别}.classified.fasta`、
 sankey_host.html（病毒科→宿主类别桑基图）、sunburst_host.html（科→属→种
 旭日图），并自动嵌入 ⑧报告。CLI：`python main.py host-analysis --sample 样品名`。
-
 ## 每样品输出（results/<样品>/）
-
 ```
 00_prep/          fastp_R1/R2.fastq.gz, conv_R1/R2.fa.gz（fq2fa 产物，
                   供 ① 分类直接复用）, fastp_report.html, input.json
 01_host_removal/  kept_R1/R2.fastq.gz, stats.json, host.kreport2
-02_virus_screen/  virus_summary.tsv（种/属/科+谱系）, summary.json,
-                  viral_R1/R2.fastq.gz（提取的病毒 reads，等价 KrakenTools
-                  extract_kraken_reads：默认全部 C 行，可按 taxid 子树提取）
+02b_kvsuite/      identify/all_viruses.summary.tsv（逐参考鉴定：物种/taxid/
+                  Uniq_Reads/覆盖度/深度）, filter/filtered.tsv（二次过滤后
+                  定量表）+ discarded.tsv, align/*.sorted.bam(+.bai) 与
+                  pandepth 深度, viral_R1/R2.fastq.gz（比对上的病毒 reads，
+                  供 ③组装）, summary.json, kvsuite.log
 03_assembly/      spades/, contigs.filtered.fasta, viral_contigs.fasta（病毒 contig
                   子集，④⑦⑧⑨/logan 共用）, virus_contigs.tsv（11 列 =
                   kunpeng 5 列 + blast 6 列）, contig_blast.tsv（contig 级
@@ -291,55 +282,64 @@ sankey_host.html（病毒科→宿主类别桑基图）、sunburst_host.html（�
 09_genome_plots/  <contig>.circular.svg / .linear.svg（gbdraw，嵌入报告）
 logs/             任务日志（含每阶段资源预估/实际耗时/磁盘核对）
 ```
-
 **③组装的 `virus_contigs.tsv` 是宿主预测的输入契约**：`blast_*` 六列由 ③
-对病毒 contig 跑一次本地 BLASTN（vs `virus-db/` 参考核酸库）填充，供 ④
+对病毒 contig 跑一次本地 BLASTN（vs `databases/virusref_db/` 参考核酸库）填充，供 ④
 在 kunpeng 未判到 taxid 时做「最近参考 → 物种/科 → 宿主概率」回退；
 没有它时这类 contig 会直接落 `Unknown`。手工准备的 contig 表若缺这六列，
-④ 会自动补齐（`vp/host_analysis.normalize_contig_table`）。
-
-**组装输入**（分析页下拉框）：默认「病毒 reads」——用阶段②提取的病毒 reads
+④ 会自动补齐（`Virus_Platform_Core/host_analysis.normalize_contig_table`）。
+**组装输入**（分析页下拉框）：默认「病毒 reads」——用阶段②b 比对上的病毒 reads
 组装（宿主/杂菌污染最少、最聚焦），病毒 reads 不足 500 对时自动回退去宿主
 reads / 原始 reads 并在日志说明；也可手动固定用去宿主或原始 reads。
-
 ## 平台目录说明
-
 目录分四层：**代码 / 数据库 / 运行期数据 / 外部依赖**（2026-09-10 整理）。
-
 ```
-vp/           核心 pipeline 包（GUI 与 CLI 共用）
+Virus_Platform_Core/           核心 pipeline 包（GUI 与 CLI 共用）
 app.py        Web GUI 服务（仅监听本机）
 webapp/       页面模板与静态资源（app.css / app.js / i18n.js）
 main.py       CLI 入口
-启动平台.bat   双击启动 GUI
+启动平台-桌面窗口.bat  强制独立桌面窗口（python app.py --gui）
+启动平台-网页.bat      强制网页模式（python app.py --web）
 环境自检.bat   环境自检（python main.py selfcheck + 内存检查）
-engines/      自带 CLI 的独立引擎（known_virus_suite：已知病毒识别与定量五段整合）
-scripts/      辅助脚本（build_virus_db.py / package.py / VirusPlatform.spec）
+dev_tools/      辅助脚本（build_virus_db.py / package.py / VirusPlatform.spec）
 tests/        自检、造数与集成测试脚本（_it_annotate / _it_compare /
               _it_platform / _it_msa / _it_synteny / _it_phylo /
               _it_submit / _smoke_phylo；make_examples.py 生成内置示例）
 docs/         开发文档（DEVELOPMENT_NOTES.md：踩坑记录与目录规范）
 platform.json 工具路径、界面语言与分析默认参数配置（可手动改）
-
 3rd/          外部依赖（体积大、从不修改；不纳管 git）
 ├─ bin/       单文件外部工具（kunpeng / seqkit / crabz / clustalw2 /
 │             muscle / aria2c / sracha）
 ├─ tools/     工具套件（Blast / mafft-win / FastTree / iQtree / trimAl /
-│             Gblocks / diamond / mmseqs / fastp / SPAdes / salmon2 等）
+│             Gblocks / diamond / mmseqs / fastp / SPAdes / salmon2 等；
+│             jre-snpeff/ 是 jlink 精简 Java 21 运行时 47MB，只服务 SnpEff，
+│             原完整 JDK 已退役）
 └─ open-virome/  Open-Virome 前端构建源（/virome 页引用，勿改名/搬动）
-
 examples/     内置各工具示例数据（✨示例按钮共用：2 条病毒基因组、6 条同属
-              近缘集、保守区近缘集、示例树、示例 GenBank 与共线性 .gb）；
+              近缘集、保守区近缘集、示例树与示例 GenBank）；
               results/ 固化各模块示例运行结果（与真实结果隔离）。2026-09-10
               由 databases/examples/ 迁到平台根目录，整体纳管 git。
-databases/    kunpeng 病毒库（virus/plant · virus/ref）与注释库（annot/cdd ·
-              annot/prot · annot/hmm/pfam）、
-              taxonomy、建树库（tree_db/）
+databases/    病毒分类库（kunpeng_db/plant · kunpeng_db/ref · kunpeng_db/rvdb）
+              与注释库（annot_db/cdd · annot_db/prot · annot_db/hmm/pfam）、
+              taxonomy（tax_db/nodes.dmp · names.dmp · merged.dmp）、建树库
+              （tree_db/：plant_tree.db 植物 · ictv_tree.db 全病毒界）、
+              misc_db/（prob 宿主概率 · suvtk · viroids）、
+              virusref_db/（鉴定库 kv_index/：自包含——reference.fasta +
+              reference.ref_info.tsv + salmon_k31/ 索引；blast/ 本地检索库。
+              2026-09-11 由顶层迁入，2026-09-12 重构为库自包含、定量仅 salmon）
 host-db/      宿主数据：建库源基因组（<taxid>_<物种>/genome.fa）与宿主
-              **分类库**（host/classify/，kunpeng hash）。宿主库按物种而
-              异、单库约 1.5GB，故不放 databases/、也不进「数据库包」
-virus-db/     病毒源参考（final.cluster.ref.fasta + Kraken2 库 + taxonomy）
-
+              **分类库**（kunpeng hash）。分类库**按物种一个目录**：
+              <taxid>_<源目录名>_host_db/（如
+              112863_Lycium_barbarum_host_db/），库内 host_db.json 清单记录
+              它是给哪个物种建的；多宿主可共存，platform.json 的
+              active_host_db 指定当前用哪个（「数据库构建」页可切换）。
+              旧布局的固定槽位 host/classify/ 仍被识别（legacy）。
+              宿主库按物种而异、单库约 1.5GB，故不放 databases/、也不进
+              「数据库包」。
+              建库目录里 `library/`、`prep/`、`taxonomy/` 都是**建库耗材**
+              （taxonomy 是 databases/tax_db 的 dmp 副本，约 0.57GB）：只有
+              add-library/build-db 用得到，实测删掉后分类结果逐字段不变
+              （物种名来自已生成的 taxo.k2d），重建时自动再复制。勾「构建后
+              清理中间文件」或 `build-host-db --clean-mid` 可省约 3-4GB/库
 run/          运行期数据（可清理/重建，不纳管 git）
 ├─ results/   样品结果
 ├─ tool_runs/ 工具箱独立运行产物（规范化结构，见下节"输出目录管理"）
@@ -353,18 +353,13 @@ run/          运行期数据（可清理/重建，不纳管 git）
 ├─ fastq/     流程 FASTQ 中转
 └─ downloads/ 公共数据下载
 ```
-
 **旧路径兼容**：`tool_runs/`、`results/`、`uploads/`… 这类旧的平台相对路径
-由 `vp/utils.py::check_path` 自动重定向到 `run/` 下（同理 `tools/`、`bin/`
+由 `Virus_Platform_Core/utils.py::check_path` 自动重定向到 `run/` 下（同理 `tools/`、`bin/`
 → `3rd/`），历史数据与旧调用不需要手工改。
-
-工具路径在 `vp/config.py` 自动探测（`3rd/bin/`、`3rd/tools/`，并兼容旧根
+工具路径在 `Virus_Platform_Core/config.py` 自动探测（`3rd/bin/`、`3rd/tools/`，并兼容旧根
 目录平铺布局），`platform.json` 的 `tools` 段可手动覆盖，改动后立即生效。
-
 ## 输出目录管理（run/tool_runs 规范化）
-
 `run/tool_runs/` 采用「固定目录 + 动态运行区」双层结构：
-
 ```
 run/tool_runs/
 ├─ _archive/   固定：历史运行归档（_archive/<工具>/<运行>/），长期留存
@@ -373,35 +368,49 @@ run/tool_runs/
 ├─ _reports/   固定：跨运行汇总产物（统计表、汇总图）
 └─ <工具>_<YYYYMMDD_HHMMSS>/   动态活动区（扁平命名，新运行都在这层）
 ```
-
 - `_` 前缀 = 固定目录，不出现在 GUI「运行目录」列表，也永不被
   archive/clean 当作运行处理；无时间戳命名的目录一律视为杂项。
 - 管理动作（含 `--dry-run` 预演，删除不可逆、务必先预演）：
-
 ```bat
 python main.py tool-runs status                        :: 活动区/固定区统计
 python main.py tool-runs organize [--dry-run]          :: 杂项自动归位
 python main.py tool-runs archive --before 20260901     :: 归档旧运行
 python main.py tool-runs clean --active-days 30 --archive-days 90 --dry-run
 ```
-
 建议节奏：每月 `archive --older-days 30`；磁盘紧张时 `clean --active-days
 30 --archive-days 90`（活动区留 30 天、归档区留 90 天）。设置自定义输出
 根时，固定目录会在新根的 `tool_runs/` 下自动预建。
-
-## 软件 / 数据库 / 示例 三分离（打包 / 分发）
-
-平台 60+GB 里约 47GB 是 `databases/`（kunpeng 库、taxonomy、hmm 等）。
-为了便于分发，打包脚本默认输出**三个互不干扰的目录**：
-
+## 启动页封面与品牌资产（webapp/static/brand/）
+首页顶部封面是**文字封面**：平台名 + 一句科研定位 + 一行工程口径，下方四张
+叙事卡（Ⅰ 背景 / Ⅱ 方法 / Ⅲ 流程 / Ⅳ 意义，由 i18n 键 `hm.cover.*` 与
+`hm.heroLead` / `hm.heroEng` 驱动中英双语）。
 ```bat
-python scripts/package.py                       :: ①程序 + ②示例（~1.5GB）
-python scripts/package.py --with-db             :: 再加 ③数据库包（~47GB，另存一目录）
-python scripts/package.py --db-only             :: 跳过 exe，只补/更新数据库包
-python scripts/package.py --no-split            :: 旧布局（示例/数据库放进程序目录）
-python scripts/package.py --verify              :: 打包后跑 exe --cli selfcheck
+python tests/make_brand.py            :: 徽标 SVG → logo-512/192/96.png + favicon.ico
+python tests/_check_home_cover.py     :: 真浏览器回归：打开 8765 首页截图并断言（需服务在跑）
 ```
-
+- `brand/` 目前只保留徽标（`logo-mark.svg` + 降采样位图 + favicon）。
+  封面插图曾有一版 `hero-scene.svg`（叶片 / 衣壳 / 环状基因组），
+  **2026-09-11 按需求删除**——封面不再有主视觉图，`make_brand.py` 也只服务徽标。
+- ⚠️ **SVG 的 MIME 类型在 Windows 上要显式注册**：系统注册表把 `.svg` 关联成
+  `image/svg`（非标准），Python `mimetypes` 照搬后 Flask 便以 `image/svg` 发出，
+  Chromium 拒绝解码 —— `<img>` 拿到 `naturalWidth=0` 的裂图。这条对**所有**
+  以 `<img>` 引 SVG 的地方都成立（⑨ 基因组图预览、示例结果）。`app.py` 在建
+  Flask app 前已 `mimetypes.add_type('image/svg+xml', '.svg')`；**该修复在 app.py
+  里，改完需重新打包**才会进入 `VirusPlatform.exe`（`_internal/` 只有 webapp 静态资源）。
+## 软件 / 数据库 / 示例 三分离（打包 / 分发）
+`databases/`（内置病毒分类 / 参考 / 注释 / 建树库）实测 **3.42 GB**：
+taxonomy 545MB、virusref_db 850MB、kunpeng_db/ref 680MB、annot_db 1.09GB
+（prot 550 + cdd 437 + hmm 119）、misc_db/suvtk 211MB、tree_db 37MB，
+其余为小库。注意 `host-db/`（宿主数据，约 3.2GB）与 `3rd/`（外部工具，
+约 0.9GB）**不在数据库包清单内**，按需另备。
+为了便于分发，打包脚本默认输出**三个互不干扰的目录**：
+```bat
+python dev_tools/package.py                       :: ①程序 + ②示例（~1.5GB）
+python dev_tools/package.py --with-db             :: 再加 ③数据库包（~3.4GB，另存一目录）
+python dev_tools/package.py --db-only             :: 跳过 exe，只补/更新数据库包
+python dev_tools/package.py --no-split            :: 旧布局（示例/数据库放进程序目录）
+python dev_tools/package.py --verify              :: 打包后跑 exe --cli selfcheck
+```
 ```
 dist/
 ├─ VirusPlatform/            ① 程序（VirusPlatform.exe + webapp + bin/ + tools/）
@@ -409,37 +418,40 @@ dist/
 ├─ VirusPlatform-Database/   ③ 数据库包（仅 --with-db 生成）
 └─ 程序与数据说明.txt
 ```
-
 - **程序包**可单独升级/分发，不必重拷数据库；`platform.json` 为干净配置，
   不含本机绝对路径，启动自动探测工具与示例。
-- **示例包**与程序同级放置即被自动识别（`vp/config.py` 的
+- **示例包**与程序同级放置即被自动识别（`Virus_Platform_Core/config.py` 的
   `_detect_examples_root` 依次探测：`platform.json.examples_root` →
   `<程序>/examples` → `<程序>/databases/examples`（旧布局）→
   `<程序>/../VirusPlatform-Examples/examples`）；也可搬到任意位置后到
   「设置 → 示例数据目录」填绝对路径。
   前端「✨ 示例」按钮经 `/api/example_paths` 取**真实绝对路径**，因此示例
   放在程序目录之外也能正常填入。
-- **数据库对接（二选一）**：
+- **数据库对接（零配置优先，共三种）**：
+  - 方式〇：`VirusPlatform-Database` 与程序**同级放置** → 启动时自动识别，
+    无需任何设置（仅当未显式配置数据库根、且平台内 `databases/tax_db` 尚无
+    nodes.dmp 时探测；探测结果不写回 platform.json，保持跨机可移植）
   - 方式一：`python main.py db-migrate --to D:\库目录`
-    （把本机 databases/host-db/virus-db 复制到目标盘并自动写 database_root；
+    （把本机 databases/host-db 复制到目标盘并自动写 database_root；
      `--mode move` 复制校验后删源；`--dry-run` 只预检；`--check` 只校验目标已有库）
   - 方式二：库已拷到目标目录 → 启动平台 →「设置 → 数据库目录」填路径 → 应用。
     保存时会即时反馈宿主库 / 病毒库 / Taxonomy 是否就绪，缺哪个明示哪个。
     切换后 `ictv_db / virus_ref / universal_ref / local_search / verify` 的路径
     常量会同步刷新（无需重启）。
+  - 自备**宿主库**可放任意位置：构建页「📂 加载已构建宿主库」选中即可，
+    平台自动把其所在目录登记进路径白名单（`platform.json` 的 `extra_db_roots`，
+    持久化；与「设置 → 数据库目录」同一信任级别）。构建页 Taxonomy 加载后
+    状态徽章即时刷新。
 - 迁移安全：先 robocopy（多线程+断点续传）→ 校验文件数与总字节一致 → **通过后才
   切换配置**；任一环节失败配置不动、源目录原样，可断点重跑。目标目录必须在平台
   目录之外，且目标盘剩余需 ≥ 源体积 + 10GB。
 - 打包自检：`VirusPlatform.exe --cli selfcheck`（打包后没有 python，用这个跑
   与环境自检等价的检查）；`--cli <子命令>` 等价于源码模式的 `python main.py <子命令>`。
 - 清理开发机：迁移确认正常后，原 `databases/` 可自行删除释放空间。
-
 ## 依赖安装（首次）
-
 ```bat
 python -m pip install -r requirements.txt
 ```
-
 外部工具已内置在平台目录（kunpeng / crabz / seqkit / Blast / mafft-win /
 FastTree / iQtree(v2+v3) / trimAl / Gblocks / SDTv1.3 / diamond / mmseqs），
 SPAdes 需已安装
@@ -448,12 +460,9 @@ SPAdes 需已安装
 （打包版把 gbdraw.exe 放入平台根目录或 PATH 亦可）；未装时自动回退
 纯 Python 引擎 dna_features_viewer（随 requirements.txt 安装）。
 CLI/卡片可用 `--plot-engine auto|gbdraw|dfv` 强制指定引擎。
-
 ## ORF 功能注释模块（⑥b）
-
 对 ⑥ORF 的病毒蛋白（pyrodigal 基因模型优先，回退 pyrodigal_rv / orfipy）
 做蛋白级功能注释，回答"每个 ORF 是什么蛋白、属于哪个科属、基因组什么类型"：
-
 1. 蛋白搜索：DIAMOND（首选）→ MMseqs2 → BLAST+ blastp 自动降级，对照
    **NCBI RefSeq 病毒蛋白库**（release viral 全量，首次运行自动从 NCBI
    官方域名下载 ~107MB 并建库，之后全缓存）；
@@ -471,23 +480,18 @@ CLI/卡片可用 `--plot-engine auto|gbdraw|dfv` 强制指定引擎。
    病毒 contig 的线性示意图：ORF 按功能类别着色的方向箭头 + HMM/CDD
    结构域窄条 + 比例尺，littlegenomes 风格适配版，零依赖 SVG）；类别/科
    分布图与 Top 注释表自动嵌入 ⑩报告。
-
 ### 层2 HMM / 结构域（序列法兜底，远缘 ORF 补注释）
-
 pyhmmer（Windows 原生 wheel，内存恒定 ~50MB 流式扫描）扫 **Pfam 病毒库**，
 命中过滤用 viral_fams 口径**双门槛**：域级 i-Evalue ≤ 1e-3 **且** HMM 模型
 覆盖率 ≥ 0.5：
-
 | 库 | profiles | 功能/分类归属 |
 |---|---|---|
 | `Pfam-A-Viruses.hmm`（virsorter2 病毒 Pfam 子集） | 1,074 | HMM 文件内嵌 NAME/ACC/**DESC**，自描述，直接得到可读产物名（如 RNA-dependent RNA polymerase） |
-
 > 早期版本另支持 VOGDB(r236, 49,116 profiles) 与 RVDB(v32.0, 13,679 profiles)
 > 两路，因两者均不随平台分发、缺失时会产生无谓的检查提示，已于 2026-09-10
 > 移除，**只保留 Pfam 病毒库**（`databases/annot/hmm/pfam/`，2026-09-10 目录由
 > hmm/vfam/ 更名为 hmm/pfam/）。库缺失时 HMM
 > 层整体跳过（`available_libs()` 返回空即不进入），不报错。
-
 序列层已注释的 ORF（evidence=seq）保留层1 结果、HMM 命中记入 hmm_hits 列；
 序列层未命中的 ORF 由 HMM 兜底（evidence=hmm，产物/类别来自 Pfam DESC，
 科来自注释目录元数据，若有）。另含 **CDD 结构域层**：mmseqs2 搜索 NCBI Cdd
@@ -495,38 +499,30 @@ pyhmmer（Windows 原生 wheel，内存恒定 ~50MB 流式扫描）扫 **Pfam �
 `databases/annot/cdd/cdd_db`（或 platform.json databases.cdd 指定前缀）即
 自动启用，命中经 viral_cdds_and_pfams_191028.txt（1,580 条精选病毒域列表）
 标记病毒相关性，evidence=cdd。
-
 CLI：`python main.py orfa --sample 样品名`。
 参考库可手动换：替换 `databases/annot/prot/viral_prot.faa` 后删除
 `organism_tax.tsv`、`db_info.json` 重跑即自动重建索引与搜索库。
-
 ## 基因组图模块（⑨，gbdraw / dna_features_viewer 双引擎）
-
 对 ③组装 的病毒 contigs 逐条出 **圈图 + 线图（SVG）**。两引擎：
-
 - **gbdraw**（默认首选，圈图更精美）：注释自动取 ⑥ORF 的 pyrodigal
   GFF3；安装 `pip install git+https://github.com/satoshikawato/gbdraw.git`。
 - **dna_features_viewer（DFV）**：gbdraw 不可用时自动顶上（纯 Python，
   `pip install dna_features_viewer` 即可）；注释优先取 ⑥b 的
   `orf_annotation.gff3`（带 product/category，按结构蛋白/聚合酶等功能
   类别着色），回退 ⑥ 的 pyrodigal GFF3；支持 GenBank 输入。
-
 引擎选择：卡片参数或 CLI `--plot-engine auto|gbdraw|dfv`（默认 auto）。
 也可在卡片参数（或 CLI `--gbdraw-fasta/ann`）改用**自备 FASTA + GFF3，
 或直接 GenBank `.gb/.gbk` 文件**。出图上限默认 12 条（按长度取最长）。
 SVG 内嵌 ⑩报告，结果文件在 `09_genome_plots/`。
-
 ## LOGAN 溯源模块（独立页面，导航栏直达，两种提交方式）
-
 回答"这条病毒序列还出现在哪些公开数据里"：把病毒 contig（自动切成
 ≤2.5kb 查询片段，Logan-Search 单条上限）提交到
 [Logan-Search](https://logan-search.org/dashboard)（IndexThePlanet 计划，
 对整个 NCBI SRA 全量组装后建立的 k-mer 索引，覆盖 ~2340 万公开样本；
 k=31，返回每个样本的共享 k-mer 比例与 ANI 估计）。
-
 **方式一 · 一键批量（推荐）**：任务卡片填通知邮箱（逗号分隔多邮箱自动
 轮换防限额）、选 Groups → 点「开始批量提交」。平台以子进程调用内置的
-`vp/logan_submit.py`（Selenium 驱动本机 Edge/Chrome，默认 headless）逐条
+`Virus_Platform_Core/logan_submit.py`（Selenium 驱动本机 Edge/Chrome，默认 headless）逐条
 提交全部未导入片段，自动轮询结果、下载结果表、**导入并生成溯源报告**。
 进度为**实时推送**（SSE）：提交脚本在每个关键节点输出结构化进度事件
 （正在提交 / 已提交 session / 等待服务器结果（含已等秒数与 HTTP 状态，
@@ -539,11 +535,9 @@ k=31，返回每个样本的共享 k-mer 比例与 ANI 估计）。
 未安装时该面板灰显、手动方式不受影响。
 CLI：`python main.py logan-batch --name 查询名 --email a@qq.com[,b@qq.com]
 [--group Fast_No_human] [--show-browser]`。
-
 **方式二 · 手动半自动**：复制片段序列 → 自己浏览器打开 Logan-Search 提交
 （平台不发任何外部请求）→ 下载结果表（CSV/TSV）→ 回到页面点对应片段
 「导入结果」→ 自动聚合出报告。
-
 两种方式产物一致：物种分布条形图、k-mer×ANI 散点、样本类型分布、
 逐片段样本清单（可复制 Run 列表），来源为平台样品时自动附
 **④ICTV 宿主预测 × LOGAN 实测物种交叉对照**。
@@ -551,9 +545,7 @@ CLI：`python main.py logan-batch --name 查询名 --email a@qq.com[,b@qq.com]
 （batch_out/ 为批量下载的原始结果表）。其他 CLI：`logan-create /
 logan-import / logan-jobs`。
 引用：Chikhi et al. 2025, bioRxiv 10.1101/2024.07.30.605881。
-
 ## 进度条 · 预计剩余时间 · 资源预估日志
-
 - 任务卡实时显示**全局进度**（按阶段耗时加权，而非步数均分）、已运行
   时长与**预计剩余时间**。剩余时间来自每阶段耗时自学习模型
   （`logs/stage_perf.json`，随使用越来越准；首次运行使用缺省粗估）。
@@ -561,17 +553,13 @@ logan-import / logan-jobs`。
   SPAdes 解析 spades.log 按 k-mer 阶段上报；过滤/提取/转换按记录数上报。
 - 每阶段开始/结束在日志输出 `📊 资源预估`（线程 / 内存 / 磁盘）与实际
   耗时行；kunpeng 分类结束输出 `📊 磁盘核对`（预估 vs 实测 chunk 占用）。
-
 ## crabz 加速（可选）
-
 平台根目录放入 `crabz.exe`（[crabz releases](https://github.com/sstadick/crabz/releases)，
 已内置）后，**所有 .gz 读写自动改走 crabz 多线程管道**（kept/viral reads、
 子样本、fq2fa 产物等），实测写出较 Python gzip(级别9) **快约 10 倍**
 （195MB 模拟 FASTQ：21.5s → 2.1s），压缩率相当；未放 crabz 自动回退
 Python gzip，无功能差异。
-
 ## 已知事项与设计说明
-
 - **中文路径兼容**：SPAdes 与 BLAST(LMDB) 不支持含中文的路径。平台自动处理：
   SPAdes 经 `%TEMP%\vp_spades`（纯 ASCII）中转并把结果拷回；BLAST 库建在 `%TEMP%\vp_blast`。
   其余工具（kunpeng/mafft/FastTree/IQ-TREE）原生支持中文路径。
@@ -584,26 +572,24 @@ Python gzip，无功能差异。
   kunpeng estimate 口径一字不差），2GB 内存即可完成 1.8GB 基因组建库
   （约 1.5 分钟，库文件 ~1.6GB）。建库为替换式：重试会自动清理旧 library，
   不会累积重复数据。
-- **分类树来源**：汇总表/图表的科属种层级直接来自 kunpeng kreport（轻量解析），
-  不加载全量 NCBI taxonomy，避免内存压力。
+- **分类树来源**：报告的科属种层级来自 ②b 鉴定表（逐参考 `Uniq_Reads` 按种/属/科
+  累计）+ 参考库 `final.cluster.ref_info.tsv` 的 `VMR_Family/VMR_Genus`，不加载
+  全量 NCBI taxonomy，避免内存压力（未收录 VMR 谱系的参考只画到种）。
 - **SDT 分析**：平台用 MAFFT 比对 + 成对 gap 删除口径重算全长 identity 矩阵
   （与 SDT 算法一致），输出 CSV/热图；同时生成 `sdt_input.fas`，
   可在「分析结果」页点「启动 SDT」后拖入 SDT v1.3 GUI 交互查看。
 - **断点续跑**：每阶段 `.done` 标记；SPAdes 已有组装结果时重跑直接复用。
 - **数据安全**：GUI 仅监听 127.0.0.1，所有文件读写限制在平台目录内，
   下载仅限 NCBI 官方域名白名单。
-
 ## 常见问题
-
 **Q: 页面报"浏览失败: TypeError: Failed to fetch"或点击无反应？**
 这是浏览器连不上平台服务（服务端经测试一切正常），即**服务进程已退出或无响应**：
 1. 黑色控制台窗口被关闭了——关闭它就等于退出平台。重新双击
-   `VirusPlatform.exe`（或 `启动平台.bat`），浏览器会自动打开新页面；
+   `VirusPlatform.exe`（或 `启动平台-桌面窗口.bat`），浏览器会自动打开新页面；
 2. 双击了多次平台，浏览器停在已关闭实例的旧页面——关掉旧标签页即可；
 3. 大任务把内存/CPU 占满导致服务暂时无响应——等任务结束（页面顶部出现
    红色"连接已断开"横幅时说明服务失联，横幅消失即恢复）。
 新版页面会在失联时自动显示红色诊断横幅，恢复后自动消失。
-
 **Q: 输入文件支持哪些格式？支持压缩吗？**
 - 测序数据：FASTQ / FASTQ.gz（`.fastq` `.fq` `.fastq.gz` `.fq.gz`），双端选
   R1/R2，单端只选 R1；
@@ -611,18 +597,14 @@ Python gzip，无功能差异。
   建库（宿主/病毒）与分析输入均支持 gzip 压缩；
 - `.zip` / `.rar` / `.tar` 等归档请先解压出里面的数据文件再选择；
 - 文件浏览对话框只显示上述数据文件类型，浏览范围限平台目录内。
-
 **Q: 分析时提示"宿主库不可用"？**
 先到「数据库构建」页构建宿主库（需要 TaxID），或取消勾选"①宿主去除"阶段。
-
 **Q: SPAdes 报错 67 / non-ASCII？**
 旧版本问题，现已自动中转。若仍出现，检查 `%TEMP%` 路径是否含中文。
-
 **Q: 想用 IQ-TREE 更严谨建树？**
 分析页把「建树工具」切到 IQ-TREE（自动优先用 v3，缺失回退 v2；
 模型自动选择 `-m MFP` + UFBoot 1000 + SH-aLRT 1000 双支持值，
 最优模型与对数似然写入 05_phylo summary.json）。
-
 **Q: 进化树想加入更多近缘参考（如整属全基因组）？**
 工具箱「⑤ NCBI 参考序列下载」：输入 Entrez 检索式（如
 `Tobamovirus[ORGN] AND complete genome[TITL]`）→ 搜索预览 → 下载为
@@ -632,44 +614,30 @@ Python gzip，无功能差异。
 `python main.py ncbi-dl "<检索式>" -n <集合名>`（`ncbi-list` 查看已下载），
 分析时 `--ncbi-refs <集合名>`。比对后自动经 trimAl（automated1）清剪，
 过度修剪时自动回退原比对。
-
 **Q: 想在网页上直接看比对差异（不用 SDT）？**
 「结果」页新增 **MSA 查看（SNP-only 变异热图）**：选样品与 05_phylo 分组，
 只显示比对中的变异位点——ACGT 彩色字符热图（A 绿 / C 蓝 / G 橙 / T 红）、
 共识行、每列变异度柱，悬浮显示位点计数，大比对自动分页；优先展示建树
 所用的清剪后比对（aln.trim）。参考 PhyloSuite MSA Viewer 的 SNP-only
 设计用平台自有前端实现。
-
 **Q: 引物对宿主特异性检查很慢？**
 首次需对 1.8GB 宿主基因组建 BLAST 库（10-30 分钟），此后复用。
-
 **Q: 想直接比较同属病毒的基因组结构（共线性/基因排列）？**
-比较基因组组按分析目的组织为五步：**参考序列获取 → 序列比对（MAFFT+trimAl，
-可编辑查看器）→ 进化树构建（科/属级，全基因组/CDS/PEP）→ SDT 同一性（属级）
-→ 同属共线性（LoVis4u）**。
-
+比较基因组组按分析目的组织为四步：**参考序列获取 → 序列比对（MAFFT+trimAl，
+可编辑查看器）→ 进化树构建（科/属级，全基因组/CDS/PEP）→ SDT 同一性（属级）**。
+（同属共线性比较模块已移除；如需出版级共线性图建议用 clinker / LoVis4u
+独立运行，GenBank 集合可直接作为其输入。）
 「参考序列获取」卡整科整属拿序列：**ICTV 界→门→纲→目→科→属→种递进级联
 下拉**（选得越深集合越聚焦；计数=accession 条数）（databases/ictv_db
 谱系，本地序列优先、缺的 NCBI 补齐；预览离线可用）或 accession 列表 /
 Entrez 检索式 / 本机 .gb 导入。每次下载同时产出 GenBank 集合（保留 CDS
-注释，供建树与共线性）与 FASTA 参考集（样品流程建树追加参考，集合名即
+注释，供建树）与 FASTA 参考集（样品流程建树追加参考，集合名即
 「NCBI 参考集合」名）。下载可设<b>每属/每种上限</b>（防大属淹没整科集合）；
 集合可一键<b>🧬 提取 CDS/PEP</b>（genome / CDS / PEP 分类分目录 + 按基因
 拆分，直接送序列比对或基因建树）。
-
-「同属共线性比较」对集合一键出 **LoVis4u 官方出版级 PDF**（平台已修补其
-0.2.0 的 Windows 兼容 bug 并指定内置 MMseqs2；按蛋白组相似度排序、可变
-基因高亮），另附基因家族清单与成对共享基因比例表；LoVis4u 不可用时自动
-回退平台内置绘图。多聚蛋白基因组（如马铃薯 Y 病毒属）自动改用
-mat_peptide 成熟肽段做基因。结果存
-`databases/gb_collections/<集合名>/compare/`。
-
 「进化树构建（科/属级）」：选集合 → MAFFT + trimAl → NJ / FastTree /
 IQ-TREE（含双支持值），页内树查看与 SNP-only MSA 查看一体；也可直接
 输入 FASTA 建树。历史项目/测试样品已收进结果中心「归档项目」，各模块
 下拉只显示当前样品。
 CLI 全家桶：`gb-dl`（检索式/accession 下载）、`gb-import`（本机 .gb
 导入）、`gb-list` / `gb-check`（集合巡检：记录/CDS 数/警告）、
-`python main.py compare -n tobamo [--lovis4u] [--style lovis|category]
-[--min-ident 0.3 --min-cov 0.5 --order ...]`。
-注意：比较需要记录带 CDS 注释；FASTA 无注释记录会被跳过并在日志提示。

@@ -8,10 +8,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT, get_config  # noqa: E402
-from vp.phylo import (_run_mafft, _run_trimal, _run_fasttree, _run_iqtree,  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT, get_config  # noqa: E402
+from Virus_Platform_Core.phylo import (_run_mafft, _run_trimal, _run_fasttree, _run_iqtree,  # noqa: E402
                       _parse_iqtree_log)
-from vp.utils import check_path, write_fasta_record, safe_open  # noqa: E402
+from Virus_Platform_Core.utils import check_path, write_fasta_record, safe_open  # noqa: E402
 
 BASES = 'ACGT'
 

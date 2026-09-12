@@ -100,14 +100,14 @@ def main() -> int:
         print(f'  → {os.path.basename(k)} ORIGIN 已写真实序列（{len(s)} bp）')
 
     # 重建集合：整目录删掉 → 重新导入（会重新拷贝新的 .gb）→ 重跑特征提取
-    from vp.gb_collection import (extract_collection_features, gb_collection_dir,
+    from Virus_Platform_Core.gb_collection import (extract_collection_features, gb_collection_dir,
                                   import_local_gb)
     cdir = gb_collection_dir('EXAMPLE_SET')
     if os.path.isdir(cdir):
         shutil.rmtree(cdir, ignore_errors=True)
     print('  重新导入 EXAMPLE_SET（拷贝真实 .gb）…')
     import_local_gb('EXAMPLE_SET', GBS)
-    summ = extract_collection_features('EXAMPLE_SET')
+    extract_collection_features('EXAMPLE_SET')   # 只需副作用：产出 extract/ 供下面读取
     gf = os.path.join(cdir, 'extract', 'genome.fa')
     if os.path.isfile(gf):
         from collections import Counter
@@ -131,7 +131,7 @@ def main() -> int:
                   f'N占比={c.get("N", 0) / max(len(s), 1):.1%}  '
                   f'GC={100 * (c.get("G", 0) + c.get("C", 0)) / max(len(s), 1):.1f}%')
 
-    from vp.gb_collection import collection_records
+    from Virus_Platform_Core.gb_collection import collection_records
     n_rec = sum(1 for _ in collection_records('EXAMPLE_SET'))
     print(f'  集合重建完成：{n_rec} 条记录')
     return 0

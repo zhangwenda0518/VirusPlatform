@@ -181,7 +181,7 @@ minibwa map ref.fa read.fq    → mapped 600 bp in 4 sequences，0.032 s
 | 项 | 值 |
 |---|---|
 | 文件位置 | `bin/minibwa.exe`（单文件工具目录，同 seqkit / kunpeng） |
-| 探测条目 | `vp/config.py` 的 `detect_tools()`，`'minibwa'` 键，紧邻 `'minimap2'` |
+| 探测条目 | `Virus_Platform_Core/config.py` 的 `detect_tools()`，`'minibwa'` 键，紧邻 `'minimap2'` |
 | 探测结果 | `26` 个工具可用（原 23 → 加 minibwa 后 26，含其他新增） |
 | 调用方式 | `cfg.tool('minibwa')` |
 
@@ -195,7 +195,7 @@ minibwa map ref.fa read.fq    → mapped 600 bp in 4 sequences，0.032 s
 
 ### 接入共识模块（2026-09-08）
 
-`vp/consensus.py` 的比对引擎已从 minimap2 换成 minibwa（备份 `vp/consensus.py.bak_minibwa_20260908`）。
+`Virus_Platform_Core/consensus.py` 的比对引擎已从 minimap2 换成 minibwa（备份 `Virus_Platform_Core/consensus.py.bak_minibwa_20260908`）。
 
 **接口差异（实测确认，不是照抄 minimap2）**
 
@@ -273,4 +273,4 @@ subprocess.run([exe, 'map', ref, reads], capture_output=True,
 1. **`--mmap` 不可用**。大索引场景内存占用会显著高于 Linux（索引整体读入堆内存，Linux 下可依赖 mmap 按需分页）。要用 mmap 路径得真正移植 `CreateFileMapping`/`MapViewOfFile`，本次未做。
 2. 动态链接版本依赖 `libwinpthread-1.dll`；静态版本（`LDFLAGS="-static -static-libgcc"`）只依赖系统自带的 KERNEL32 + UC runtime，已实测通过，建议用静态版分发。
 3. 未跑长读/甲基化等高级路径，仅验证 `index` + `map` 主流程。
-4. **索引落在参考 FASTA 旁**（`.l2b` / `.mbw`），与 minimap2 无索引副作用的行为不同。平台侧 `vp/consensus.py` 的 `run_minimap2()` 用 `finally` 清理，但若在其他场景直接调用 `minibwa index`，需自行清理。
+4. **索引落在参考 FASTA 旁**（`.l2b` / `.mbw`），与 minimap2 无索引副作用的行为不同。平台侧 `Virus_Platform_Core/consensus.py` 的 `run_minimap2()` 用 `finally` 清理，但若在其他场景直接调用 `minibwa index`，需自行清理。

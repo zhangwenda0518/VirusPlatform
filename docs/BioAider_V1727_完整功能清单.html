@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BioAider V1.727 完整功能清单（以程序为准）</title>
+<style>
+  :root{
+    --bg:#fff; --panel:#f7f8fa; --line:#e3e6ec; --text:#1c2230; --muted:#5b6577;
+    --green:#0f8a6a; --amber:#b45309; --red:#c0392b; --blue:#1f6feb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:25px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:24px}
+  h2{font-size:19px;margin:36px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+  h3{font-size:15.5px;margin:24px 0 8px}
+  p{margin:10px 0}
+  code{background:#f2f4f8;padding:2px 6px;border-radius:4px;
+       font-family:Consolas,monospace;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+       padding:14px 18px;margin:16px 0}
+  .box.err{border-left:4px solid var(--red)}
+  .box.ok{border-left:4px solid var(--green)}
+  .box.info{border-left:4px solid var(--blue)}
+  .miss{color:var(--red);font-weight:600}
+  .yes{color:var(--green)}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  .n{color:var(--muted);font-variant-numeric:tabular-nums}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>BioAider V1.727 完整功能清单</h1>
+<div class="sub">
+以<b>程序自身菜单树</b>为准（从 <code>main.pyc</code> 反编译重建），
+并用官方 <code>Update_record.md</code> 交叉验证&nbsp;|&nbsp;2026-09-11
+</div>
+
+<div class="box err">
+<b>先说一件重要的事：随软件分发的手册是过期的。</b><br>
+<code>Manual of BioAider.pdf</code> 首页写明 <b>Manual of BioAider V1.423</b>（2022-03-24），
+而你安装的是 <b>V1.727</b>（2024-09-25）——中间隔了 5 个版本、2.5 年。<br>
+手册漏掉的不是零星小功能，而是<b>整个功能分类</b>（Clustering Analysis）
+和<b>底部工具栏一整排</b>（含 Sequence Editor）。<br>
+本清单因此不以手册为据，直接以程序为准。
+</div>
+
+<h2>一、完整功能清单（37 个分析功能 + 13 项界面/辅助）</h2>
+
+<h3>Toolbox ▸ SeqTools — 序列工具（10 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>SeqFormat Convertor</td><td>多格式互转（fas / nexus / phylip / meg / paml 等）</td><td class="yes">收录</td></tr>
+<tr><td>Sequence Vary</td><td>比对序列差异展示；V1.527 起含密码子提取（<code>(1,2,3)</code> / <code>(1+2,3)</code> 两模式）</td><td class="yes">收录</td></tr>
+<tr><td>SequenceID Rename</td><td>序列名批量重命名（含映射表）</td><td class="yes">收录</td></tr>
+<tr><td>Split Sequence Fragment</td><td>序列 / 比对拆分</td><td class="yes">收录</td></tr>
+<tr><td>Combine Gene</td><td>多基因串联（Tandem Gene）</td><td class="yes">收录</td></tr>
+<tr><td>Visual Gene Extractor</td><td>按坐标 / 注释提取基因区段</td><td class="yes">收录</td></tr>
+<tr><td>Sequential Extraction Text</td><td>按字符串列表顺序提取序列</td><td class="miss">漏收</td></tr>
+<tr><td>Viral *.gb file parser</td><td>病毒 gb 批量信息提取（宿主 / 日期 / geo_loc_name / 文献）；V1.727 起适配 NCBI 的 <code>country</code>→<code>geo_loc_name</code> 变更</td><td class="yes">收录</td></tr>
+<tr><td>Fast Annotation</td><td>基于参考序列的快速注释映射</td><td class="yes">收录</td></tr>
+<tr><td>Ambiguous Base Edition</td><td>模糊碱基 + 提前终止密码子处理（PAML 前置）</td><td class="yes">收录</td></tr>
+</table>
+
+<h3>Toolbox ▸ Similar Analysis — 相似性分析（5 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Sequence Identity Matrix</td><td>成对同一性矩阵；单 nt/aa 或 nt+aa 联合两种模式；含 <code>Condense gap</code> 选项</td><td class="yes">收录</td></tr>
+<tr><td>Remove High-Similar Sequence</td><td>去高相似序列，6 种相似度算法可选</td><td class="yes">收录</td></tr>
+<tr><td>Delete Low-Similar Sequence</td><td>去低相似序列</td><td class="yes">收录</td></tr>
+<tr><td>Repeat Fragment Search</td><td>重复片段搜索</td><td class="yes">收录</td></tr>
+<tr><td>Locate Protein in Nucleotide</td><td>把蛋白定位回核苷酸序列坐标</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Toolbox ▸ Download Tools（1 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Sequence Batch Download (NCBI)</td><td>NCBI 序列批量检索下载</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Toolbox ▸ Conversion Tools（2 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>File Merge</td><td>多文件合并为一个</td><td class="miss">漏收</td></tr>
+<tr><td>Date converted to Decimal</td><td>日期转十进制（分子钟 / tip-dating 用）</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Align — 比对（4 + 3 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Mafft / Muscle / Clustal Omega</td><td>三大比对器的图形界面</td><td class="yes">收录</td></tr>
+<tr><td>Blast</td><td>本地 BLAST 管理平台（建库 + 比对）</td><td class="miss">漏收</td></tr>
+<tr><td>HMMER ▸ hmmbuild / hmmscan / hmmsearch</td><td>HMMER 三个工具的图形界面（<b>V1.727 新增</b>）</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Evolution ▸ Molecular Variation — 分子变异（3 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Mutation Analysis</td><td>相对参考的突变谱；支持 nt / codon / aa 三种单位；V1.527 起加 Linked 模式（连锁突变位点）与棒棒糖图数据输出</td><td class="yes">收录</td></tr>
+<tr><td>Site Counter</td><td>位点计数 / 频率统计</td><td class="yes">收录</td></tr>
+<tr><td>Site Screen</td><td>位点筛选</td><td class="yes">收录</td></tr>
+</table>
+
+<h3>Evolution ▸ Phylogeny — 系统发育（5 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>ModelFinder</td><td>模型选择</td><td class="miss">笼统</td></tr>
+<tr><td>FastTree</td><td>快速近似最大似然建树</td><td class="miss">笼统</td></tr>
+<tr><td>IQ-Tree</td><td>最大似然建树</td><td class="miss">笼统</td></tr>
+<tr><td>MrBayes</td><td>贝叶斯建树</td><td class="miss">笼统</td></tr>
+<tr><td>Partition-Model Make</td><td>分区模型文件生成（IQ-TREE / MrBayes 两套格式）</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Clustering Analysis — 聚类分析（2 项）<span class="miss">　整类漏收</span></h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>K-mer Matrix of Sequences</td><td>基于 k-mer 特征的序列矩阵</td><td class="miss">漏收</td></tr>
+<tr><td>Hierarchical Clustering</td><td>层次聚类（<b>V1.527 新增整个分类</b>）</td><td class="miss">漏收</td></tr>
+</table>
+
+<h3>Drawing — 作图（2 项）</h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Mutation Lollipop</td><td>基因突变棒棒糖图</td><td class="yes">收录</td></tr>
+<tr><td>Point Boxplot Violin</td><td>点图 / 箱线图 / 小提琴图</td><td class="yes">收录</td></tr>
+</table>
+
+<h3>底部工具栏 + Setting（13 项界面/辅助）<span class="miss">　整排漏收</span></h3>
+<table>
+<tr><th style="width:230px">功能</th><th>说明</th><th style="width:80px">手册</th></tr>
+<tr><td>Sequence Editor</td><td>序列浏览 / 编辑，可生成比对图（<b>V1.727 新增</b>）</td><td class="miss">漏收</td></tr>
+<tr><td>Record Experiment</td><td>电子实验记录本（<b>V1.527 新增</b>）</td><td class="miss">漏收</td></tr>
+<tr><td>*.md / *.html browser</td><td>文档预览器</td><td class="miss">漏收</td></tr>
+<tr><td>Citation / Help Docs / Examples</td><td>引用信息 / 手册 / 示例目录</td><td class="miss">漏收</td></tr>
+<tr><td>App Theme</td><td>9 套主题（4 暗 + 4 亮 + 复古）</td><td class="miss">漏收</td></tr>
+<tr><td>APP Font</td><td>字体与字号（V1.527）</td><td class="miss">漏收</td></tr>
+<tr><td>Manage Plugins</td><td>外部工具注册管理（8 个：Mafft / Muscle / Clustal-Omega / FastTree / IQ-Tree / MrBayes / Blast / HMMER）</td><td class="miss">漏收</td></tr>
+<tr><td>Check for updates</td><td>版本更新检测（V1.527）</td><td class="miss">漏收</td></tr>
+<tr><td>Shortcut</td><td>快捷键管理，可增删外部程序快捷方式（V1.527）</td><td class="miss">漏收</td></tr>
+<tr><td>主界面文件系统右键菜单</td><td><b>V1.727 新增</b></td><td class="miss">漏收</td></tr>
+<tr><td>About</td><td>关于</td><td class="miss">漏收</td></tr>
+</table>
+
+<h2>二、版本时间线：手册之后发生了什么</h2>
+
+<table>
+<tr><th style="width:150px">版本</th><th style="width:110px">日期</th><th>关键新增</th></tr>
+<tr><td>V1.423</td><td>2022-03-24</td><td><b>手册对应的版本</b>（修 Mutation Analysis 密码子统计 bug）</td></tr>
+<tr><td>V1.527</td><td>2023-02-21</td><td><b>K-mer 层次聚类</b>（新分类）、Mutation Analysis 的 Linked 模式、棒棒糖图数据输出、多开弹窗、<b>电子实验记录本</b>、更新检测、字体设置、Sequence Vary 密码子提取、<b>快捷键管理</b></td></tr>
+<tr><td>V1.532-beta</td><td>2024-02-01</td><td>Identity Matrix 的 <b>nt/aa 联合模式增加热图专用输出</b>、U/T 混用支持、插件改由 Manage plugins 导入</td></tr>
+<tr><td>V1.627</td><td>2024-07-27</td><td><b>多进程并行 + 迭代读取</b>（8.7 万条 ORF1ab 约 3 分钟）、多格式批处理、中文提示</td></tr>
+<tr><td>V1.727</td><td>2024-09-25</td><td><b>Sequence Editor</b>、<b>HMMER 三件套 GUI</b>、gb parser 适配 geo_loc_name、主界面右键菜单</td></tr>
+</table>
+
+<h2>三、对上一轮建议的修正</h2>
+
+<div class="box info">
+上一轮我给的建议里，功能框架只覆盖了手册的七组，<b>漏掉了 Clustering Analysis 整个分类</b>，
+也没有把底部工具栏那排（尤其 Sequence Editor）计入。补齐后，有 4 项需要重新评估：
+</div>
+
+<table>
+<tr><th style="width:230px">新纳入考虑</th><th>平台现状</th><th>评估</th></tr>
+<tr>
+  <td><b>K-mer 层次聚类</b></td>
+  <td>k-mer 只用于宿主比对（<code>utils.py</code>）和链方向判定（<code>sdt_exact.py</code>），<b>无序列聚类工具</b></td>
+  <td>值得考虑。对 virome contig 分组、大序列集去冗余前的粗聚类有用；你们已有 MMseqs2，实现成本低</td>
+</tr>
+<tr>
+  <td><b>连锁突变位点</b>（Mutation Analysis 的 Linked 模式）</td>
+  <td>零命中</td>
+  <td>值得考虑。准种 / 耐药突变研究里，位点连锁比单位点频率更有信息量</td>
+</tr>
+<tr>
+  <td><b>日期转十进制</b></td>
+  <td>零命中</td>
+  <td>看需求。如果做 tip-dating / 分子钟定年就需要，否则不必</td>
+</tr>
+<tr>
+  <td><b>蛋白定位回核苷酸</b></td>
+  <td>零命中</td>
+  <td>低优先。你们已有 <code>cds_export</code> / <code>contig_annot</code>，功能有部分重叠</td>
+</tr>
+</table>
+
+<p>其余结论不变：<b>多基因串联 + 分区文件</b>、<b>参考集按 identity 去冗余</b>、
+<b>序列 ID 重命名</b>、<b>模糊碱基校正</b>、<b>系统发育格式互转</b> 仍是真缺口；
+<code>examples/</code> 补参数说明仍是我认为投入产出比最高的一项。</p>
+
+<footer>
+依据：<code>_bioaider_re/main_clean.py</code>（main.pyc 反编译重建的菜单树）、
+官方 <code>Update_record.md</code>、<code>Configurations/plug_set.init</code>。<br>
+本清单取代 <code>docs/BIOAIDER_REFERENCE.md</code> 与
+<code>docs/BioAider功能补充与吸收建议_20260911.html</code> 中的功能列表。
+</footer>
+
+</div>
+</body>
+</html>

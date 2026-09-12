@@ -11,21 +11,28 @@
    BLAST 库建在 `%TEMP%\vp_blast`。新增外部工具调用时必须考虑这一点。
 2. **Windows 端口保留段**：Hyper-V/WSL 会动态保留端口段，固定端口可能
    bind 失败（"访问权限不允许"）。`app.py::_pick_port` 逐个探测候选端口。
-3. **控制台编码**：所有入口（app.py/main.py/vp.config）在 win32 下
+3. **控制台编码**：所有入口（app.py/main.py/Virus_Platform_Core.config）在 win32 下
    `sys.stdout.reconfigure(encoding='utf-8')`，否则日志中文乱码/报错。
 4. **CRLF**：FASTA/FASTQ 写出一律 LF（`safe_open` 已统一），
    CRLF 会导致 SPAdes 等解析失败。
 5. **orfipy 日志目录**：orfipy 默认把日志写到输入文件旁边的
    `<输入名>_out/` 目录（曾在平台根目录留下 `orfipy_viral_contigs.fasta_out`）。
-   修复：调用时显式传 `--outdir` 到样品目录内（见 vp/orf.py）。
+   修复：调用时显式传 `--outdir` 到样品目录内（见 Virus_Platform_Core/orf.py）。
 6. **kunpeng 大基因组建库 OOM**：convert 阶段 60 条/批整批载入，
    多条大染色体同批会触发 ~20.8GB 确定性巨型分配。对策：注入 taxid 时
-   把每条序列切 ≤1MB 片段（相邻 34bp 重叠保 k-mer），见 vp/kunpeng.py。
+   把每条序列切 ≤1MB 片段（相邻 34bp 重叠保 k-mer），见 Virus_Platform_Core/kunpeng.py。
 7. **线程数与建库内存**：kunpeng 建库内存峰值 ≈ 1GB/线程，GUI 默认限 8 线程。
 
 ### 任务与并发
 8. **幽灵任务**：服务重启后 running 状态任务永远不结束。对策：
    `TaskManager._recover_interrupted` 启动时把遗留 running 标记为 failed。
+   **2026-09-11 补第二层坑**：`run/tasks/` 里除了任务记录还住着
+   `queue.json`（SampleQueue 的批处理队列）。恢复逻辑原先只按 `.json`
+   后缀筛文件，于是 ① 修剪到最近 100 个时会把最老的 `queue.json` 当旧任务
+   删掉（整条队列静默丢失）② `json.load` 得到 list，`d.get()` 抛
+   AttributeError 被外层 except 吞掉，**整个恢复循环中断、幽灵任务照样留着**。
+   对策：文件列表加 `self._tid_ok(n[:-5])`（12 位十六进制才算任务）。
+   `cancel_all/purge_all` 同样用 `_tid_ok` 挡 `queue.json`。
 9. **同样品并发**：同一样品并发分类会写爆磁盘。对策：`/api/pipeline/<s>/run`
    拒绝同名样品的第二个运行中任务（任务名以 `<样品> ·` 前缀识别）。
 10. **任务结果丢失**：早期 `snapshot()` 不返回 `result` 字段，任务完成后
@@ -36,7 +43,7 @@
 11. **路径穿越**：所有文件读写必须经 `utils.check_path` / `safe_open`
     （拒绝 `..`、输出限定平台根内）。新增 API 时禁止绕过直接 open()。
 12. **NCBI 下载**：域名白名单（eutils.ncbi.nlm.nih.gov）+ 限速重试 +
-    会话式翻页（借鉴 PhyloSuite），改 vp/ncbi_download.py 时保持这些约束。
+    会话式翻页（借鉴 PhyloSuite），改 Virus_Platform_Core/ncbi_download.py 时保持这些约束。
 13. **GUI 仅监听 127.0.0.1**，不要改成 0.0.0.0。
 
 ### 前端
@@ -53,13 +60,65 @@
     `nhConfidenceValuesInBrackets: false`，两者互斥，见 app.js
     `_treeInternalLabelsAllNumeric()`）。面板自带布局/支持值/搜索/导出，
     PNG 导出依赖 `window.Canvg`（ESM 模块桥接），PDF 依赖 `window.jspdf` + svg2pdf。
+17. **切模块就失忆**：一级导航全是裸 `<a href>`（无 SPA 路由），每次切模块都是
+    整页刷新，页面级 JS 变量必然归零。表现最重的是 `/pipeline` 的当前样品：
+    只有 URL 带 `?sample=` 才恢复，而导航栏的 `/pipeline` 不带参数；曾经写进
+    `localStorage['vp_last_sample']` 的"上次样品"**全仓没有任何读取点**，
+    于是"切回来忘了在分析哪个样品"。对策：`app.js` 新增全局上下文
+    （`VP_CTX`，键 `vp_ctx_sample` / `vp_ctx_project`）+ 顶部导航常驻胶囊，
+    变更经 `document` 上的 `vp-ctx` 事件广播给各页重挂自己。
+    **改这一带时注意**：项目下拉的变更必须走模板 `onchange="gxProjChanged(this)"`，
+    不能只在 `DOMContentLoaded` 里 `addEventListener('change')`——属性处理器在
+    解析期就注册，页面自身的 onchange（会重刷下拉）先跑，会把用户刚选的值刷回去。
+18. **`applyI18n` 会覆盖动态文案**：`i18n.js` 在 `DOMContentLoaded` 里对所有
+    `[data-i18n]` 元素重写 `innerHTML`。想在静态标签后拼动态内容（例如
+    「只看当前样品（NX-1）」）时，动态部分要放进**不带 `data-i18n` 的独立元素**，
+    否则会被整段覆盖掉。
+19. **顶部导航必须能"跟着内容长高"，且不能让它把品牌挤走**（2026-09-11 用户截图报障）。
+    `.topnav` 原是 `height: 54px` 固定高度，而 `.navlinks` 是 `flex-wrap: wrap`；
+    13 个一级链接约占 1150px，窗口一窄（实测 ≲1500px，尤其加了右侧全局上下文条
+    之后）链接内部就换行，可绿色横条仍是 54px —— **第二行直接溢出到横条外的白底上**。
+    `height: auto` 的兜底只写在 ≤720px，远低于实际窗口宽度，所以平时必然踩到。
+    修的时候踩到两个反直觉点，都靠真浏览器量出来（`tests/_it_nav_responsive.py`）：
+    - 横条自己**不能**用 `flex-wrap: wrap`：宽度不够时它会把整个 `.navlinks`
+      挤到第二行（品牌独占一行、高度直接 72~80px），比原来更丑。正确做法是
+      `flex-wrap: nowrap` + `.navlinks{flex:1 1 auto; min-width:0}`，
+      让品牌与导航同处一行、由 `.navlinks` 内部消化换行；
+      到 ≤1180px 再显式切成"品牌一行 + 导航整行"。
+    - **末尾控制簇要绑成一组**：13 个链接刚好差几十像素时，flex 换行只会把
+      最后的 📂 一个图标挤到第二行，孤零零挂在右边像坏了（实测 1884px 正是
+      这个症状）。故 `app.js` 把「上下文条 + #langBtn + 📂」收进 `.navtail`
+      （`flex-wrap: nowrap` 的单个 flex 项），要么整簇留第一行、要么整簇换行。
+    - 量"行数"不能用 `round(top)` 去重：`align-items: center` 下同一行里不同
+      高度的元素 `top` 本来就不同（把单行数成 5 行）。要按"中心 Y 分簇"。
+    - 上下文胶囊宽度有限会截断长样品名，`title` 里必须给出**完整**名字。
 
 ### 打包
-17. **PyInstaller**：webapp 模板/静态资源经 `_webapp_dir()` 多路径探测
+20. **PyInstaller**：webapp 模板/静态资源经 `_webapp_dir()` 多路径探测
     （源码同级 → 上级 → `sys._MEIPASS`）。新增静态目录时同步改
     package.py / VirusPlatform.spec。
-18. `dist/VirusPlatform/` 是打包产物（含运行时 results/logs/tasks），
+21. `dist/VirusPlatform/` 是打包产物（含运行时 results/logs/tasks），
     不要把开发期临时文件混进去；`build/` 为 PyInstaller 中间目录，可随时删除。
+
+### 破坏性操作与巡检工具
+22. **破坏性接口必须要求显式确认，且巡检工具必须跳过它**（2026-09-11 实测事故）。
+    `POST /api/global/reset` 最初只用请求体里的 `include_archive` 做可选项，
+    空 POST 就会执行「取消全部任务 + 清队列 + 清任务记录」。而
+    `tests/_audit_routes.py` 的设计是"对每条路由发一次空 POST"来找 500，
+    于是它把 `run/tasks/*.json` 里约 100 条历史任务记录**全部删掉了**。
+    该脚本当时的 docstring 写着"全程只读，不删除任何文件"——**这句话没有实现**：
+    它只比对 tasks/ 目录的"新增"，完全不检查"删除"。
+    两条修复，缺一不可：
+    - 接口侧：加 `confirm: 'reset'` 必填令牌（**防误触，不是鉴权**），
+      空 body 一律 400；
+    - 工具侧：`_audit_routes.DESTRUCTIVE_POST` 显式列出跳过的破坏性路由
+      （`/api/global/reset`、`/api/tasks/clear_finished`、
+      `/api/queue/clear_finished` —— 后两条早就是空 POST 即删的状态），
+      并把快照比对从"只查新增"改成"新增与删除都比对"。
+    **新增任何破坏性路由时，必须同时登记到 `DESTRUCTIVE_POST`。**
+    损失范围：只丢了任务中心的记录索引（名称/状态/日志尾部/时间），
+    任务**日志文件本体**（`run/logs/tasks/` 698 个）与全部科研结果
+    （results/ tool_runs/）都在——删记录不删日志是 `tasks.py` 的既有设计。
 
 ## 二、目录规范
 
@@ -69,15 +128,23 @@
 ```
 <平台根>/
 ├─ app.py / main.py        GUI 与 CLI 入口
-├─ vp/                     核心 pipeline 包（GUI 与 CLI 共用，勿在 app.py 写业务逻辑）
-├─ engines/                自带 CLI 的独立引擎（known_virus_suite 五段整合）
+├─ Virus_Platform_Core/    核心 pipeline 包（GUI 与 CLI 共用，勿在 app.py 写业务逻辑）；
+│  │                       2026-09-10 由 vp/ 更名而来（原 vp = Virus Platform 缩写）
+│  ├─ known_virus_suite/   已知病毒识别与定量引擎（五段整合，自带 CLI）；
+│  │                       同日由顶层 engines/known_virus_suite/ 迁入包内，
+│  │                       模块间改用相对导入（from .kv_xxx）
+│  ├─ web/                 HTTP 边界与任务工厂（Flask blueprint）
+│  ├─ public_meta/         公共数据检索引擎
+│  └─ ncbi_submit/         NCBI 提交准备
 ├─ webapp/
 │  ├─ templates/           页面模板（Jinja2）
 │  └─ static/              app.css / app.js / i18n.js / examples.js / vendor/
 ├─ databases/              kunpeng 库、taxonomy、tree_db、annot、misc（大数据）
 ├─ examples/               内置各工具示例数据 + results/（示例运行结果，与真实结果隔离）；
 │                          2026-09-10 由 databases/examples/ 迁到根目录，整体纳管 git
-├─ host-db/ · virus-db/    建库源数据（宿主源基因组 / 病毒源参考）
+├─ host-db/                建库源数据（宿主源基因组）
+├─ databases/virusref_db/  病毒参考 + 派生索引（kv_index/ 鉴定库：salmon_k31/ + minibwa/）
+│                          2026-09-11 由顶层 virus-db/ 迁入 databases/（命名随 _db 惯例）
 ├─ run/                    运行期数据（可清理重建，git 忽略）
 │  ├─ results/<样品>/       每样品产物（00_prep … 09_genome_plots、logs）
 │  ├─ tool_runs/           工具箱独立运行产物
@@ -99,18 +166,18 @@
 └─ _archive/               归档区（历史产物、外平台工具、迁移备份）
 ```
 
-**旧路径兼容（重要）**：`vp/utils.py::check_path` 会把旧的平台相对顶层目录
+**旧路径兼容（重要）**：`Virus_Platform_Core/utils.py::check_path` 会把旧的平台相对顶层目录
 自动重定向到新位置（`tool_runs/`、`results/`、`uploads/`… → `run/`；
 `tools/`、`bin/`、`vendor/`、`open-virome/` → `3rd/`），映射表见
-`vp/config.py::LEGACY_TOP_DIRS`。因此历史数据、前端拼接的路径、旧文档示例
+`Virus_Platform_Core/config.py::LEGACY_TOP_DIRS`。因此历史数据、前端拼接的路径、旧文档示例
 都无需手工改；**新增代码请直接用 `DIRS[...]`，不要再写字面量路径**。
 
-工具路径探测集中在 `vp/config.py::detect_tools()`：先 `3rd/bin/`、
+工具路径探测集中在 `Virus_Platform_Core/config.py::detect_tools()`：先 `3rd/bin/`、
 `3rd/tools/`，根目录平铺布局保留为回退（兼容已分发的 exe 平台）；
 `platform.json` 的 `tools` 覆盖优先级最高。
 
 **`platform.json` 的 tools 路径约定（2026-09-09 起）**：平台根内的工具写
-**相对路径**（如 `bin/minibwa.exe`），由 `vp/config.py::Config._load()`
+**相对路径**（如 `bin/minibwa.exe`），由 `Virus_Platform_Core/config.py::Config._load()`
 按 `PLATFORM_ROOT` 解析；平台根外的工具（Python Scripts、外部 SPAdes）
 仍写绝对路径。这样整个平台目录搬到别的盘或改名，工具探测不会连带失效。
 
@@ -134,7 +201,7 @@
   `minibwa_win_build/`，已合并）；构建说明在 `docs/minibwa-build/`。
 - **`tools/strawberry-perl/` 不要清理**：它是 SNPGenie 的 Perl 解释器
   （便携版 5.42.3，`perl/bin/perl.exe`），被
-  `engines/known_virus_suite/kv_variant_evo.py::_snpgenie_exe()` 引用。
+  `Virus_Platform_Core/known_virus_suite/kv_variant_evo.py::_snpgenie_exe()` 引用。
   2026-09-09 曾因目录瘦身把它归档到 `_archive/`，导致 SNPGenie 链路断掉，
   现已恢复。使用要点见 `tools/snpgenie/DEPLOY_NOTE.md`（工作目录必须纯
   英文路径，且要显式传 `--workdir` 避开 MSYS 的 `pwd` 污染）。
@@ -147,10 +214,10 @@
 - Flask test client 冒烟：`/` `/pipeline` `/build` `/results` `/tools` `/logan`
   `/virome` `/help` `/settings` `/hostremoval` 均 200；核心 API
   `/api/tools` `/api/dbs` `/api/samples` `/api/tasks` `/api/settings` 正常。
-- 独立模块烟测：`vp.msa_view`、`vp.phylo._safe_name`、`vp.pipeline` 视图函数、
+- 独立模块烟测：`Virus_Platform_Core.msa_view`、`Virus_Platform_Core.phylo._safe_name`、`Virus_Platform_Core.pipeline` 视图函数、
   设置中心读写（platform.json `defaults`/`language`）。
 - 上下游依赖链：fq2fa→host→virus→assembly→(hostana/orf)→orfa→
-  phylo→primer→gbdraw→report 的依赖表见 `vp/pipeline.py::STAGE_DEPS`，
+  phylo→primer→gbdraw→report 的依赖表见 `Virus_Platform_Core/pipeline.py::STAGE_DEPS`，
   管道页卡片按依赖解锁；工具缺失自动降级（fastp/seqkit/gbdraw/orfa）。
 
 ## 四、更新日志（第一轮 · 凌晨）
@@ -335,7 +402,7 @@ seqview / toolrun_inline（.zcode/ui_shots/）。
 - **⑤ Open-Virome（RdRP/palmdb）彻底删除**：STAGE_ORDER/名称表/分组/权重/
   估时/PIPELINE_STAGES/STAGE_DEPS/STAGE_OUTPUTS/STAGE_VIEW/汇总函数（中英）
   全部移除；viz 报告章节、main.py CLI（cmd_virome + 子命令 + selfcheck 清单）、
-  app.py 工具④的 rdrp 佐证块、tools.html 复选框、vp/virome.py 模块文件均删。
+  app.py 工具④的 rdrp 佐证块、tools.html 复选框、Virus_Platform_Core/virome.py 模块文件均删。
   README 同步（功能表/CLI/目录树/整章）。
   注意：导航"公共病毒组"（Open-Virome 雷达网页）是独立数据挖掘入口，保留；
   历史样品的 09_virome 目录已于 2026-09-08 用户确认后彻底删除
@@ -358,7 +425,7 @@ seqview / toolrun_inline（.zcode/ui_shots/）。
    job 构造器 `_tool_job_<name>(ctx)` 返回 `job(log, prog, cancel)`；
    ctx 提供 `p / run_dir / threads / db_virus / req / opt`。
    新增工具 = 实现一个函数 + 登记一行 + 前端卡片。
-3. **管道阶段注册表（vp/pipeline.py `STAGE_REGISTRY`）**：
+3. **管道阶段注册表（Virus_Platform_Core/pipeline.py `STAGE_REGISTRY`）**：
    `{key: {'deps': [...], 'fn': _stage_xxx}}`，阶段函数签名 `(C)`，
    通过 `C`（_Ctx）读写跨阶段产物（`C.cur_r1 / C.host_stats / C.vs / C.asm`）。
    执行器 `_stage_execution_order()` 对已选阶段做**稳定拓扑排序**——
@@ -382,9 +449,9 @@ seqview / toolrun_inline（.zcode/ui_shots/）。
   R1/R2 选择、置信度、线程、可选自备宿主库目录（留空=平台库），
   库状态徽章复用 `loadDbs()` 的 `#hostStat`。
 - **后端**：TOOL_REGISTRY 新增 `hostremoval`（`_tool_job_hostremoval`），
-  复用 `vp.host_removal.remove_host`（run_dir 充当 sample_dir，
+  复用 `Virus_Platform_Core.host_removal.remove_host`（run_dir 充当 sample_dir，
   产物在 `<run>/01_host_removal/`：kept_R1/R2.fastq.gz + stats.json +
-  分类报告）。启动前校验宿主库就绪（`vp.kunpeng.db_ready`），未就绪 400。
+  分类报告）。启动前校验宿主库就绪（`Virus_Platform_Core.kunpeng.db_ready`），未就绪 400。
   样品管道的 ① 宿主去除阶段不受影响，两处共存。
 - **前端匹配**：app.js `TOOL_LABELS` 增加 `hostremoval: ['宿主去除与序列提取',
   'Host removal']` → 模块卡 `#toolrun-hostremoval` 内嵌状态/结果；
@@ -403,10 +470,10 @@ NAV_GROUPS 中剩余 4 个 `href: '/pipeline'` 条目全部改为独立页，
 | 模块 | 页面 | tool key | 复用后端 |
 |------|------|----------|----------|
 | 样品创建 / 批量导入 | `/samples` | —（纯前端，复用 `/api/pipeline/create` `/api/samples` `/api/queue/add`） | — |
-| 宿主预测（ICTV 级联） | `/hostpredict` | `hostpredict` | `vp.host_analysis.predict_hosts` |
-| ORF 预测 / 功能注释 | `/orf` | `orf` | `vp.orf.predict_orfs` + `vp.orf_annot.run_orf_annotation` |
+| 宿主预测（ICTV 级联） | `/hostpredict` | `hostpredict` | `Virus_Platform_Core.host_analysis.predict_hosts` |
+| ORF 预测 / 功能注释 | `/orf` | `orf` | `Virus_Platform_Core.orf.predict_orfs` + `Virus_Platform_Core.orf_annot.run_orf_annotation` |
 | 基因组图谱 | `/genome` | `genoplot` | `gbdraw_plot.run_genome_plots` / `dfv_plot.run_dfv_plots`（fasta_in/ann_in 原生 standalone 模式） |
-| 引物设计 | `/primer` | `primer` | `vp.primer.design_primers` |
+| 引物设计 | `/primer` | `primer` | `Virus_Platform_Core.primer.design_primers` |
 
 实现约定（与 hostremoval 相同）：
 - **伪样品目录**：stage 函数都是 sample_dir 口径，tool job 在 run_dir 下
@@ -433,7 +500,7 @@ NAV_GROUPS 中剩余 4 个 `href: '/pipeline'` 条目全部改为独立页，
   ReferenceError，fetch 根本没发出。download.html / submit.html 同病。
   修复：app.js 增加全局 `val(id)`。
 - **任务硬停止（真停）**：原先 TaskManager.cancel 只置 Event，无任何任务
-  检查，外部工具子进程照跑。现在 vp/utils 新增线程级 `task_bind /
+  检查，外部工具子进程照跑。现在 Virus_Platform_Core/utils 新增线程级 `task_bind /
   task_check_cancel` 上下文，run_cmd / run_cmd_redirect 启动的子进程自动
   注册到任务 rec['procs']；TaskManager.cancel 置位事件 + taskkill /F /T
   杀进程树；_run 结束统一解绑。取消后的任务 status=cancelled、
@@ -503,7 +570,7 @@ run.log 带时间戳落盘）+ 默认路径单测全部通过。
    匹配且仅单阶段命中才注入；另按 curSample 过滤，其它样品的管道任务不再
    串到当前样品的卡上。附带修复：队列·样品 / 样品分析 任务此前不进任何
    阶段卡，现在同样按 stage 正确归属。
-2. **下载批次过程日志**（并行代理实施，仅改 vp/public_data.py +
+2. **下载批次过程日志**（并行代理实施，仅改 Virus_Platform_Core/public_data.py +
    download.html）：DownloadManager 新增 `_blog`（[HH:MM:SS] 前缀追加写
    `downloads/<bid>/batch.log`，OSError 静默）；创建/解析成功失败/开始下载/
    回退链失败原因（区分取消）/完成/转换/取消/重试 全程落盘；
@@ -572,7 +639,7 @@ node --check + 16 页 200。服务重启后生效。
   用户遇到的「无法从网站上提取文件」发生在服务重启窗口期（多次重启期间
   点了下载），重试即可，非代码问题。
 - **contig 分类结果报告（对标 32-server 的 Metabuli 结果页）**：
-  vp/viz.py 新增 `build_contig_report(run_dir)`：解析运行目录 kreport →
+  Virus_Platform_Core/viz.py 新增 `build_contig_report(run_dir)`：解析运行目录 kreport →
   分类谱系桑基图（root→界→…→种，按片段数）+ 分类旭日图 + 分类表
   （级别/分类单元/TaxID/%/片段数）+ contig 明细表（近完整绿色）+ 产物
   下载按钮；离线 plotly.min.js，固定浅色背景。写入 <run>/report.html。
@@ -700,7 +767,7 @@ metabuli_page.html，即 <DEMO-IP> 服务器同源代码）重写报告图表：
 ## 二十七、Krona 旭日图改用 taxburst（2026-09-06 上午，用户指定 github.com/taxburst/taxburst）
 
 - `pip install taxburst`（离线 d3 内嵌，无 CDN 依赖）。
-- vp/viz.py 新增 `_taxburst_nodes(krows)`（kreport 累计行 → name/rank/count/
+- Virus_Platform_Core/viz.py 新增 `_taxburst_nodes(krows)`（kreport 累计行 → name/rank/count/
   children 节点树）与 `build_taxburst(run_dir, krows)`：生成 taxburst.html
   （仅已分类）与 taxburst_unc.html（含未分类）两个离线交互 HTML。
 - report.html 的 Krona 区块改为 taxburst iframe（Show unclassified 开关
@@ -763,7 +830,7 @@ hostpredict.log）/ 下载响应头（?dl=1 attachment）/ 工具②报告按钮
 头格式 acc|GENBANK|ACC|desc）、RVDB_Taxon_Current.tab.gz（1100 万行
 accession→taxid+谱系，覆盖 RefSeq/RVDB accession）。
 
-新增 vp/universal_ref.py：
+新增 Virus_Platform_Core/universal_ref.py：
 - build_universal_meta(source)：流式扫 RVDB_Taxon 表 + FASTA 内 accession
   交集 → virus_ref/universal/<source>_acc2taxid.tsv（复用缓存）。
 - build_universal_db(source)：注入 |kraken:taxid|N → kunpeng build_db →
@@ -786,7 +853,7 @@ accession→taxid+谱系，覆盖 RefSeq/RVDB accession）。
   数据库构建页 Taxonomy + 宿主库/病毒库/通用库（走 add-library+build-db）。
 - **B. add-library 自备 FASTA**：已有（build_virus_db / build_host_db /
   build_universal_db）。
-- **C. Kraken2 库转换（hashshard）**：新增 vp/kunpeng.convert_kraken2()：
+- **C. Kraken2 库转换（hashshard）**：新增 Virus_Platform_Core/kunpeng.convert_kraken2()：
   支持 .tar.gz 包或已解包目录；解包（自动定位 hash.k2d）→
   `kunpeng hashshard --db <k2目录>`（**就地转换**，输出在 k2 目录内）→
   移动 hash_*.k2d/hash_config.k2d/opts.k2d/taxo.k2d 到目标库目录 +
@@ -844,7 +911,7 @@ accession→taxid+谱系，覆盖 RefSeq/RVDB accession）。
 **已修复（高危 4 + 中危 6 + 低危 2）**：
 1. 🔴 app.py /api/tool/viral_contigs NameError（run_dir 未定义，接口 500，
    contig 分类表全挂）——系 E-value 合并补丁引入，改回 _tool_runs_root 路径。
-2. 🔴 vp/config.py tool() 放行 bundled: 哨兵（冻结分发 gbdraw 引擎恢复）。
+2. 🔴 Virus_Platform_Core/config.py tool() 放行 bundled: 哨兵（冻结分发 gbdraw 引擎恢复）。
 3. 🔴 /api/seqview 允许平台外绝对路径（只读统计；与文件浏览对话框对齐）。
 4. 🔴 app.js watchTaskBtn 轮询加 10 次不可达上限（服务重启后按钮不再永久
    卡「运行中」）。
@@ -868,7 +935,7 @@ kaleido 未使用。
 
 ## 三十五、审查遗留四项修复（2026-09-06 下午续）
 
-1. **MAFFT/trimAl 中文路径**：vp/phylo.py 新增 _ascii_stage/_ascii_fetch
+1. **MAFFT/trimAl 中文路径**：Virus_Platform_Core/phylo.py 新增 _ascii_stage/_ascii_fetch
    （复用 assembly._ascii_work_base）；_run_mafft 输入非 ASCII 时复制到
    %TEMP%/vp_mafft 中转后运行；_run_trimal in/out 均非 ASCII 时中转并取回。
    实机验证：中文目录下 MAFFT 比对成功（mafft.bat 退出码 0）。
@@ -911,7 +978,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
   refvirus_db 752MB / rvdb_db 3.0GB，构建时间戳 09-07 00:27-30）。
 - 本地替换：`databases/{plant_db,refvirus_db,rvdb_db}` 三库 db_ready 全
   True（hash: 42MB / 676MB / 1.5GB）；旧 rvdb_db 已删除。
-- 分类冒烟（vp.kunpeng.classify，NC_116488.1 前 20kb 切 150bp reads×15）：
+- 分类冒烟（Virus_Platform_Core.kunpeng.classify，NC_116488.1 前 20kb 切 150bp reads×15）：
   三库全部 C=15 种级命中——plant_db→Janusivirus portis、refvirus_db、
   rvdb_db 符合 §33 判据。注意 plant_db 是「植物病毒参考库」（4,286
   taxid 中 3,806 为植物病毒，源 plant_tagged.fa=Plant_Virus complete_ref），
@@ -978,7 +1045,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
   plot_distribution / get_safe_leaf_order），SDT v1.3（Brejnev & Muhire
   2014）口径完全复刻：**每对序列 MAFFT 独立全局比对（--localpair）→
   Get_Similarity 公式**（分母只计两序列均有碱基的列），而非单次 MSA 近似。
-- **vp/sdt_exact.py（新）**：_sdt_pair_worker（临时 FASTA → mafft.bat
+- **Virus_Platform_Core/sdt_exact.py（新）**：_sdt_pair_worker（临时 FASTA → mafft.bat
   --quiet --localpair → 解析 → 原公式）经 ProcessPoolExecutor 并行
   （initializer 传序列全局，避免逐对 pickle）；.resume_cache 原子刷盘
   断点续传（缓存键 = n + 全序列 sha1 前 12 位）；21-mer 自动定向
@@ -1013,7 +1080,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
 - **NT+AA 同一性表**（t-identity 新卡，tool 'identity'，BioAider
   Sequence Identity Matrix 口径）：run_identity_table——
   - 输入：核苷酸 FASTA（必选）+ 氨基酸 FASTA（可选，按名称匹配，缺失条
-    自动 6-frame 最长 ORF 翻译兜底，vp/contig_annot.longest_orf_protein）；
+    自动 6-frame 最长 ORF 翻译兜底，Virus_Platform_Core/contig_annot.longest_orf_protein）；
   - NT / AA 两套矩阵（同一 aligned 参数口径，AA 长度不齐自动退回逐对
     MAFFT）；产物：identity_table.csv（逐对长表，NT 降序）、nt/aa_matrix.csv、
     identity_composite.png/pdf（**复合热图：上三角 NT / 下三角 AA**）、
@@ -1044,7 +1111,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
 
 ### 修复的高危 bug
 
-1. 🔴 **pyrodigal 坐标口径错位（vp/orf.py）**——`g.begin/g.end` 是 1-based
+1. 🔴 **pyrodigal 坐标口径错位（Virus_Platform_Core/orf.py）**——`g.begin/g.end` 是 1-based
    closed（v2/v3 文档一致，本次实测 3.7.1 实证），代码却按 0-based 半开
    区间切片 `seq[begin:end]`：正链基因整体移码，faa 全是含几十个内部 `*`
    的垃圾序列，DIAMOND 命中为 0 → ⑥b 功能注释空表。负链基因因
@@ -1058,13 +1125,13 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
    失败后任务仍报"完成 0 张图"。修复：`_write_skeleton_gff` 合成跨全长
    `region` 特征的骨架 GFF（实测 gbdraw 接受）；`_tool_job_genoplot`
    auto 引擎 0 张图时自动回退 DFV，仍为 0 则报错。
-3. 🔴 **比对定向缺失（vp/phylo.py `_run_mafft`）**——de novo 组装常出
+3. 🔴 **比对定向缺失（Virus_Platform_Core/phylo.py `_run_mafft`）**——de novo 组装常出
    反向互补 contig，样品流程比对/树/SDT 矩阵不翻正：IT-E2E 的自身
    contig 对自己的参考只有 36.4% identity、⑧保守区引物 0 对。
    平台 MAFFT 是 v6.864b（2011）无 `--adjustdirection`；新增
    `_orient_normalize`（比对前 21-mer 定向翻正，复用 sdt_exact）。
    修复后 identity 100.0%、保守区引物 3 对。
-4. 🔴 **`auto_orient` 自锚失效（vp/sdt_exact.py）**——旧实现把全部序列
+4. 🔴 **`auto_orient` 自锚失效（Virus_Platform_Core/sdt_exact.py）**——旧实现把全部序列
    k-mer 并集当锚：反向序列自身贡献的 k-mer 恒在锚集内（fwd≈rev），
    永远判不出反向——SDT 卡的「21-mer 自动定向」实际从未生效。
    改为固定全局锚（ref_seqs 最长者，否则 recs 内最长者）。
@@ -1209,14 +1276,14 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
   计数即 accession 条数：Geminiviridae 986（植物口径）/988（全部宿主）、
   Begomovirus 846、属 236、种 2478——与 select_refs 实取数一致。旧版预览
   按植物过滤而下载不过滤的不一致已统一为植物口径（plant_only）。
-- **级联（vp/ictv_db）**：RANK_COLS 九级（含 Kingdom/Subfamily 列，主级
+- **级联（Virus_Platform_Core/ictv_db）**：RANK_COLS 九级（含 Kingdom/Subfamily 列，主级
   Realm/Phylum/Class/Order/Family/Genus/Species）；rank_options(levels) 给
   已选过滤下每级的 [{name,n}]；select_refs 增加 ranks={列:值} 交集过滤 +
   plant_only。API：/api/ictv/cascade（GET，已选级作过滤返回全部级选项）、
   preview/download 改吃任意级组合（_ictv_levels 取最深层定位）。前端
   spCascade 七个下拉逐级联动（变更即清更深级并重取），示例预填
   Riboviria→Tombusviridae→Dianthovirus。
-- **基因级建树（vp/gb_collection）**：_gene_feature_seqs 按 product/gene/
+- **基因级建树（Virus_Platform_Core/gb_collection）**：_gene_feature_seqs 按 product/gene/
   note 关键词匹配 CDS（每记录取首个命中），PEP 优先 translation 限定符、
   缺则按 transl_table 翻译；build_collection_phylo 增加 molecule=
   genome|cds|pep + gene，基因级产物落 gene_trees/<slug>_<molecule>/；
@@ -1438,7 +1505,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
 ### 数据库分离（任务：软件与数据库分开分发）
 - 基础设施原本就有：config.apply_database_root + platform.json database_root +
   设置页「数据库目录」卡。本轮补：
-- **vp/db_migrate.py + main.py db-migrate**：robocopy(/E /MT /Z 断点) →
+- **Virus_Platform_Core/db_migrate.py + main.py db-migrate**：robocopy(/E /MT /Z 断点) →
   文件数+总字节校验 → 通过才 set_database_root。--mode copy|move、--dry-run、
   --check。目标须在平台根外、盘剩余 ≥ 源+10GB。写失败配置不动源目录原样。
 - /api/settings 返回 dbs 就绪状态，前端切换 database_root 后即时提示缺哪个库。
@@ -1478,11 +1545,11 @@ tool_runs/ 积累 100+ 条目，混有补丁脚本、冒烟测试目录、工具
   （`.py`→_scripts，`_xxx`/`*_out`/含 test|smoke→_tmp，其余保留人工判断）。
 
 ### 落地
-- `vp/tool_runs_admin.py`：ensure_fixed_dirs / status / organize /
+- `Virus_Platform_Core/tool_runs_admin.py`：ensure_fixed_dirs / status / organize /
   archive / clean；clean 的删除不可逆（shutil.rmtree），CLI 强制提示
   先 --dry-run。
 - `main.py tool-runs <status|organize|archive|clean>` 四个动作。
-- `vp/config.py`：默认 DIRS 补 `'tool_runs'` 键（此前只有设置自定义
+- `Virus_Platform_Core/config.py`：默认 DIRS 补 `'tool_runs'` 键（此前只有设置自定义
   输出根时 apply_output_root 才写入该键，app.py 靠 `DIRS.get(...) or`
   兜底——隐性缺口）；apply_output_root 内懒导入 ensure_fixed_dirs，
   切换输出根时在新根自动预建固定目录。
@@ -1530,7 +1597,7 @@ annotate 组，而 contig 明细表在 virus 组……必须把 g 参数也改�
 - pyhmmer **0.12.1 已装**（`C:/Python312/python.exe`，即 `启动平台.bat` 所用
   环境；managed 3.13.12 未装，不影响平台运行）。mmseqs2 已配置
   `tools/mmseqs/bin/mmseqs.exe`。
-- `vp/hmm_annot.py` 完整（26KB），但**仅被 `orf_annot.py:705` 调用做层 2 功能
+- `Virus_Platform_Core/hmm_annot.py` 完整（26KB），但**仅被 `orf_annot.py:705` 调用做层 2 功能
   兜底，无独立路由**。
 - 关键提示：`annotate_orfs_hmm` 吃 **ORF 蛋白 faa**，不是 contig 核酸，
   验证模块需先补一步 ORF 预测（口径对齐现有「6-frame 最长 ORF ≥50aa」）。
@@ -1557,7 +1624,7 @@ no-hit 也保留**。第④条是关键：no-hit contig 恰恰是新病毒来源
 - call 八类：viral_plant / viral_fungi / viral_bacteria / viral_invertebrate /
   viral / ambiguous / non_viral / unclassified；filter 模式保留除 non_viral
   外全部，strict 仅保留 viral*。unclassified 界面单独高亮（新病毒候选池）。
-- 三步实施：后端 `vp/verify.py` → 前端 `t-verify` 卡 → 打通跳转（消除跨组 hack）。
+- 三步实施：后端 `Virus_Platform_Core/verify.py` → 前端 `t-verify` 卡 → 打通跳转（消除跨组 hack）。
 
 ### 参照系资产现状（核实）
 
@@ -1649,7 +1716,7 @@ Cucumovirus(4) 均有 core100；**Carlavirus(71) core100 为空 → 必须回退
 对其完全无效；反之 blastn 查类病毒库对 ≥1000bp 病毒 contig 无意义。
 
 前端：宿主下拉（默认全部）→ 方法勾选 → 并集/交集 → 运行；结果分病毒 /
-类病毒两个 Tab。后端 `vp/verify.py` 的 `filter_contigs(run_dir, host='all')`
+类病毒两个 Tab。后端 `Virus_Platform_Core/verify.py` 的 `filter_contigs(run_dir, host='all')`
 先筛选后分流，两支分别 `run_virus_arm()` / `run_viroid_arm()`。
 类病毒判据建议：identity ≥80% 且覆盖 ≥60%（200–300bp 放宽到 ≥40%）。
 
@@ -1670,7 +1737,7 @@ Cucumovirus(4) 均有 core100；**Carlavirus(71) core100 为空 → 必须回退
 
 ### 实现
 
-- **vp/verify.py**（新增，约 450 行）：`verify(run_dir, fasta, host, methods,
+- **Virus_Platform_Core/verify.py**（新增，约 450 行）：`verify(run_dir, fasta, host, methods,
   combine)` 主编排；`split_by_length`（重复 header 追加 `_2` 去重）/
   `run_blastx` / `run_cdd` / `run_viroid_blastn` / `viroid_call` / `virus_call` /
   `combine_pass` / `_load_cls_family` / `_filter_by_host`。
@@ -1691,7 +1758,7 @@ Cucumovirus(4) 均有 core100；**Carlavirus(71) core100 为空 → 必须回退
 - `ictv_family_host.tsv` 的 host.source 是复合值，精确 `==` 会漏判，改子串包含。
 - **端到端通过**：example_mix.fasta（5 病毒 + 1 类病毒 PSTVd 359bp）正确分流，
   病毒支 blastx/CDD 双跑、宿主筛选 plants、类病毒支 blastn 均验证。
-- 回归：py_compile app.py + vp/verify.py 通过；tools.html 内联 JS（13 block）
+- 回归：py_compile app.py + Virus_Platform_Core/verify.py 通过；tools.html 内联 JS（13 block）
   node --check 通过；test client `/tools?g=virus` 200 + t-verify 卡 + 导航条目。
 
 ### 待办（L2 + 跳转）
@@ -1772,7 +1839,7 @@ Cucumovirus(4) 均有 core100；**Carlavirus(71) core100 为空 → 必须回退
 
 **② `n_calls` / `out_dir` 在写盘之后才赋值**
 
-`vp/verify.py` 里 `summary['out_dir']`、`summary['n_calls']` 原在
+`Virus_Platform_Core/verify.py` 里 `summary['out_dir']`、`summary['n_calls']` 原在
 `json.dump` 之后 → 落盘 `summary.json` 缺这两键 → `_sum_verify` 显示
 「共 0 条：known 1」。内存对象（C.verify）有值，落盘文件没有，这个
 差异非常隐蔽。
@@ -1867,7 +1934,7 @@ verify 是唯一的例外，本轮归队。`assembly_dir` 缺省时仍探测
 
 ### 为什么前端改就够
 
-`subsample` 阶段的执行体 `_stage_subsample`（`vp/pipeline.py:269`）是
+`subsample` 阶段的执行体 `_stage_subsample`（`Virus_Platform_Core/pipeline.py:269`）是
 参数驱动的：`if not (C.subsample and C.subsample > 0): 跳过`。
 执行循环是 `for key in _stage_execution_order(stages)`，只跑**已选阶段**；
 full 档排除后 `subsample` 不在 `stages` 里，函数根本不被调用。
@@ -1975,7 +2042,7 @@ subsample: +($('subsample')?.value) || undefined,
 但快速筛查档（`fastp → host → virus → report`）不含 assembly。
 
 后果：跑完快筛后，若 report 尚未执行，`pipeline_overview`
-（`vp/pipeline.py:1259`）判定 `status = 'ready' if deps_ok else 'blocked'`，
+（`Virus_Platform_Core/pipeline.py:1259`）判定 `status = 'ready' if deps_ok else 'blocked'`，
 而 `deps_ok = all(ran_map.get(d) for d in STAGE_DEPS[key])`
 （L1232，`ran_map` 按 PIPELINE_STAGES 顺序累积），assembly 未跑
 → `deps_ok=False` → report 卡片显示 **blocked**，用户误以为不可运行。
@@ -1989,12 +2056,12 @@ subsample: +($('subsample')?.value) || undefined,
 | **report** | ~~`['virus','assembly']`~~ → `['virus']` | **过宽** |
 
 报告是汇总展示层，核心输入是病毒筛查结果；assembly 产物只是让其更丰富
-（多几个卡片）。`build_report`（`vp/viz.py:446`）对每个数据源都有独立
+（多几个卡片）。`build_report`（`Virus_Platform_Core/viz.py:446`）对每个数据源都有独立
 `os.path.isfile` 保护，缺 assembly 时逐项降级，不会失败。
 
 ### 改动
 
-`vp/pipeline.py:635` 一行：
+`Virus_Platform_Core/pipeline.py:635` 一行：
 
 ```python
 'report':    {'deps': ['virus'],              'fn': _stage_report},
@@ -2099,7 +2166,7 @@ kunpeng/kraken 输出的 read 名一律**无后缀**
 
 ### 改动
 
-**`vp/host_removal.py`** — 新增 ID 规范化与后缀探测：
+**`Virus_Platform_Core/host_removal.py`** — 新增 ID 规范化与后缀探测：
 
 | 函数 | 作用 |
 |---|---|
@@ -2113,7 +2180,7 @@ kunpeng/kraken 输出的 read 名一律**无后缀**
 `len(ids)` 充数；`filter_paired_fastq` / `filter_single_fastq` 的内置
 Python 回退路径统一走 `_norm_read_id`。
 
-**`vp/virus_screen.py`** — `_extract_reads_seqkit` 同样改为后缀探测 +
+**`Virus_Platform_Core/virus_screen.py`** — `_extract_reads_seqkit` 同样改为后缀探测 +
 精确匹配（去掉 `-r`），并新增 `_count_reads_seqkit` 用 `seqkit stats`
 实测产物条数，无匹配/配对不等时抛异常，不再静默虚报。内置回退路径
 改用 `_norm_read_id`。
@@ -2162,3 +2229,343 @@ Python 回退路径统一走 `_norm_read_id`。
   才是有决策力的数据。
 - **`force` 不会清 checkpoint 标志**。重跑前须手动删除 `.host_removal.done`
   / `.virus_screen.done` 与旧产物，否则阶段会被 skip 而显示 `done`。
+
+---
+
+## 全局上下文（当前样品 / 项目）+ 全局清理（2026-09-11，用户要求）
+
+### 需求与背景
+
+用户提出两点：①「样品创建 / 批量导入」里的**样品名 / 项目**如何与下游关联，
+怎么更好地做成全局使用；②为避免切换模块导致各模块运行进度与关联丢失，
+要一个**全局清理**按钮，一次清掉所有模块的相互关联与运行。
+
+### 现状勘察结论（改造前）
+
+- **样品名 = 唯一主键**：`_safe_sample_name()` 归一化后即目录名
+  `run/results/<样品名>/`，全平台靠"扫目录 + 拼路径"找它，**没有注册表/数据库**。
+  真正的消费者只有：管道页、结果中心、批处理队列、任务结果预览、
+  **kvsuite 工具卡选样**（`tool_jobs.py` 拼 `sample_sheet.tsv`）、
+  MSA/建树下拉（`refs.py`）、LOGAN 溯源（`logan_trace.py`）。
+  其余 21 个专项工具只认显式文件路径，与样品名无关。
+- **项目名 = 纯展示标签**：只写进 `00_prep/input.json` 与 `project.json`，
+  仅在样品卡片 🏷、项目筛选下拉、kvsuite 选样弹窗里显示；
+  **不参与任何路径拼接/计算/模块关联**，且改造前没有任何改名接口。
+- **切模块丢的不是任务**：任务在服务端线程里跑，`startPolling()` 会在每页重新接上；
+  真正丢的是页面级 UI 上下文（`curSample` / `curStages` / `curBranch` 等），
+  因为一级导航是整页刷新。`vp_last_sample` 写了却从不读，是关键缺口。
+- **清理入口全是局部的**：`/api/queue/clear_finished`（只清终态）、
+  `/api/tasks/clear_finished`（不碰磁盘归档）、逐样品 `/clear` `/delete`、
+  逐运行 `/api/tool/runs/<run>/delete`。全仓搜 `cancel_all|purge|stop_all` → 0 命中。
+
+### 实现（用户选定口径）
+
+用户明确选择：**非破坏性**清理（永不删结果文件）+ 样品与项目**都做全局** +
+按钮放**顶部导航常驻**。
+
+**后端**
+
+| 文件 | 改动 |
+|---|---|
+| `web/tasks.py` | 新增 `active_ids()` / `cancel_all()` / `purge_all(include_archive=)`；并修 `_recover_interrupted` 误删 `queue.json` 的坑（见坑记录 8） |
+| `web/samples.py` | `SampleQueue.reset_all()`：连 queued/running 一起清空并落盘 |
+| `web/tasks_api.py` | 新增 `POST /api/global/reset`：cancel_all → queue.reset_all → 等待收敛 ≤2s → purge_all；返回各项计数 + `active_left`，并显式回 `kept_results: true` |
+| `web/pages.py` | `/results` 每行补 `project`（新增 `_sample_project()`，口径与 `/api/samples` 一致：`input.json` 优先、清单兜底） |
+
+`purge_all` 的边界写死：**只动任务状态**（内存记录 + `tasks/<tid>.json`），
+`results/` `tool_runs/` `downloads/` `submissions/` 一律不碰；
+`include_archive=False` 时复用 `delete()` 是错的（它会顺手 unlink json），
+故改为直接 `pop` 内存 + 单独遍历文件。
+
+**前端**
+
+- `app.js` 新增 `VP_CTX`（真源 = `localStorage['vp_ctx_sample'/'vp_ctx_project']`）、
+  `gxModal()`、`gxSyncProjSelect()`、`gxPickSample()`、`gxPickProject()`、
+  `gxGlobalReset()`、`gxProjChanged()`、`gxApplyResultsFilter()`、`gxApplyPage()`；
+  `document` 上的 `vp-ctx` 事件做跨页广播。
+- 顶部导航由 JS 注入（与 `injectLangSwitch` 同法，零模板改动）：样品胶囊 /
+  项目胶囊 / 🧹 全局清理。清理确认后会清浏览器关联键 + 整页刷新复位 DOM 态，
+  结果经 `sessionStorage['vp_reset_result']` 带到刷新后以 toast 回显。
+- 接入点：`/pipeline`（无 `?sample=` 时用全局样品自动接上，这是用户主诉）、
+  `/samples` 与 `/pipeline` 的项目下拉、`/results`（新增项目列 + 筛选）、
+  `/tasks`（新增「只看当前样品（<样品名>）」）、kvsuite 选样弹窗
+  （默认勾选全局样品、按全局项目筛选、全选只作用于可见行）。
+- `/results` 样品表新增项目列，`filerow-tr` 的 `colspan` 4 → 5。
+
+### 验证
+
+- `tests/_it_global_reset.py`：临时目录造数据（沙箱要求路径必须在平台内，
+  故用 `run/_it_global_reset_tmp/`，跑完整体删除），覆盖 `_recover_interrupted`
+  防幽灵与 `queue.json` 存活、`cancel_all`、`reset_all`、`purge_all` 边界
+  （含 `include_archive=False` 真正保留归档，以及 `results/`/`tool_runs/` 分毫不动）、
+  `/api/global/reset` 端到端、`/results` 项目字段。
+- `tests/_it_global_ctx_ui.py`：起临时实例 + selenium(Edge headless) 做 39 项
+  浏览器断言（导航注入、样品/项目弹窗、管道页自动接上并刷新后仍恢复、
+  任务中心筛选、结果中心筛选、清理按钮 fetch 打桩并校验请求体 + 关联键清除 +
+  刷新后 toast 回显、kvsuite 选样弹窗接入）。
+  **坑**：服务日志不能挂 `subprocess.PIPE`——werkzeug 每请求一行访问日志，
+  64KB 管道写满后服务阻塞在 write 上，页面加载随之超时（排查花了很久）。
+- `python tests/_route_inventory.py`：新增 1 条路由，已 `--save` 更新基线（192 条）。
+
+### 遗留 / 未做
+
+- **项目名仍不可改**：没有 `POST /api/samples/<s>/project`，创建后只能手改
+  `00_prep/input.json`。全局项目筛选因此只能筛选"创建时填对"的样品。
+- `/api/tool/runs` 硬截断 30 条，第 31 条以后无接口可清（全局清理刻意不含它）。
+- 另有独立发现（本次未改）：`consensus` 缺在 `PIPELINE_STAGES` /
+  `STAGE_SUMMARIES` / `STAGE_OUTPUTS` / `STAGE_VIEW` 里，虽在 `STAGE_ORDER`
+  且会写 `03c_consensus/`，但永不计入 `stages_done`、不显示进度卡；
+  `_safe_sample_name`（建目录）与 `web/common._safe_sample`（读路由）两套
+  归一化口径不一致，中文样品名会被压成 `A`/`1` 之类甚至撞名；
+  `backfill_manifest_from_products` 无任何调用点（死代码）。
+- **运行中的平台需重启一次**：前端静态资源会热更新，但新路由
+  `/api/global/reset` 要重启服务才加载；未重启时点清理会收到 404，
+  前端已给出「请重启平台」的定向提示。
+
+---
+
+## 阶段表治理 · 样品名归一化 · 清单回填（2026-09-11，承接上一节）
+
+用户要求「扩大改动面，做好检查，好好修复」上一节勘察出的三处独立问题。
+实际修的过程又牵出**四个同族 bug**——都是"改了一处、漏了另一处"。
+
+### 1. ③c 共识阶段"半接入"（真 bug）
+
+`consensus` 早已在 `STAGE_ORDER` / `STAGE_REGISTRY` / `STAGE_GROUPS` /
+`DEFAULT_ANALYZE_STAGES` / `DEFAULT_STAGE_EST` 里，前端 `PIPE_FANOUT`
+与 `STAGE_LABELS` 也早等着它——**唯独漏了 `PIPELINE_STAGES`**（以及配套的
+`PIPELINE_STAGE_NAMES_EN` / `STAGE_SUMMARIES(_EN)` / `STAGE_OUTPUTS` /
+`STAGE_VIEW` / `_MISSING_TOOL_MSG`）。后果：`pipeline_overview` 从不产出该卡、
+`/api/samples` 的 `done/total` 漏算、`stages_done` 永不记录、跑完看不见结果。
+磁盘上至今没有任何样品有 `03c_consensus/`，所以一直没暴露。
+
+修法：补全上述 6 张表；`STAGE_VIEW` 指向 `coverage.tsv`（逐参考覆盖 + 是否
+判定存在，最可读）；`_MISSING_TOOL_MSG` 加 minibwa 探测
+（`consensus.consensus_engine()`），缺 minibwa 时显示 `unavailable` 并自动
+排除出"依次运行剩余步骤"。
+**刻意不给 consensus 加 skipped 规则**：`present` 为空是"真实阴性"结论，
+不是"跑失败"，标成 skipped 会把它踢出 `stages_done`。
+
+### 2. 前端仍用退役阶段键 `virus`（同族，两个真实故障）
+
+② 病毒筛查（kraken2）2026-09-10 退役，阶段键由 `virus` 换成 `kvsuite`，
+但 `app.js` 三处漏改：
+
+| 位置 | 后果 |
+|---|---|
+| `renderPipe` 的 `known` 集合 + `byKey.virus` | ②b 卡片既不匹配显式分支、又被判为 extras → 渲染到 **⑩报告之后**，顺序错乱 |
+| `STAGE_PARAMS.virus` 持有 `db_virus` 输入 | 没有任何阶段叫 `virus` → **病毒参考库目录输入框从不渲染**，`collectParams` 取到 null，用户无法在管道页指定病毒库 |
+
+修法：`known` 用 `'kvsuite'`、改 `byKey.kvsuite`、`STAGE_PARAMS.db_virus` 挂到
+`kvsuite`。浏览器测试断言顶层卡顺序为
+`预处理 → kvsuite → assembly → report` 且 `kvsuite` 卡内有 `#db_virus`。
+
+### 3. 样品名归一化：4 套实现收敛成 1 套 + 按磁盘真实目录名解析（真 bug）
+
+历史上有 4 份各自为政的转换：
+
+| 实现 | 规则 | 用途 |
+|---|---|---|
+| `pipeline._safe_sample_name` | 连续非法字符折叠成一个 `_`、去首尾 `._-`、截断 50 | 建目录 |
+| `web/common._safe_sample` | 逐字符替换，不去首尾、不截断 | **读路径** |
+| `logan_trace.safe_name` | 同 `web/common` | LOGAN 读路径 |
+| `utils.sample_name_from_fastq` | 由文件名推导 | 生成候选名 |
+
+前两者在中文/连续特殊字符/超长名下不一致：「样品A」建成目录 `A`，
+读路径却去找 `__A`；带空格的手工目录、`_` 开头的目录同理读不到。
+且规范化是**静默**的——前端 toast 显示用户输入的名字，磁盘上却是另一个。
+
+修法：
+- `utils.safe_sample_name()` = 唯一权威纯转换（**逐字节保持旧规则**，
+  保证已有目录名不漂移）；`pipeline._safe_sample_name` 变成它的别名；
+  `logan_trace.safe_name` 同样委托。
+- 新增 `utils.resolve_sample_name(name, base=None)`：**以磁盘真实目录名为准**
+  ——① 含分隔符/上跳的名字不原样接受 ② 原名命中 `os.listdir(base)` 就用原名
+  ③ 否则退回规范名。读路径一律改用它，于是手工创建/历史遗留/中文/带空格的
+  目录都能正常读写；第 ② 步的名字直接来自 listdir，天然不含分隔符，
+  比字符替换更安全；越界仍由 `check_path(in_platform=True)` 兜底。
+- 改动点：`web/common._safe_sample`（加 `base` 参数供 `results/_archive` 用）、
+  `web/samples._sample_dir` / `api_queue_add` / `SampleQueue._run_entry` /
+  `api_analyze`、`pipeline.run_analysis` / `run_report_only`、
+  `web/tasks._sample_result_preview`、`web/refs._msa_group_dir`、
+  `web/tool_jobs` 的 kvsuite 选样、`logan_trace` 的四处路径拼装与
+  `meta.sample` 快照。
+- **不保留中文**是刻意决定（`safe_sample_name` docstring 写明理由）：样品名
+  要当目录名进 SPAdes/BLAST(LMDB)/minibwa 等不支持非 ASCII 路径的工具。
+  代价是"用户填的名字 ≠ 实际目录名"，所以改为**显式告知**：
+  `POST /api/pipeline/create` 回 `{sample, typed, note}`，撞名时报
+  「样品名「样品A」会被规范化为「A」，而「A」已存在」；前端
+  `createSample`/`batchCreate`/`scCreate`/`scBatch` 全部改用后端返回的
+  **实际目录名**展示与入队（原先用用户输入的原文）。
+- 刻意**不动** `gbdraw_plot` / `cds_export` / `gb_collection` / `phylo._safe_name`
+  / `tool_results` 里同形的 `re.sub`：它们处理的是 FASTA 头 / contig ID /
+  分类单元 / 基因名，不是样品目录，统一会改掉别人 glob 的文件名。
+
+### 4. `backfill_manifest_from_products` 是死代码 → 接成显式 CLI（真 bug）
+
+`project.json` 只由 `update_project_manifest` 在跑流程时写；老样品（或手工
+拷进 `results/` 的目录）没有清单，项目名/输入/stages_done 全缺。反推函数早就
+写好，grep 全仓**零调用点**，且注释里承诺的 `ensure_project_manifest()`
+**根本不存在**（名字都是错的）。
+
+修法：新增 `python main.py samples-backfill [--sample X] [--dry-run]`
+→ `pipeline.backfill_all_manifests()`，只处理"清单缺失或来自回填"的样品，
+已有真实清单的一律不动；`backfill_manifest_from_products` 加 `dry_run` 参数。
+**刻意不在 `GET /api/samples` 里自动触发**：读接口不该写盘，且回填会用目录名
+兜底出"项目名"，静默给所有老样品造出伪项目会污染项目筛选器。
+边界如实写明：只填 `project` / `input` / `stages_done`，**不猜
+`last_run` / `last_status`**（凭产物推断运行状态属臆测）。
+
+### 5. 顺带清掉的测试残留（同族：假样品污染 UI）
+
+`tests/_it_synteny.py` 把工作目录建在 `results/it_synteny_work`（不带 `_`
+前缀），而 `/api/samples`、`/results`、项目筛选器、kvsuite 选样弹窗**只跳过
+`_` 开头的目录** → 每次跑测试都在用户样品列表里多一个假样品
+（本项目其它测试用的是 `_it_phylo` / `_smoke_phylo` 这种规范命名）。
+改为 `_it_synteny_work` 并在结束时 `rmtree`；磁盘上遗留的那个（5 个合成
+fixture、33KB、无任何产物）已删除。
+
+### 6. `STAGE_WEIGHTS` 是没有读取点的死表（§4.4 更正）
+
+它只有定义、没有任何调用（`_RunState.est` 走 `_est_stage_sec` →
+`DEFAULT_STAGE_EST`），且只列了 14 项（漏 `subsample`），而
+`docs/全链路复核报告_20260910_1545.md` §4.4 曾声称它"覆盖全部 15 阶段"。
+已删除该表、把 `subsample` 补进 `DEFAULT_STAGE_EST`（原值靠 `('plain', 60)`
+兜底，补上后取值不变），并更正该文档。
+
+### 7. 新增的不变量守卫：`tests/_it_stage_tables.py`
+
+阶段信息散落在后端 9 张表 + 前端 3 张表，靠人工对照必然漏。本测试用集合
+相等/子集断言把这类漏项变成可执行检查：
+
+- 后端 8 张表（含 `PIPELINE_STAGES`）与 `STAGE_ORDER` 双向相等；
+  `STAGE_SUMMARIES(_EN)` 等价于 `STAGE_ORDER - {report}`（report 走特殊路径）
+- `STAGE_GROUPS(_EN)` 覆盖且不重复、中英同构；`STAGE_VIEW` /
+  `DEFAULT_ANALYZE_STAGES` / `STAGE_DEPS` 只引用已知阶段
+- `PIPELINE_STAGES` 里 deps 必须先出现（拓扑顺序）
+- 前端 `STAGE_LABELS` 必须覆盖全部阶段；`PIPE_FANOUT` 里的阶段都必须存在；
+  `renderPipe` 的 `known` 集合必须覆盖全部阶段（否则有卡掉进 extras 乱序）
+- **代码行里不得再出现 `virus` 阶段键 / `byKey.virus`**
+  （注释与"数据库名 virus"不算）
+- 实测 `pipeline_overview` 对含 `03c_consensus/` 的样品产出 done 卡
+  （摘要 / 查看入口 / 产物齐全），且 `/api/samples` 的 `total` == 阶段数
+
+### 8. 本轮新增/修改的测试
+
+| 文件 | 覆盖 |
+|---|---|
+| `tests/_it_stage_tables.py` | 阶段表不变量 + ③c 可见性（新） |
+| `tests/_it_sample_names.py` | 归一化规则/幂等/磁盘解析/防穿越 + 非规范命名端到端读写 + note 与撞名文案（新） |
+| `tests/_it_manifest_backfill.py` | 回填 dry_run / 写盘 / 跳过已有清单 / `--sample` 过滤 / CLI smoke（新） |
+| `tests/_it_global_ctx_ui.py` | 追加 [9] 管道卡顺序与 `#db_virus`、[10] 规范化提示（51 项） |
+| `tests/_it_synteny.py` | 工作目录改 `_` 前缀 + 结束时清理 |
+| `tests/_it_nav_responsive.py` | 顶部导航在 12 档宽度（1920→640）× 3 个页面下的自适应：横条不纵向溢出、无子元素跑到条外、页面无横向溢出、上下文/语言/📂 都可见、13 个一级链接都在、链接最多 2 行；宽屏必须回到单行 54px（新） |
+
+回归结果：`_it_platform.py` PASSED、`_verify_fixes.py` 全通过、
+`_verify_fixes_b.py` 通过、`_audit_routes.py` 193 条路由 0 个 500、
+23 个页面全 200、5 个新增测试全通过、路由基线与 192 条一致（本轮未新增路由）。
+
+### 遗留（本轮仍未动）
+
+- 项目名依旧不可改（无 `POST /api/samples/<s>/project`）。
+- `/api/tool/runs` 硬截断 30 条。
+- 样品目录名改名后，目录内的**内嵌旧名副本**
+  （`input.json.sample`、`project.json.project`、报告标题、
+  `02b_kvsuite/plots/<样品>/`、`tool_runs/*/sample_sheet.tsv`、
+  `logan/<job>/meta.json.sample`）不会跟着更新。
+  `resolve_sample_name` 只让读路径能命中目录，消不掉这些陈旧副本。
+
+### 补充：顶部导航宽度自适应（2026-09-11，用户截图报障）
+
+用户反馈"页面上面的导航目录没有自动适应窗口"。根因与修法见坑记录 19。
+实测结果（`tests/_it_nav_responsive.py`，真浏览器量 12 档宽度）：
+
+| 窗口宽度 | 横条高度 | 排布 |
+|---|---|---|
+| ≥1900px | 54px | 品牌 + 13 链接 + 上下文簇，全在一行 |
+| 1680–1180px | 80px | 链接一行，上下文簇（胶囊+EN+📂）整体换到第二行 |
+| ≤1180px | 103–106px | 品牌独占一行，导航整行起第二行 |
+| ≤720px | 139px | 链接 2 行 |
+
+任何宽度下：横条不纵向溢出、无子元素跑到条外、页面无横向溢出、
+上下文/语言/📂 入口都仍可见可点。
+
+### 事故记录：本轮我自己造成的任务记录清空
+
+跑 `tests/_audit_routes.py` 做回归时，它按设计对每条路由发了一次空 POST，
+其中包含新加的 `POST /api/global/reset` → 200，
+于是 `run/tasks/*.json` 里约 100 条历史任务记录被删除（详见坑记录 21）。
+- 未受影响：`results/`（样品与产物）、`tool_runs/`、`run/logs/tasks/`
+  下的 698 个任务日志文件、队列文件本身。
+- 已受影响：任务中心的"历史归档"列表（记录索引），无法恢复。
+- 已修复：接口加 `confirm` 必填令牌（空 body → 400）；巡检脚本加
+  `DESTRUCTIVE_POST` 跳过表，并把快照比对补上"删除检测"。
+  `tests/_it_global_reset.py` 新增「无 confirm → 400 且不清任何记录」断言。
+
+## 一键分析（全流程）卡补齐输入 / 参数 / 输出（2026-09-11，用户截图报障）
+
+用户截图报障：「一键分析（全流程）页面没有输入，也没有输出，也没有参数，啥都没」。
+
+### 根因（三条叠加，缺一都不会是"整页空白"的观感）
+
+1. **没有输入、没有参数**：`t-kvchain` 卡只有「⚡ 一键运行 / 📂 最近汇总」两个按钮。
+   `runKvchain()` 读的是 **t-kvsuite 卡的 `kv_*` 字段**（`kv_samples` / `kv_ref` /
+   `kv_min_cov` …）——而那张卡属于同一模块组的**另一个二级模块**，`showModule()`
+   一次只显示一个卡片，所以站在本页既看不到那些字段、也无从修改；表单值全靠
+   另一张卡里"上次填过什么"，本页表现为"没有任何参数"。
+2. **没有输出**：本卡没有 `.toolrun` 容器（`#toolrun-kvchain`）。平台的口径是
+   "运行日志/结果/产物平铺在工具卡内"（app.js `injectStageLogs` + `toolRunHtml`），
+   而 `TOOL_LABELS` 里**从未登记 kvsuite / kvchain（virchain 同样漏了）**，
+   于是即便有容器也匹配不到任务名，日志只会进全局任务抽屉，卡片输出区恒空。
+3. **没有结果**：跑完只有 `#kvChainResult` 里的"流程各段"表 + 汇总目录链接
+   （且 `_chain.json` 里 `steps[0].summary` 只有 stage/engine/n_confirmed 等标量），
+   看不到任何鉴定/过滤/共识/变异表与图——相比另一张卡"什么都没有"。
+
+### 修法
+
+- **本卡自带一整套表单**（`kvc_*` 命名，17 个 input + 2 个 select）：样品（📋 多选，
+  `kvPickSamples(targetId)` 支持指定回填框）、参考库、参考注释 TSV、比对引擎、
+  鉴定库、覆盖率/深度/reads/泊松四阈值、变异 QUAL/AF/氨基酸标签、NCBI 邮箱、
+  线程数、扩展变异 / SNPGenie / 不下载注释 / 画全部变异开关。
+  默认值与 t-kvsuite 卡一致；`runKvchain()` 只读本卡 `kvc_*`。
+- **参数互取**：`kvchainPullKvsuite()`（按钮「⤓ 取该卡参数」）按
+  `KVCHAIN_FIELD_MAP` 把 t-kvsuite 卡当前表单值整份搬过来。两套表单不做静默同步，
+  避免"改了这边没改那边"的隐性漂移；固定跑全五段（`stage=all`）由后端
+  `_tool_job_kvchain` 保证，前端以文案明示，不设"跑哪些段"下拉。
+- **输出区**：新增 `<div class="tool-out">` + `#toolrun-kvchain`；app.js
+  `TOOL_LABELS` 补 `kvsuite` / `kvchain` / `virchain` 三个键，
+  任务名（工具·已知病毒识别与定量 / 工具·病毒定量与共识·一键）即可匹配到卡内输出区，
+  实时日志与产物下载就地可见（此前 virchain 卡同样是空的）。
+- **内联结果**：`renderKvsuite` / `renderKvVariantPlots` / `renderKvEvo` 增加
+  `ids` 参数（默认 `KV_IDS` 指向 t-kvsuite 卡的 `kv*` 容器）。一键流程跑完或点
+  「📂 最近汇总」时，`kvchainLoadInline()` 从 `_chain.json` 的
+  `steps[0].run`（= kvsuite 子运行）拉 `/api/tool/kvsuite_result`，
+  用 `KVC_IDS` 渲染进本卡的 `kvc*` 容器：计量徽标 + 鉴定表 + 过滤表 + 共识 QC +
+  变异注释 + 变异可视化 + 演化分析 + 深度图，并给「📊 在已知病毒识别与定量卡中打开」
+  （`kvchainOpenKvsuite()` 走左侧模块条点击 → `loadKvsuiteResult(run)`）。
+- `loadKvIndexOptions()` 同时填充两个鉴定库下拉（`kv_index_dir` / `kvc_index_dir`）。
+- 示例体系：`examples.js` 的 `fillKvsuiteExample()` 同时填 `kv_samples` 与
+  `kvc_samples`，本卡点「✨ 示例」不再毫无反应。
+- i18n：新增/改写 `tk.kvChainHint`、`tk.kvChainStages`、`tk.kvChainPull(_Title)`、
+  `tk.kvChainRunHint`、`tk.kvChainStepsSec`、`tk.kvChainSubRunLbl`、
+  `tk.kvChainOpenKv`、`tk.kvChainNoSub`（zh/en 同步）。
+
+### 回归
+
+- `tests/_it_platform.py` 新增 **3c-2** 段：断言本卡含样品/参考/注释/鉴定库/引擎/
+  阈值/开关/线程数 9 类输入、`#toolrun-kvchain` 输出区、两张结果表容器、
+  运行与参数互取按钮；断言 `runKvchain` 只读 `kvc_*`（不再出现 `val('kv_samples')`）、
+  内联走 `KVC_IDS`、`TOOL_LABELS` 登记 kvchain/kvsuite。
+- `tests/_check_kvchain_ui.py`（真浏览器，自起临时实例，已挂进 `_run_all.py`，新）：
+  本卡可见输入 ≥15 项、14 个容器齐全、「✨ 示例」落到 `#kvc_samples`、
+  「⤓ 取该卡参数」搬运值/开关、未选样品点运行有提示；并用 `page.route` 桩住
+  `chain_result` / `kvsuite_result`，验证「汇总清单 → 子运行 → 内联 kvc* 表格」
+  这条链路渲染正确且**不污染 t-kvsuite 卡容器**，全程无 pageerror。
+  （也可 `--port 8765` 直接对已在运行的平台跑。）
+- `tests/_audit_contract.py`：i18n zh/en 1718 键对齐、使用键全部有定义，无硬性差异。
+- 渲染回归：`/tools` 各组页面内联 JS 经 `node --check` 全部通过；
+  `app.js` / `examples.js` / `i18n.js` 同步通过。
+- 注：本机 `run/results/` 无样品（用户已归档），`_it_platform.py` 的
+  "样品列表 > 0" 断言属既有数据依赖项，非本轮引入；补一个临时样品目录后
+  全量 PASSED。
+

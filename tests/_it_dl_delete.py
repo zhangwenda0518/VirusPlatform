@@ -8,7 +8,7 @@ import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 DL = os.path.join(PLATFORM_ROOT, 'run', 'downloads')
 
@@ -43,7 +43,7 @@ def make_batch(m, bid, files=('a_R1.fastq.gz', 'a_R2.fastq.gz')):
 
 
 def main():
-    from vp import public_data
+    from Virus_Platform_Core import public_data
     m = public_data.get_manager()
 
     # ---------- ① 删文件（留记录） ----------
@@ -101,6 +101,18 @@ def main():
     r = c.post('/api/dl/batch/xxx/bad_action')
     check(r.status_code == 400, '无效动作 400')
     shutil.rmtree(bdir2, ignore_errors=True)   # ② 留下的孤儿文件清理
+    # ④ 最后一步「全删」是在记录已被删的前提下打的，预期 400 —— 所以
+    # it_delapi_test 的目录还在，这里连内存记录一起收尾（同样不能留给用户）。
+    shutil.rmtree(bdir4, ignore_errors=True)
+    with m.lock:
+        m.batches.pop('it_delapi_test', None)
+    # ① 的批次是**故意**留记录的（用来验证「列表仍显示该批次」），但测试结束
+    # 后不能把它留在用户的 run/downloads 里：那条空批次会在下载页和任务中心
+    # 各显示一张「已下载 — / — · 0/2 文件」的卡片（阶段二把它接进任务中心后
+    # 更显眼）。断言都已跑完，这里连内存记录一起清掉。
+    with m.lock:
+        m.batches.pop('it_delfiles_test', None)
+    shutil.rmtree(bdir, ignore_errors=True)
     print('DL DELETE MODES TESTS PASSED', flush=True)
 
 

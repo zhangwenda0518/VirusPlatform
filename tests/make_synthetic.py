@@ -10,7 +10,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.utils import iter_fasta, safe_open
+from Virus_Platform_Core.utils import iter_fasta, safe_open
 
 random.seed(42)
 
@@ -55,7 +55,8 @@ def fake_qual():
 
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ref_fa = os.path.join(root, 'virus-db', 'final.cluster.ref.fasta')
+    ref_fa = os.path.join(root, 'databases', 'virusref_db',
+                          'final.cluster.ref.fasta')
     out_dir = os.path.join(root, 'tests')
     os.makedirs(out_dir, exist_ok=True)
     out1 = os.path.join(out_dir, 'syn_R1.fastq.gz')

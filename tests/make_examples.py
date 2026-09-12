@@ -25,11 +25,11 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
-from vp.config import PLATFORM_ROOT
-from vp.utils import iter_fasta, safe_open, write_fasta_record
+from Virus_Platform_Core.config import PLATFORM_ROOT
+from Virus_Platform_Core.utils import iter_fasta, safe_open, write_fasta_record
 
 EX_DIR = os.path.join(PLATFORM_ROOT, 'examples')
-REF_FA = os.path.join(PLATFORM_ROOT, 'databases', 'ncbi_refs',
+REF_FA = os.path.join(PLATFORM_ROOT, 'run', 'ncbi_refs',
                       '_smoke_tmv', 'refs.fa')
 EX_CONTIGS = os.path.join(EX_DIR, 'example_viral_contigs.fasta')
 
@@ -73,7 +73,7 @@ def make_conserved_set():
     """5 条同种近缘序列（同一参考受控突变）——保守区引物示例。
 
     保守区判定的口径是**逐列**：某一列只要有 1 条序列与多数碱基不同，
-    5 条里就是 4/5 = 80% < min_ident 90%（vp/primer.min_ident），该列即
+    5 条里就是 4/5 = 80% < min_ident 90%（Virus_Platform_Core/primer.min_ident），该列即
     判为不保守。因此要形成 ≥400bp 的连续保守段，必须让 4 条衍生株合计的
     每碱基突变率 λ 满足 λ×400 << 1——λ≈0.002 时最长连续段可达数千 bp；
     原先的 (0.1%~1.2%，λ≈0.022) 实测最长只有 224bp，示例永远出不了引物。
@@ -95,7 +95,7 @@ def make_conserved_set():
 
 def make_tree(set_fa):
     """示例集 → MAFFT 比对 → FastTree 示例树（复用平台链路）。"""
-    from vp.phylo import _run_mafft, _run_fasttree
+    from Virus_Platform_Core.phylo import _run_mafft, _run_fasttree
 
     class _Log:
         def log(self, m, level='INFO'):

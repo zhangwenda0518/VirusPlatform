@@ -7,7 +7,7 @@ import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SYNTENY = [os.path.join(EX, f'example_synteny_{x}.gb') for x in 'ABC']
@@ -55,7 +55,7 @@ def main():
     check(d51['n_shown'] <= d5['n_shown'],
           f"加每种≤1 进一步收窄：{d5['n_shown']} → {d51['n_shown']}")
     # 大属场景：Potyvirus 科级下载配 per_genus
-    from vp import ictv_db
+    from Virus_Platform_Core import ictv_db
     rows, total = ictv_db.select_refs(family='Potyviridae', genome='any',
                                       limit=5000)
     kept, dropped = ictv_db.cap_per_rank(rows, per_genus=5)
@@ -67,7 +67,7 @@ def main():
 
     # ---------- 2. CDS/PEP 提取 ----------
     print('--- 2. CDS/PEP 提取（PhyloSuite 布局）---', flush=True)
-    from vp.gb_collection import gb_collection_dir, extract_dir  # noqa: E402
+    from Virus_Platform_Core.gb_collection import gb_collection_dir, extract_dir  # noqa: E402
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)
     r = c.post('/api/gb/import', json={'name': COLL, 'files': EX_SYNTENY})
     tid = r.get_json().get('task')

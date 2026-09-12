@@ -14,8 +14,6 @@
   "/api/cds/export": "cds_export.api_cds_export",
   "/api/cds/selection/save": "cds_export.api_cds_selection_save",
   "/api/cds/table": "cds_export.api_cds_table",
-  "/api/compare/preview": "refs.api_compare_preview",
-  "/api/compare/run": "refs.api_compare_run",
   "/api/convert_kraken2": "build.api_convert_kraken2",
   "/api/dbs": "build.api_dbs",
   "/api/dl/batch/<bid>": "download.api_dl_batch",
@@ -34,6 +32,8 @@
   "/api/gb/import": "refs.api_gb_import",
   "/api/gb/inspect": "refs.api_gb_inspect",
   "/api/gb/phylo": "refs.api_gb_phylo",
+  "/api/global/reset": "tasks_api.api_global_reset",
+  "/api/host_dbs": "build.api_host_dbs",
   "/api/ictv/cascade": "refs.api_ictv_cascade",
   "/api/ictv/download": "refs.api_ictv_download",
   "/api/ictv/preview": "refs.api_ictv_preview",
@@ -72,13 +72,16 @@
   "/api/meta/table/<name>": "meta.api_meta_table",
   "/api/meta/unique/<name>": "meta.api_meta_unique",
   "/api/msa/data": "refs.api_msa_data",
+  "/api/msa/path": "refs.api_msa_path",
   "/api/msa/samples": "refs.api_msa_samples",
   "/api/ncbi/collections": "refs.api_ncbi_collections",
   "/api/ncbi/download": "refs.api_ncbi_download",
   "/api/ncbi/search": "refs.api_ncbi_search",
+  "/api/open_dir": "io_api.api_open_dir",
   "/api/open_platform_dir": "io_api.api_open_platform_dir",
   "/api/open_report_dir/<sample>": "samples.api_open_report_dir",
   "/api/paste_input": "io_api.api_paste_input",
+  "/api/path_info": "build.api_path_info",
   "/api/pipeline/<sample>": "samples.api_pipeline",
   "/api/pipeline/<sample>/run": "samples.api_pipeline_run",
   "/api/pipeline/create": "samples.api_pipeline_create",
@@ -93,8 +96,11 @@
   "/api/samples/<sample>/clear": "samples.api_sample_clear",
   "/api/samples/<sample>/delete": "samples.api_sample_delete",
   "/api/samples/archived": "samples.api_samples_archived",
+  "/api/samples/scan_folder": "samples.api_samples_scan_folder",
   "/api/sdt/data": "refs.api_sdt_data",
+  "/api/selfcheck": "settings.api_selfcheck",
   "/api/seqview": "io_api.api_seqview",
+  "/api/set_host_db": "build.api_set_host_db",
   "/api/settings": "settings.api_settings_set",
   "/api/storage": "settings.api_storage",
   "/api/storage/rescan": "settings.api_storage_rescan",
@@ -159,8 +165,6 @@
   "/archive_report/<sample>/": "pages.page_archive_report",
   "/build": "pages.page_build",
   "/cds-export": "pages.page_cds_export",
-  "/compare/<name>/": "refs.page_compare",
-  "/compare/<name>/<path:filename>": "refs.page_compare_file",
   "/download": "download.page_download",
   "/downloads/<bid>/<path:filename>": "download.page_dl_file",
   "/genome": "pages.page_genome",
@@ -232,12 +236,6 @@
   "/api/cds/table": [
    "GET"
   ],
-  "/api/compare/preview": [
-   "GET"
-  ],
-  "/api/compare/run": [
-   "POST"
-  ],
   "/api/convert_kraken2": [
    "POST"
   ],
@@ -291,6 +289,12 @@
   ],
   "/api/gb/phylo": [
    "POST"
+  ],
+  "/api/global/reset": [
+   "POST"
+  ],
+  "/api/host_dbs": [
+   "GET"
   ],
   "/api/ictv/cascade": [
    "GET"
@@ -406,6 +410,9 @@
   "/api/msa/data": [
    "GET"
   ],
+  "/api/msa/path": [
+   "GET"
+  ],
   "/api/msa/samples": [
    "GET"
   ],
@@ -418,6 +425,9 @@
   "/api/ncbi/search": [
    "POST"
   ],
+  "/api/open_dir": [
+   "POST"
+  ],
   "/api/open_platform_dir": [
    "GET"
   ],
@@ -426,6 +436,9 @@
   ],
   "/api/paste_input": [
    "POST"
+  ],
+  "/api/path_info": [
+   "GET"
   ],
   "/api/pipeline/<sample>": [
    "GET"
@@ -469,11 +482,20 @@
   "/api/samples/archived": [
    "GET"
   ],
+  "/api/samples/scan_folder": [
+   "POST"
+  ],
   "/api/sdt/data": [
+   "GET"
+  ],
+  "/api/selfcheck": [
    "GET"
   ],
   "/api/seqview": [
    "GET"
+  ],
+  "/api/set_host_db": [
+   "POST"
   ],
   "/api/settings": [
    "GET",
@@ -666,12 +688,6 @@
    "GET"
   ],
   "/cds-export": [
-   "GET"
-  ],
-  "/compare/<name>/": [
-   "GET"
-  ],
-  "/compare/<name>/<path:filename>": [
    "GET"
   ],
   "/download": [

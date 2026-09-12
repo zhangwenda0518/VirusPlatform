@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BioAider 功能谱补充与吸收建议</title>
+<style>
+  :root{
+    --bg:#fff; --panel:#f7f8fa; --line:#e3e6ec; --text:#1c2230; --muted:#5b6577;
+    --green:#0f8a6a; --amber:#b45309; --red:#c0392b; --blue:#1f6feb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:25px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:26px}
+  h2{font-size:19px;margin:36px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px}
+  p{margin:10px 0}
+  code{background:#f2f4f8;padding:2px 6px;border-radius:4px;
+       font-family:Consolas,monospace;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+       padding:14px 18px;margin:16px 0}
+  .box.ok{border-left:4px solid var(--green)}
+  .box.warn{border-left:4px solid var(--amber)}
+  .box.err{border-left:4px solid var(--red)}
+  .box.info{border-left:4px solid var(--blue)}
+  .p1{color:var(--red);font-weight:600}
+  .p2{color:var(--amber);font-weight:600}
+  .p3{color:var(--muted)}
+  .ok{color:var(--green);font-weight:600}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>BioAider 功能谱补充与吸收建议</h1>
+<div class="sub">
+基于 BioAider v1.727 Windows 版完整反编译（65 个模块）&nbsp;|&nbsp;
+对照本平台 <code>Virus_Platform_Core</code> 现状&nbsp;|&nbsp;2026-09-11
+</div>
+
+<div class="box warn">
+<b>⚠️ 本文档的功能框架已过时，请以
+<code>docs/BioAider_V1727_完整功能清单.html</code> 为准。</b><br>
+本文撰写时沿用了 <code>Manual of BioAider.pdf</code> 的功能分类，但该手册首页写明是
+<b>V1.423</b>（2022-03），而实际安装的是 <b>V1.727</b>（2024-09）。
+手册漏掉了 <b>Clustering Analysis 整个分类</b>和<b>底部工具栏一整排</b>（含 Sequence Editor）。<br>
+本文的<b>缺口核实结论与建议仍然有效</b>（那部分是从代码直接搜出来的），
+但"功能面只有七组"的表述是错的。完整清单见上述新文档。
+</div>
+
+<div class="box info">
+<b>与既有文档的关系：</b><code>docs/BIOAIDER_REFERENCE.md</code>（09-05）已完成一轮调研。
+本次是<b>补充与修订</b>——补上了它缺的 <code>identity_matix</code> 模块源码，
+<b>更正了其中一处口径描述</b>，并重新核对了"缺口清单"在 6 天后的实际状态。
+</div>
+
+<h2>一、先说结论</h2>
+
+<p>BioAider 的功能面在 09-05 那份文档里已经列全了，本次核对<b>没有发现新的大类</b>。
+真正的变化在于：<b>当初列的缺口，一部分已经被你们自己补上了</b>，剩下几项仍然敞着。</p>
+
+<table>
+<tr><th style="width:200px">缺口项</th><th style="width:110px">09-05 状态</th><th style="width:110px">今日核实</th><th>说明</th></tr>
+<tr><td>突变谱 + 棒棒糖图</td><td class="p1">缺口</td><td class="ok">已补</td>
+    <td><code>kv_variant_plot.py</code> 已有位点棒棒糖图、effect spectrum、AF/DP 三联图，<b>呈现比 BioAider 更完整</b></td></tr>
+<tr><td>多基因串联 + 分区文件</td><td class="p1">缺口</td><td class="p1">仍敞开</td>
+    <td>全库搜 <code>charpartition</code>/<code>charset</code> 零命中</td></tr>
+<tr><td>参考集按 identity 去冗余</td><td class="p2">半缺口</td><td class="p2">仍敞开</td>
+    <td>只有 <code>fastp --dedup</code>（读级 PCR 重复），不是序列集去冗余</td></tr>
+<tr><td>系统发育格式互转</td><td class="p1">缺口</td><td class="p1">仍敞开</td>
+    <td><code>convert</code> 只做 <code>.sra</code>/FASTQ→FASTA，无 nexus/phylip/mega</td></tr>
+<tr><td>序列 ID 批量重命名</td><td class="p1">缺口</td><td class="p1">仍敞开</td>
+    <td>全库零命中</td></tr>
+<tr><td>模糊碱基（IUPAC）校正</td><td class="p1">缺口</td><td class="p1">仍敞开</td>
+    <td><code>consensus.py</code> 是"输出简并符"，不是"清理已有比对的模糊碱基"</td></tr>
+</table>
+
+<h2>二、本次补充的功能细节</h2>
+
+<h3>2.1 Sequence Identity Matrix 的完整口径（新增源码依据）</h3>
+
+<p>09-05 的文档把它记作"同 SDT 口径"，<b>这一条需要更正</b>。两者对含 indel 的序列会给出不同数值：</p>
+
+<table>
+<tr><th style="width:150px">口径</th><th>分母</th><th>单侧 gap 列</th></tr>
+<tr><td><b>BioAider</b></td><td>所有非"双 gap"列</td><td>计入分母，算作错配</td></tr>
+<tr><td><b>SDT</b>（本平台 <code>sdt_exact</code>）</td><td>仅"双方都有碱基"的列</td><td>整列排除</td></tr>
+</table>
+
+<pre>BioAider:  identity = (相同位点 - 双gap位点) / (相同位点 - 双gap位点 + 不同位点)
+SDT:       similarity = 100 × (1 - dist / (aln_len - gaps))   # gaps = 任一序列为 gap 的列</pre>
+
+<p>另有两个 BioAider 独有的选项，本平台目前没有：</p>
+<ul>
+<li><b>Condense gap</b>：<code>A / (A + (B - 2 × inser / 3))</code>，
+把连续 3nt 的插入/缺失折算成 1 个错配，避免一个密码子缺失被记成 3 个错配。</li>
+<li><b>Combination nt and aa</b>：单元格输出 <code>"核苷酸%/氨基酸%"</code>，
+并额外产出一份热图专用表（下三角 = nt，上三角 = aa）。</li>
+</ul>
+
+<h3>2.2 Remove High-Similar Sequence 的 6 种算法</h3>
+<p>底层是 <code>textdistance</code> 库，六选一：</p>
+<table>
+<tr><th style="width:190px">算法</th><th style="width:130px">需要预先比对</th><th>适用性评价</th></tr>
+<tr><td>Sequence Identity</td><td>是</td><td class="ok">推荐，与同一性矩阵同口径</td></tr>
+<tr><td>Hamming</td><td>是</td><td>快，但等长假设强</td></tr>
+<tr><td>Smith-Waterman</td><td>否</td><td class="p3">O(n²)，慢</td></tr>
+<tr><td>Levenshtein</td><td>否</td><td class="p3">编辑距离，对核酸意义有限</td></tr>
+<tr><td>Damerau-Levenshtein</td><td>否</td><td class="p3">同上，额外处理换位</td></tr>
+<tr><td>Needleman-Wunsch</td><td>否</td><td class="p3">O(n²)，慢</td></tr>
+</table>
+<div class="box warn">
+<b>建议：不要照抄这套实现。</b>BioAider 是纯 O(n²) 全对全比较，
+几千条序列就会卡死。你们已经打包了 <code>3rd/tools/mmseqs</code>，
+应该<b>先用 MMseqs2 聚类粗筛，再在簇内用 identity 精筛</b>——
+上万条也能跑，且结果可解释。
+</div>
+
+<h2>三、建议吸收（按优先级）</h2>
+
+<h3 class="p1">第一档：有明确科研场景，建议做</h3>
+
+<ol>
+<li><b>多基因串联 + 分区文件</b>（对应 <code>combine_seq</code> + <code>partition_make</code>）
+  <p>分段基因组（双生病毒 DNA-A/DNA-B、番茄斑萎病毒、呼肠孤）多基因座建树刚需。
+  输出 FASTA + NEXUS 分区文件，直接喂 IQ-TREE <code>-p</code>。</p>
+  <p>BioAider 的分区文件生成器（<code>partition_make</code>）只出分区、不做串联，
+  且 IQ-TREE / MrBayes 两套格式都支持，可直接参考其格式模板。</p>
+</li>
+
+<li><b>参考集按 identity 阈值去冗余</b>
+  <p>你们建树用的参考池 / NCBI 集合常含高相似冗余。先去冗余再建树，
+  能显著缩短 IQ-TREE 时间并让树更干净。建议做成 <code>quicktree</code> 的前置开关，
+  或独立 <code>dedup</code> 轻工具。</p>
+</li>
+
+<li><b>系统发育格式互转（nexus / phylip / mega）</b>
+  <p>目前 <code>convert</code> 只处理 <code>.sra</code> 和 FASTQ。
+  但 <code>iqtree</code>/<code>mrbayes</code> 输入、外部分析脚本对接都常需要这些格式。
+  纯文本转换，百行级工作量。</p>
+</li>
+</ol>
+
+<h3 class="p2">第二档：顺手能补，成本极低</h3>
+
+<ol start="4">
+<li><b>序列 ID 批量重命名 + 映射表</b>
+  <p>NCBI 下载的序列名动辄 <code>NC_001367.1 Tomato mosaic virus isolate ...</code>，
+  建树图里糊成一团。重命名并导出"原名 → 新名"对照表，保证结果可回溯。</p>
+</li>
+
+<li><b>模糊碱基（IUPAC）校正</b>
+  <p>PAML / 密码子选择压力分析的前置清洗。BioAider 的做法是
+  在密码子比对中把 <code>R/Y/W/S/K/M</code> 等按规则校正或剔除。
+  建议挂为 <code>align</code> 或 <code>identity</code> 的前置选项。</p>
+</li>
+
+<li><b>同一性矩阵的 indel 口径选项</b>
+  <p>不必照搬 BioAider 的公式，但值得在 <code>identity</code> 里加一个下拉：
+  <b>SDT 口径 / BioAider 口径 / 压缩 gap</b>，并在结果页注明当前口径。
+  审稿人很爱问这个，提前把口径摆明比事后解释省事。</p>
+</li>
+</ol>
+
+<h3 class="p3">第三档：不建议吸收</h3>
+<ul>
+<li>那 4 种 O(n²) 编辑距离算法（Levenshtein / Damerau-Levenshtein /
+    Smith-Waterman / Needleman-Wunsch）—— 对核酸序列意义有限，且慢。</li>
+<li>PySide2 桌面 GUI 架构 —— 你们的 Web + 任务工厂已经更优。</li>
+<li>外部工具"插件化安装"（Not-installed → Add）—— 你们全内置 + 自动探测，更省心。</li>
+<li>简易实验记录生成器 —— 与平台定位无关。</li>
+</ul>
+
+<h2>四、一个额外发现：示例缺"参数说明"</h2>
+
+<div class="box err">
+BioAider 的每个 <code>Example/</code> 子目录都带一份 <code>parameter_note.txt</code>，
+写明该功能的参数含义与推荐取值。<br>
+本平台 <code>examples/</code> 有 <b>18 个样例文件</b>（<code>example_tmv.fasta</code>、
+<code>example_tree.nwk</code> 等），但 <b>零个说明文件</b>——
+用户看到一堆样例却不知道该配什么参数。
+</div>
+
+<p>这是<b>投入产出比最高的一项</b>：不需要写代码，只要给每个样例补一段
+"这个文件配哪个工具、参数怎么填、期望输出长什么样"。建议直接照 BioAider 的
+<code>parameter_note.txt</code> 形态来，中英双语对齐你们的 i18n。</p>
+
+<h2>五、待办清单</h2>
+<table>
+<tr><th style="width:60px">优先级</th><th style="width:250px">事项</th><th>工作量估计</th></tr>
+<tr><td class="p1">P0</td><td>examples/ 补参数说明</td><td>文档工作，无代码</td></tr>
+<tr><td class="p1">P0</td><td>参考集按 identity 去冗余</td><td>中（MMseqs2 粗筛 + identity 精筛）</td></tr>
+<tr><td class="p1">P0</td><td>多基因串联 + 分区文件</td><td>中（格式模板可参考 BioAider）</td></tr>
+<tr><td class="p2">P1</td><td>序列 ID 批量重命名 + 映射表</td><td>小（百行级）</td></tr>
+<tr><td class="p2">P1</td><td>模糊碱基校正</td><td>小（百行级）</td></tr>
+<tr><td class="p2">P1</td><td>nexus / phylip / mega 互转</td><td>小（纯文本）</td></tr>
+<tr><td class="p3">P2</td><td>同一性矩阵 indel 口径选项</td><td>小（加分支 + 结果页注明）</td></tr>
+<tr><td class="p3">P2</td><td>更新 <code>BIOAIDER_REFERENCE.md</code> 的口径描述</td><td>文档工作</td></tr>
+</table>
+
+<footer>
+源码依据：<code>_bioaider_re/decompiled/</code>（65 模块，已通过差分测试与官方示例验证）。<br>
+BioAider 为第三方软件，此处仅作算法与功能形态的参考，未复制其代码。
+</footer>
+
+</div>
+</body>
+</html>

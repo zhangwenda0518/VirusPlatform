@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """比较基因组分析组集成测试：结构比较 → MSA 查看 → SDT 精确矩阵 →
 NT+AA 同一性表 → 快速建树 → 树文件 API → NCBI 在线（可跳过）→
-GenBank 集合示例导入 → 同属共线性比较 → 集合建树。
+GenBank 集合示例导入 → 集合建树。
 
 全部走 Web API（Flask test client），示例数据用 examples/ 内置文件。
 注意：sdt/identity 工具内部用 ProcessPoolExecutor，Windows spawn 会重导入
@@ -13,7 +13,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 EX_SET = os.path.join(EX, 'example_virus_set.fasta')
@@ -198,10 +198,10 @@ def main():
     else:
         print(f'  SKIP Entrez 检索（{r.status_code}，离线环境）')
 
-    # ---------- 7. GenBank 集合示例（导入 → 共线性 → 集合建树） ----------
+    # ---------- 7. GenBank 集合示例（导入 → 集合建树） ----------
     print('--- 7. GenBank 集合示例（离线全流程） ---', flush=True)
     import shutil  # noqa: E402
-    from vp.gb_collection import gb_collection_dir  # noqa: E402
+    from Virus_Platform_Core.gb_collection import gb_collection_dir  # noqa: E402
     shutil.rmtree(gb_collection_dir(COLL), ignore_errors=True)
 
     r = c.post('/api/gb/import', json={'name': COLL,
@@ -217,20 +217,6 @@ def main():
     mine = next((x for x in cols if x['name'] == COLL), None)
     check(mine is not None and mine['n_records'] == 3,
           f"集合列表含 {COLL}（{mine and mine['n_records']} 条记录）")
-
-    r = c.post('/api/compare/run', json={'collection': COLL, 'min_ident': 0.3,
-                                         'min_cov': 0.5, 'style': 'lovis'})
-    check(r.status_code == 200, '/api/compare/run 启动')
-    tid = r.get_json().get('task')
-    rec = wait_task(tm, tid, timeout=1800)
-    check(rec['status'] == 'done',
-          f'共线性比较完成: {rec.get("error", "")[-300:]}')
-    files = (rec.get('result') or {}).get('files') or {}
-    for k in ('html', 'svg', 'png', 'clusters', 'similarity', 'faa', 'm8'):
-        p = files.get(k)
-        check(p and os.path.isfile(p),
-              f'共线性产物存在: {k}'
-              f'（{os.path.basename(p) if p else "缺失"}）')
 
     # 集合建树 → 结果中心 gb: 伪样品可看
     r = c.post('/api/gb/phylo', json={'name': COLL, 'tree_tool': 'fasttree'})

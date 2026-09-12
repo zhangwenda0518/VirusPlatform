@@ -45,7 +45,7 @@
     <section class="card side">
       <h2 data-i18n="pp.samples">样品</h2>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <select id="projFilter" onchange="loadSamples()" style="flex:1;font-size:12px"></select>
+        <select id="projFilter" onchange="gxProjChanged(this)" style="flex:1;font-size:12px"></select>
       </div>
       <div id="samples"><p class="hint" data-i18n="c.loading">加载中…</p></div>
 
@@ -108,17 +108,7 @@
 </div>
 
 <!-- 文件浏览弹窗 -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>

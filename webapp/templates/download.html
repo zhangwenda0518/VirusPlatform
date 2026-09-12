@@ -74,9 +74,11 @@ if (POP) document.body.classList.add('pop-mode');
 
 function fmtBytes(n) {
   if (!n) return '—';
-  if (n > 1e9) return (n/1e9).toFixed(2) + ' GB';
-  if (n > 1e6) return (n/1e6).toFixed(1) + ' MB';
-  if (n > 1e3) return (n/1e3).toFixed(0) + ' KB';
+  // 阈值用 >= ：恰好 1_000_000 B 原会落到 KB 分支渲染成「1000 KB」，
+  // 1e9 同理渲染成「1000.0 MB」，看着像换算错误。
+  if (n >= 1e9) return (n/1e9).toFixed(2) + ' GB';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + ' MB';
+  if (n >= 1e3) return (n/1e3).toFixed(0) + ' KB';
   return n + ' B';
 }
 
@@ -125,9 +127,9 @@ function dlMetrics(b) {
   const sizeTxt = b.total_bytes
     ? `${fmtBytes(b.done_bytes || 0)} / ${fmtBytes(b.total_bytes)}` : '—';
   return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 0;font-size:12px">
-      <span>${t('dl.speed')} <b class="mono">${spd}</b></span>
-      <span>${t('dl.downloaded')} <b class="mono">${sizeTxt}</b></span>
-      <span>${t('dl.remaining')} <b class="mono">${eta || t('dl.calc')}</b></span>
+      <span>${t('dl.speed')} <b class="mono" data-dl-metric="speed">${spd}</b></span>
+      <span>${t('dl.downloaded')} <b class="mono" data-dl-metric="downloaded">${sizeTxt}</b></span>
+      <span>${t('dl.remaining')} <b class="mono" data-dl-metric="remaining">${eta || t('dl.calc')}</b></span>
     </div>`;
 }
 
@@ -157,9 +159,13 @@ function batchHtml(b) {
     files = `<table class="tbl dl-file"><tr><th>${t('dl.thRun')}</th><th>${t('dl.thFile')}</th><th>${t('dl.thSize')}</th><th>${t('dl.thProgress')}</th><th>${t('dl.thSpeed')}</th><th>${t('dl.thStatus')}</th><th>${t('dl.thNote')}</th></tr>` +
       b.files.map(f => {
         const fp = Math.round((f.progress || 0) * 100);
+        // 总量优先用元数据精确值（expect_bytes）：size 可能是下载器给的
+        // 近似值（aria2c 只报 0.1MiB 精度），单看 size 会出现「已下载
+        // 8.8 MB / 总量 8.7 MB」的倒挂显示。
+        const tot = f.expect_bytes || f.size || 0;
         return `<tr><td class="mono">${esc(f.acc)}</td>` +
           `<td class="mono" title="${esc(f.url)}">${esc((f.out||'').split(/[\\\\/]/).pop() || '—')}</td>` +
-          `<td class="mono">${fmtBytes(f.done_bytes || 0)}${f.size ? ' / ' + fmtBytes(f.size) : ''}</td>` +
+          `<td class="mono">${fmtBytes(f.done_bytes || 0)}${tot ? ' / ' + fmtBytes(tot) : ''}</td>` +
           `<td><div class="pbar"><i style="width:${fp}%"></i></div></td>` +
           `<td class="mono">${fmtSpeed(f.speed || 0)}</td>` +
           `<td>${fStMap()[f.status] || f.status}${f.verified ? ' ✔' : ''}</td>` +
@@ -179,9 +185,9 @@ function batchHtml(b) {
       <span><span class="tstat ${b.status === 'completed' ? 'done' : b.status === 'failed' ? 'failed' : 'running'}">${stat}</span>
         <span class="hint" style="margin-left:8px">${t('dl.batchMeta').replace('{d}', b.done).replace('{n}', b.n_files).replace('{p}', pct).replace('{r}', b.n_runs).replace('{c}', esc(b.created))}</span></span>
     </div>
-    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="bar" data-dl-bar="${esc(b.id)}"><i data-dl-overall="${pct}" style="width:${pct}%"></i></div>
     ${dlMetrics(b)}
-    ${b.convert_msg ? `<p class="hint">${esc(b.convert_msg)}</p>` : ''}
+    ${b.convert_msg ? `<p class="hint"${b.convert_failed ? ' style="color:var(--red-700,#b03a34)"' : ''}>${esc(b.convert_msg)}</p>` : ''}
     ${b.error ? `<div class="err">${esc(b.error)}</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn small" onclick="toggleFiles('${esc(b.id)}', this)">📁 ${t('c.files')}</button>
@@ -189,6 +195,10 @@ function batchHtml(b) {
       ${['downloading','resolving','converting'].includes(b.status)
         ? `<button class="btn small danger" onclick="batchAction('${esc(b.id)}','cancel')">✖ ${t('c.cancel')}</button>` : ''}
       ${b.failed ? `<button class="btn small" onclick="batchAction('${esc(b.id)}','retry')">${t('dl.retryFail').replace('{n}', b.failed)}</button>` : ''}
+      ${b.status === 'interrupted' ? `<button class="btn small primary" onclick="batchAction('${esc(b.id)}','retry')"
+              title="${t('dl.resumeTip')}">▶ ${t('dl.resume')}</button>` : ''}
+      ${b.convert_failed ? `<button class="btn small primary" onclick="batchAction('${esc(b.id)}','retry_convert')"
+              title="${t('dl.retryConvTip')}">↻ ${t('dl.retryConv').replace('{n}', b.convert_failed)}</button>` : ''}
       ${canInto ? `<button class="btn small primary" onclick="intoPipeline('${esc(b.id)}')">🧪 ${t('dl.into')}</button>` : ''}
       <button class="btn small" onclick="batchAction('${esc(b.id)}','delete_files')"
               title="${t('dl.delFilesTip')}">${t('dl.delFiles')}</button>
@@ -205,20 +215,33 @@ function batchHtml(b) {
 /* 文件列表每页 20 行（页码状态跨轮询刷新保持） */
 const dlFileCache = {};
 const dlFilePage = {};
+/* 展开文件列表的批次集合：refresh() 会整体重建卡片 DOM，
+   不记住展开状态的话，运行中每 2 秒一次的轮询会把刚展开的逐文件
+   进度条表格直接抹掉——这正是「进度条好像没啥用」的原因之一。 */
+const dlFileOpen = new Set();
+
+/* 拉取（或复用）某批次的逐文件明细；force=true 强制刷新。 */
+async function fetchDlFiles(bid, force) {
+  if (dlFileCache[bid] && !force) return dlFileCache[bid];
+  const b = await (await fetch('/api/dl/batch/' + encodeURIComponent(bid))).json();
+  dlFileCache[bid] = b.files || [];
+  return dlFileCache[bid];
+}
 
 async function toggleFiles(bid, btn) {
-  const box = btn.closest('.card').querySelector('.filelist');
-  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
-  box.style.display = '';
-  if (!dlFileCache[bid]) {
-    try {
-      const b = await (await fetch('/api/dl/batch/' + encodeURIComponent(bid))).json();
-      dlFileCache[bid] = b.files || [];
-    } catch (e) {
-      box.innerHTML = '<p class="hint">' + t('dl.filesFail', '文件列表加载失败，请稍后重试') + '</p>';
-      return;
-    }
+  const card = document.getElementById('b-' + bid);
+  const box = card && card.querySelector('.filelist');
+  if (!box) return;
+  if (dlFileOpen.has(bid)) { dlFileOpen.delete(bid); box.style.display = 'none'; return; }
+  dlFileOpen.add(bid);
+  try {
+    await fetchDlFiles(bid, true);
+  } catch (e) {
+    box.innerHTML = '<p class="hint">' + t('dl.filesFail', '文件列表加载失败，请稍后重试') + '</p>';
+    box.style.display = '';
+    return;
   }
+  box.style.display = '';
   renderDlFiles(bid, box);
 }
 
@@ -253,7 +276,19 @@ function renderDlFiles(bid, box) {
   const rows = all.slice((page - 1) * PER_PAGE, page * PER_PAGE);
   box.innerHTML = (rows.map(f => {
     if (f.status !== 'done') {
-      return `<div class="hint" style="margin:2px 0">• ${esc((f.out||'').split(/[\\/]/).pop() || f.acc)} — ${fStMap[f.status] || f.status}</div>`;
+      // 下载中：给出每条文件的实时进度条/大小/速度（不再只写一行文字）
+      const fp = Math.round((f.progress || 0) * 100);
+      const tot = f.expect_bytes || f.size || 0;
+      const sz = `${fmtBytes(f.done_bytes || 0)}${tot ? ' / ' + fmtBytes(tot) : ''}`;
+      return `<div data-dl-file="${esc(f.acc)}" data-status="${esc(f.status)}"`
+        + ` data-progress="${fp}" data-done="${f.done_bytes || 0}"`
+        + ` data-total="${tot}" data-speed="${Math.round(f.speed || 0)}"`
+        + ` style="display:flex;align-items:center;gap:8px;margin:3px 0">` +
+        `<span class="mono" style="min-width:120px">${esc(f.acc)}</span>` +
+        `<span class="pbar" style="flex:1"><i style="width:${fp}%"></i></span>` +
+        `<span class="mono" data-dl-size-cell style="min-width:130px;text-align:right">${sz}</span>` +
+        `<span class="mono" style="min-width:78px;text-align:right">${fmtSpeed(f.speed || 0)}</span>` +
+        `<span class="hint" style="margin:0;min-width:64px">${fStMap()[f.status] || f.status}</span></div>`;
     }
     // 配对发送：点 R2 行时仍按 R1/R2 顺序带上另一端；单端只带 r1
     const pr = pairs[f.acc] || {};
@@ -301,12 +336,14 @@ async function batchAction(bid, action) {
   const confirms = {
     delete: '删除该下载批次的记录、日志与全部已下载文件？（不可恢复）',
     delete_files: '只删除已下载的数据文件？\n批次记录与日志保留（列表仍显示，可追溯）。',
-    delete_record: '只删除批次记录与日志？\n已下载文件将保留在 downloads/ 磁盘原处，不再由平台管理。'
+    delete_record: '只删除批次记录与日志？\n已下载文件将保留在 downloads/ 磁盘原处，不再由平台管理。',
+    retry_convert: '重跑 .sra → FASTQ 转换？\n不会重新下载，只解码已下载的 .sra（大文件需数分钟）。'
   };
   if (confirms[action] && !confirm(confirms[action])) return;
   try {
     const r = await fetch(`/api/dl/batch/${encodeURIComponent(bid)}/${action}`, {method: 'POST'});
-    if (!r.ok) alert((await r.json()).error || '操作失败');
+    if (!r.ok) { alert((await r.json()).error || '操作失败'); return; }
+    delete dlFileCache[bid];          // 明细已变，强制重取
     refresh();
   } catch (e) { setConnBanner(true); }
 }
@@ -319,8 +356,20 @@ async function refresh() {
   try {
     const list = await (await fetch('/api/dl/batches')).json();
     active = list.some(b => ['resolving','downloading','converting'].includes(b.status));
+    // 展开中的批次：先刷新明细，重建卡片后按新数据重绘（原来只在首次
+    // 展开时取一次，之后永远显示点击那一刻的旧进度）
+    await Promise.all([...dlFileOpen].map(async bid => {
+      if (!list.some(b => b.id === bid)) { dlFileOpen.delete(bid); return; }
+      try { await fetchDlFiles(bid, true); } catch (e) { /* 单个失败不影响列表 */ }
+    }));
     box.innerHTML = list.length ? list.map(batchHtml).join('')
       : `<p class="hint">${t('dl.none', '暂无下载任务')}</p>`;
+    // 恢复展开的文件列表（DOM 已重建，需手动填回）
+    dlFileOpen.forEach(bid => {
+      const card = document.getElementById('b-' + bid);
+      const fbox = card && card.querySelector('.filelist');
+      if (fbox && dlFileCache[bid]) { fbox.style.display = ''; renderDlFiles(bid, fbox); }
+    });
     if (POP) document.title = `${t('dl.title')}（${list.filter(b => b.status === 'downloading').length}）`;
   } catch (e) { setConnBanner(true); }
   finally {

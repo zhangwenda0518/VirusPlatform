@@ -8,9 +8,9 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import DIRS, PLATFORM_ROOT  # noqa: E402
-from vp.ncbi_submit import store  # noqa: E402
-from vp.utils import write_fasta_record  # noqa: E402
+from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.ncbi_submit import store  # noqa: E402
+from Virus_Platform_Core.utils import write_fasta_record  # noqa: E402
 
 NAME = '_it_submit'
 
@@ -21,7 +21,11 @@ def check(cond, msg):
 
 
 # ---------- 0. 清理 + 建表 ----------
-shutil.rmtree(store.table_dir(NAME), ignore_errors=True)
+# 必须把全部派生表一起清掉：本测试末尾才清理，若上次中途失败/被 kill，
+# 残留的 *_copy / *_copy2 / *_smp 会让 copy_table 抛 FileExistsError
+# （表现为"测试没改过却突然 FAIL"，与代码无关）。
+for _nm in (NAME, NAME + '_copy', NAME + '_copy2', NAME + '_smp'):
+    shutil.rmtree(store.table_dir(_nm), ignore_errors=True)
 store.create_table(NAME, sample='demo')
 df = store.load_table(NAME)
 check(len(df) == 6, f'demo 表 6 行: {len(df)}')

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BioAider 相似性分析 / 下载 / 转换 八项功能详解</title>
+<style>
+  :root{
+    --bg:#fff; --panel:#f7f8fa; --line:#e3e6ec; --text:#1c2230; --muted:#5b6577;
+    --green:#0f8a6a; --amber:#b45309; --red:#c0392b; --blue:#1f6feb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:25px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:22px}
+  h2{font-size:18px;margin:36px 0 10px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h2 .no{display:inline-block;min-width:26px;color:var(--blue)}
+  h3{font-size:14px;margin:16px 0 6px;color:var(--muted);font-weight:600;letter-spacing:.5px}
+  p{margin:8px 0}
+  code{background:#f2f4f8;padding:2px 6px;border-radius:4px;
+       font-family:Consolas,monospace;font-size:12.8px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600;width:104px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+       padding:12px 16px;margin:14px 0}
+  .box.warn{border-left:4px solid var(--amber)}
+  .box.err{border-left:4px solid var(--red)}
+  .box.info{border-left:4px solid var(--blue)}
+  .box.ok{border-left:4px solid var(--green)}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:4px 0}
+  .flow{font-family:Consolas,monospace;font-size:12.6px;background:#f2f4f8;
+        border-radius:6px;padding:11px 14px;margin:10px 0;white-space:pre-wrap;line-height:1.7}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>BioAider 八项功能详解</h1>
+<div class="sub">
+Similar Analysis（5）+ Download Tools（1）+ Conversion Tools（2）<br>
+依据：<code>_bioaider_re/decompiled/</code> 反编译源码逐行核对&nbsp;|&nbsp;2026-09-11
+</div>
+
+<div class="box info">
+<b>读之前先知道一件事：</b>「Remove High-Similar」和「Delete Low-Similar」<b>用的是同一套贪心聚类骨架</b>，
+只是判据方向相反。看懂一个，另一个就懂了。下面第 2、3 节会把这套骨架讲清楚。
+</div>
+
+<h2 id="f1"><span class="no">1</span>Sequence Identity Matrix —— 成对同一性矩阵</h2>
+<table>
+<tr><th>输入</th><td><b>已比对</b>的等长 FASTA</td></tr>
+<tr><th>选项</th><td>① 矩阵类型：<code>Single nt or aa</code> / <code>Combination nt and aa (nt/aa)</code><br>
+② <code>Condense gap?</code> Yes / No<br>
+③ 遗传密码表（仅 nt/aa 模式生效）</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;_identity.csv</code>（总是生成）<br>
+<code>&lt;前缀&gt;_identity_used_for_heatmap.csv</code>（仅 nt/aa 模式）</td></tr>
+</table>
+<h3>核心公式</h3>
+<div class="flow">单模式（Condense gap = No）:
+    A = 相同位点数 − 双 gap 位点数      B = 不同位点数
+    Identity = A / (A + B)              单位 %
+
+Condense gap = Yes:
+    Identity = A / (A + (B − 2 × inser / 3))
+    inser = 只有一侧是 gap 的位点数
+    → 把连续 3nt 的插入/缺失折算成 1 个错配
+
+nt/aa 联合模式:
+    单元格 = "核苷酸% / 氨基酸%"（氨基酸先翻译再算）</div>
+<div class="box warn">
+<b>⚠️ 这个口径和 SDT 不一样。</b>BioAider 把<b>单侧 gap 计入分母当错配</b>；
+SDT（本平台 <code>sdt_exact</code>）把 gap 列<b>整列排除</b>。含 indel 的序列两者数值不同。<br>
+热图文件的三角约定：<b>下三角 = 核苷酸，上三角 = 氨基酸</b>。
+</div>
+<div class="box ok">
+本平台已实现等效功能并做过逐字节验证，详见
+<code>docs/BioAider_SDT同一性分析_逆向报告.html</code> 与 <code>_bioaider_re/sdt_identity.py</code>。
+</div>
+
+<h2 id="f2"><span class="no">2</span>Remove High-Similar Sequence —— 去高相似（去冗余）</h2>
+<table>
+<tr><th>输入</th><td>FASTA（<b>Sequence Identity / Hamming 两种算法要求已比对</b>，其余四种最好不要预先比对）</td></tr>
+<tr><th>选项</th><td>算法 6 选一；<code>Similar threshold</code> 0–100 的百分数</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;_Reserved-seq__remove-HighSimilar.&lt;ext&gt;</code> —— 保留的代表序列<br>
+<code>&lt;前缀&gt;_classify record.txt</code> —— 每条序列属于哪个簇（<code>Classification / SeqName</code>）</td></tr>
+</table>
+
+<h3>算法：贪心增量聚类（不是全对全）</h3>
+<div class="flow">代表集 = []
+for 每条序列（按文件顺序）:
+    for 代表 in 代表集（按加入顺序）:
+        sim = 1.0 if 序列 == 代表 else similary_counter(算法, 序列, 代表)
+        if sim >= 阈值/100:
+            归属到该代表 → 丢弃，记录 ClusterID，break
+    if 没有归属:
+        加入代表集 → 保留</div>
+
+<div class="box">
+<b>四个关键事实</b>
+<ul>
+<li><b>结果依赖输入顺序。</b>是贪心算法，先到先得，换一个顺序结果就不同。
+界面提示写的是"随机保留其中一条"，<b>实际实现是确定性的——永远保留最先遇到的那条</b>。</li>
+<li><b>是"首个匹配即归属"，不做传递闭包。</b>所以 A 和 C 可能同属一簇，
+即使 A、C 之间相似度低于阈值（只要各自都跟某个代表达标）。这是 CD-HIT 式的行为。</li>
+<li><b>阈值 = 100 时走另一条快速路径</b>：不做相似度计算，直接比<b>序列字符串是否完全相同</b>，
+即纯粹的精确去重。此时选哪个算法都一样——和手册描述一致。</li>
+<li><b>输出是"保留集"</b>，被丢弃的序列只出现在 <code>classify record.txt</code> 里。</li>
+</ul>
+</div>
+
+<h3>附带的"相似性矩阵"功能（右键菜单）</h3>
+<p>在窗口任意处<b>右键</b> → <code>Get similary matrix</code> → 输入文件名 → 生成
+<code>&lt;前缀&gt;&lt;你输的名字&gt;_matrix.txt</code>，内容是所选算法下的全对全相似性矩阵。</p>
+<div class="box warn">
+<b>注意：</b>这个矩阵里的数值是 <b>0–1 的小数</b>（不是百分数），跟同一性矩阵的 <code>%</code> 口径不同。
+另外它是<b>真正的 O(n²) 全对全</b>——几千条序列会很慢。
+</div>
+
+<h2 id="f3"><span class="no">3</span>Delete Low-Similar Sequence —— 去低相似（剔离群）</h2>
+<table>
+<tr><th>输入</th><td>同上一项（FASTA + 算法 + 阈值）</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;_Reserved-seq__remove-LowSimilar.&lt;ext&gt;</code><br>
+<code>&lt;前缀&gt;_classify record.txt</code></td></tr>
+</table>
+<p>骨架和第 2 项<b>完全一样</b>，唯一的差别是判据方向：</p>
+<div class="flow">Remove High-Similar:   if sim >= 阈值/100 → 丢弃（太像了）
+Delete Low-Similar:    if sim &lt;  阈值/100 → 丢弃（太不像了）</div>
+<p>所以语义是：<b>与已有代表都不够像的序列会被剔除</b>，保留下来的代表集构成"彼此都够像"的核心。</p>
+<div class="box warn">
+<b>实际使用要小心：</b>由于是"扫到第一个不达标的代表就丢弃"，
+一旦代表集里出现两条互相不相似的序列，之后<b>几乎任何新序列都会跟其中一条不达标而被丢弃</b>。
+阈值别设太低，建议先小样本试跑、看 <code>classify record.txt</code> 的簇分布再放大。
+</div>
+<div class="box">
+<b>顺便澄清一处文档不一致：</b>示例目录里 <code>Delete Low-Similar</code> 的文件名是
+<code>seq__classify record.txt</code>（双下划线），而当前版本代码生成的是
+<code>seq_classify record.txt</code>（单下划线）——说明示例文件是更早版本产出的，
+<b>不要拿示例文件名当输出命名的依据</b>。
+</div>
+
+<h2 id="f4"><span class="no">4</span>Repeat Fragment Search —— 重复片段搜索</h2>
+<table>
+<tr><th>输入</th><td>文本框里直接粘贴一条或多条 FASTA 序列</td></tr>
+<tr><th>参数</th><td><code>Minimum length</code> / <code>Maximum length</code> —— 重复基序的长度范围</td></tr>
+<tr><th>输出</th><td>写到<b>你自己选定的目录</b>（STEP 3）：每条序列一个
+<code>&lt;序列名&gt;_result.txt</code></td></tr>
+</table>
+<h3>算法</h3>
+<div class="flow">1. 枚举长度在 [min, max] 内的**所有子串**（去重，保持首次出现顺序）
+2. 对每个子串：用正则找出它在原序列里的**全部出现位置**（1-based）
+3. 出现次数 ≥ 2 才保留
+4. Percentage = 出现次数 × 子串长度 / 序列总长</div>
+<p>输出文件格式：首行 <code>Qure sequence: &lt;序列名&gt;</code>，然后表头
+<code>String / Position / Percentage</code>，位置用逗号连接。</p>
+<div class="box err">
+<b>两个要注意的地方</b>
+<ul>
+<li><b>复杂度是 O(L²) 级别，长序列会非常慢。</b>子串数量约为 <code>L × (max−min+1)</code>，
+每个子串还要全序列正则扫描一遍。10 kb 的基因组配上 3–10 的范围就很吃力了。</li>
+<li><b>子串被当作正则表达式使用</b>（<code>re.finditer(子串, 序列)</code>）。
+纯 ACGT 没问题，但如果序列里有正则元字符（如 <code>.</code>、<code>*</code>），匹配会出错或语义变形。</li>
+</ul>
+</div>
+<div class="box warn">
+输出会<b>同时包含大量嵌套与重叠的短重复</b>（比如 <code>AA</code> 在长序列里几乎必然重复），
+结果文件可能很长，需要自己按 Percentage 排序筛。
+</div>
+
+<h2 id="f5"><span class="no">5</span>Locate Protein in Nucleotide —— 蛋白定位回核苷酸</h2>
+<p>给定一段<b>蛋白片段</b>，找出它在编码基因序列中对应的<b>核苷酸区段与坐标</b>。</p>
+<table>
+<tr><th>输入</th><td>STEP 1：核苷酸 FASTA<br>STEP 2：氨基酸 FASTA<br>STEP 3：遗传密码表</td></tr>
+<tr><th>输出</th><td><code>&lt;AA 文件名前缀&gt;_locate_result.txt</code> —— 定位结果日志<br>
+<code>&lt;输入目录&gt;/Intercept(nt).fasta</code> —— 截取出来的核苷酸片段</td></tr>
+</table>
+<h3>算法</h3>
+<div class="flow">对每条 AA 序列:
+    对每条 NT 序列:
+        if AA名.find(NT名) != -1:                 ← 靠名字子串匹配配对
+            aa_full = translate(NT序列)
+            i = aa_full 中 AA片段 的首次出现位置
+            若找到:
+                nt_start = i × 3 + 1
+                nt_end   = (i + len(AA片段)) × 3
+                截取 NT[nt_start-1 : nt_end]
+            break（只取第一条配上的 NT 序列）</div>
+<div class="box warn">
+<b>三个使用前提</b>
+<ul>
+<li><b>配对靠名字子串匹配</b>：AA 序列名里必须<b>包含</b> NT 序列名（<code>AA名.find(NT名) != -1</code>）。
+两边名字完全无关就配不上，会静默跳过。</li>
+<li><b>只取首次匹配</b>：如果同一段蛋白在序列里出现多次，只会定位到第一个位置。</li>
+<li><b>蛋白片段同样是按正则匹配的</b>。蛋白序列里若有 <code>*</code>（终止密码子翻译结果），
+<code>*</code> 在正则里是量词，会导致匹配错误甚至报错——<b>用之前先把 <code>*</code> 去掉</b>。</li>
+</ul>
+</div>
+
+<h2 id="f6"><span class="no">6</span>Sequence Batch Download (NCBI) —— 序列批量下载</h2>
+<table>
+<tr><th>输入</th><td>粘贴 accession 列表，每行一个（<b>上限 180 条</b>，界面有提示）</td></tr>
+<tr><th>选项</th><td>数据库：<code>Nucleotide</code> / <code>Protein</code> / <code>Gene</code> / <code>Genome</code> / <code>All databases</code></td></tr>
+<tr><th>输出</th><td><b>没有文件输出</b></td></tr>
+</table>
+<div class="box err">
+<b>重要：这个功能不下载任何东西。</b><br>
+它的实现只有一行有效逻辑——把 accession 用 <code>|</code> 拼起来，套上对应数据库的搜索 URL，
+然后<b>调用默认浏览器打开这个搜索页</b>：
+<div class="flow" style="margin-top:8px">https://www.ncbi.nlm.nih.gov/nuccore/?term=AY567487|AY994055|CQ870486|CS124012</div>
+剩下的检索、勾选、下载全都要你<b>手动在网页上完成</b>。<br>
+它省掉的只是"手动拼 URL"这一步，没有任何 API 调用、没有断点续传、没有格式选择。
+</div>
+<p class="sub" style="margin-top:10px">对照：本平台的 <code>ncbi_download</code> 是真正走接口下载并落盘的，比它完整得多。</p>
+
+<h2 id="f7"><span class="no">7</span>File Merge —— 多文件合并</h2>
+<table>
+<tr><th>输入</th><td><b>一个文件夹</b>（界面有 File-paths preview 可先看会合并哪些文件）</td></tr>
+<tr><th>输出</th><td><code>&lt;该文件夹&gt;/merge.txt</code></td></tr>
+</table>
+<div class="flow">递归枚举文件夹里**所有文件**（含子目录，无扩展名过滤）
+逐个把内容追加写入 merge.txt，文件之间插一个空行</div>
+<div class="box err">
+<b>三个坑，都会真的踩到</b>
+<ul>
+<li><b>不过滤文件类型。</b>文件夹里有图片、Excel、二进制文件也会被当文本读进来，
+结果文件直接变成乱码。界面提示自己写了"输入文件夹中不要放与合并无关的其他任何文件"。</li>
+<li><b>输出写在同一个文件夹里 → 重复运行会自我包含。</b>
+第二次运行时，上一次生成的 <code>merge.txt</code> 也在文件夹里，会被一起合并进去，
+文件越滚越大。<b>每次跑之前先把旧的 merge.txt 移走。</b></li>
+<li><b>读写都没指定编码</b>（<code>open()</code> 不带 <code>encoding=</code>），
+用的是系统默认编码。Windows 中文环境下处理 UTF-8 文件可能报错或乱码。</li>
+</ul>
+</div>
+
+<h2 id="f8"><span class="no">8</span>Date converted to Decimal —— 日期转十进制</h2>
+<p>把采样日期转成"十进制年"，用于 <b>tip-dating / 分子钟定年</b>（BEAST、TreeTime 之类的输入）。</p>
+<table>
+<tr><th>输入</th><td>粘贴日期列表，每行一个；<b>含 <code>#</code> 的行会被跳过</b>（可当注释用）</td></tr>
+<tr><th>输出</th><td><code>&lt;选定目录&gt;/dates-decimal.txt</code>，一行一个十进制数，顺序与输入一致</td></tr>
+</table>
+<h3>算法</h3>
+<div class="flow">按 [./_-] 切分日期字符串
+  3 段（年/月/日）:
+      闰年 → 年 + (该月之前的天数和 + 日) / 366.00000001
+      平年 → 年 + (该月之前的天数和 + 日) / 365.00000001
+  2 段（年/月）: 同上，但"日"按 1 算（即当月第一天）
+  其他情况 / 解析失败 → **原样返回输入字符串**</div>
+<div class="box warn">
+<b>两点说明</b>
+<ul>
+<li>分母写成 <code>365.00000001</code> / <code>366.00000001</code> 是刻意为之——
+避免 12 月 31 日恰好算出下一个整数年，让年份区间闭合在半开区间里。</li>
+<li><b>闰年判断是朴素的 <code>year % 4 == 0</code></b>，没有处理"百年不闰、四百年再闰"。
+1900 会被误判为闰年（实际不是）。<b>对植物病毒样本来说年份基本在 1950 年之后，
+只有 1900 这一个例外年份会踩到，影响可忽略</b>——但如果要严格，自己改一下。</li>
+</ul>
+</div>
+
+<h2>附：八项横向速查</h2>
+<table>
+<tr><th style="width:170px">功能</th><th style="width:120px">输入</th><th>输出</th><th style="width:150px">最需要注意</th></tr>
+<tr><td>Sequence Identity Matrix</td><td>已比对 FASTA</td><td><code>_identity.csv</code></td><td>口径与 SDT 不同</td></tr>
+<tr><td>Remove High-Similar</td><td>FASTA</td><td>保留集 + 分类记录</td><td>贪心、依赖顺序</td></tr>
+<tr><td>Delete Low-Similar</td><td>FASTA</td><td>保留集 + 分类记录</td><td>阈值别设太低</td></tr>
+<tr><td>Repeat Fragment Search</td><td>粘贴序列</td><td>每条序列一个 txt</td><td>O(L²)，长序列很慢</td></tr>
+<tr><td>Locate Protein in Nucleotide</td><td>NT + AA</td><td>日志 + 截取 fasta</td><td>靠名字子串配对</td></tr>
+<tr><td>Sequence Batch Download</td><td>accession 列表</td><td><b>无（只开浏览器）</b></td><td>不下载</td></tr>
+<tr><td>File Merge</td><td>文件夹</td><td><code>merge.txt</code></td><td>重复运行自我包含</td></tr>
+<tr><td>Date converted to Decimal</td><td>日期列表</td><td><code>dates-decimal.txt</code></td><td>闰年判断朴素</td></tr>
+</table>
+
+<footer>
+依据 <code>_bioaider_re/decompiled/</code> 下
+<code>similar_analysis/</code>、<code>download_tools/</code>、<code>convert_tools/</code>
+共 8 个模块的反编译源码逐行核对。<br>
+BioAider 为第三方软件，本文仅作功能与算法说明，未复制其代码。
+</footer>
+
+</div>
+</body>
+</html>

@@ -7,17 +7,19 @@
 # ============================================================
 
 # ---------- 1. 数据与运行产物（可重新生成或下载） ----------
-# 目录分层（2026-09-10 整理）：
-#   代码      vp/ webapp/ engines/ tests/ scripts/ docs/ + 根目录入口文件
-#   数据库    databases/ host-db/ virus-db/
+# 目录分层（2026-09-12 整理：vp/ → Virus_Platform_Core/、engines/ 并入核心包）：
+#   代码      Virus_Platform_Core/ webapp/ tests/ dev_tools/ docs/ + 根目录入口文件
+#   数据库    databases/（含 virus_src/） host-db/
 #   运行期    run/  （results tool_runs logs tasks uploads submissions
 #                     meta_search logan fastq downloads）
-#   外部依赖  3rd/  （tools bin vendor open-virome）
+#   外部依赖  3rd/  （tools bin python open-virome）
 #   内置示例  examples/  ← 2026-09-10 由 databases/examples/ 迁到根目录；
 #                          体积小（~8MB）且是「内置资产」，整体纳管进 git
 # 丢失示例会导致 tests/_it_platform.py 与前端 ✨示例按钮失效；2026-09-09 曾丢失并重建
 databases/*
 host-db/
+# 旧布局（2026-09-11 病毒源参考迁入 databases/virus_src/）：保留忽略规则
+# 以免旧部署的顶层 virus-db/ 被误纳入版本控制
 virus-db/
 run/
 3rd/
@@ -28,6 +30,9 @@ _archive/
 _audit_20260909/
 _backup_before_*/
 git-repo/
+# 第三方（BioAider）逆向工作区：反编译产物与解密脚本，仅本地参考，
+# 绝不能进版本库（合规风险）
+_bioaider_re/
 
 # ---------- 4. 前端第三方资源（不修改，可重新获取） ----------
 webapp/static/plotly.min.js
@@ -46,9 +51,11 @@ tests/*.fastq
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .mimosa/
 .zcode/
 .workbuddy/
+.workbuddy-ai/
 _app.pid
 
 # ---------- 7. 打包与临时产物 ----------
@@ -57,10 +64,15 @@ build/
 *.log
 *.tmp
 
-# kvsuite 引擎（engines/known_virus_suite）的中间产物：测试日志 + 变体测试输出。
-# 日志本身已被 *.log 覆盖，这里连目录一起挡掉，避免以后出现非 .log 文件被误提交。
-engines/known_virus_suite/_test_logs/
+# kvsuite 引擎（Virus_Platform_Core/known_virus_suite）的中间产物：测试日志 +
+# 变体测试输出。日志本身已被 *.log 覆盖，这里连目录一起挡掉，避免以后出现
+# 非 .log 文件被误提交（2026-09-12 目录重构后改为新路径）。
+Virus_Platform_Core/known_virus_suite/_test_logs/
 kv_variant_test/
+
+# 测试运行报告 / 探针输出（tests/_check_*、_audit_* 落盘的结果）
+tests/_out_*
+tests/_audit_*report*
 
 # ---------- 8. 禁止再提交手工备份 ----------
 # 本平台已启用 git（2026-09-09 起）：历史版本用 `git show <sha>:<path>` 取回，
@@ -69,3 +81,6 @@ kv_variant_test/
 *.bak_*
 *.bak
 *.orig
+
+# ---------- 9. 测试运行器互斥锁（tests/_run_all.py 运行期临时文件） ----------
+tests/._run_all.lock

@@ -211,6 +211,8 @@
   </div>
 </div>
 
+{% include "_browse_dlg.html" %}
+
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
 <script src="/static/examples.js?v={{ asset_v }}"></script>
@@ -503,7 +505,12 @@ async function doExport() {
 
 async function doValidate() {
   if (!CUR) return;
-  const d = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/validate`);
+  // 后端该路由只接受 POST（Virus_Platform_Core/web/submit.py:187）；用 GET 会得到 405，
+  // 而本函数无 try/catch → 按钮点了没反应。
+  const d = await jfetch(
+    `/api/submit/table/${encodeURIComponent(CUR)}/validate`,
+    {method: 'POST', headers: {'Content-Type': 'application/json'},
+     body: '{}'});
   const box = $('valOut');
   box.style.display = '';
   if (!d.issues.length) { box.textContent = t('sb.validateOk', '✓ 可以提交'); return; }
@@ -557,15 +564,34 @@ async function doTaxCheck(btn) {
   if (!CUR) return;
   const unlock = lockBtn(btn, '⏳ 查询 NCBI…');
   try {
-    const d = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/taxonomy_check`, {method: 'POST'});
+    // async：每个物种一次 esearch（每次最长 120s）且串行，几十个物种就是
+    // 分钟级阻塞请求。改后台任务，进度条在 submit 页轮询任务状态。
+    const d = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/taxonomy_check`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({async: true})});
     const box = $('valOut');
     box.style.display = '';
-    if (!d.rows.length) { box.textContent = '（表内没有可校验的 organism）'; }
+    if (!d.task) throw new Error('任务未启动');
+    let snap = null;
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      snap = await jfetch(`/api/task/${d.task}?log_lines=20`);
+      box.textContent = `[${snap.stage || ''}] ${snap.msg || ''}`
+        + (snap.pct != null ? `（${Math.round((snap.pct || 0) * 100)}%）` : '');
+      if (snap.status !== 'running') break;
+    }
+    if (snap.status !== 'done') {
+      throw new Error(snap.error || (snap.status === 'cancelled' ? '任务已停止' : '校验失败'));
+    }
+    // 结果走既有文件预览接口读回（不回传嵌套 rows，避免被结果预览压平）
+    const raw = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/file?name=taxonomy_check.json`);
+    const res = JSON.parse(raw.content);
+    if (!res.rows.length) { box.textContent = '（表内没有可校验的 organism）'; }
     else {
-      const lines = d.rows.map(r =>
+      const lines = res.rows.map(r =>
         `  ${r.found ? '✓' : '✗ 未收录'} ${r.organism}${r.taxid ? ' (taxid ' + r.taxid + ')' : ''}`);
-      box.textContent = `NCBI Taxonomy 物种名校验（${d.rows.length} 个）：\n` + lines.join('\n') +
-        (d.missing.length ? `\n\n⚠ ${d.missing.length} 个物种名未被 NCBI 收录，直接提交会被拒：\n` +
+      box.textContent = `NCBI Taxonomy 物种名校验（${res.rows.length} 个）：\n` + lines.join('\n') +
+        (res.missing.length ? `\n\n⚠ ${res.missing.length} 个物种名未被 NCBI 收录，直接提交会被拒：\n` +
          `   新物种需先与 NCBI 沟通（taxonomy@ncbi.nlm.nih.gov）或改用更高级阶元名。` : '');
     }
   } catch (e) { alert(e.message); }
@@ -717,17 +743,40 @@ async function genSqn(btn) {
       affil: F('Affil'), div: F('Div'), city: F('City'), sub: F('Sub'),
       country: F('Country'), street: F('Street'), email: F('Email'),
       postal: F('Postal')};
+    // async：这条链最坏 45 分钟（suvtk features 1800s + comments 300s +
+    // table2asn 600s），同步跑会占死一个工作线程且无法取消。改由任务中心
+    // 后台执行，这里轮询 /api/task/<tid> 实时贴日志与进度条，结束后用既有
+    // sqn_status 取产物摘要（比任务返回值更可靠：嵌套 stats 会被结果预览压平）。
     const d = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/sqn`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({author, use_features: !$('sqnUseOwn').checked})});
-    const st = d.stats || {};
+      body: JSON.stringify({author, use_features: !$('sqnUseOwn').checked,
+                            async: true})});
+    const tid = d.task;
+    if (!tid) throw new Error('任务未启动');
+    let snap = null;
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1500));
+      snap = await jfetch(`/api/task/${tid}?log_lines=60`);
+      const lines = snap.log || [];
+      pre.textContent = `[${snap.stage || ''}] ${snap.msg || ''}\n`
+        + (snap.pct != null ? `进度 ${Math.round((snap.pct || 0) * 100)}%\n` : '')
+        + '\n' + lines.join('\n');
+      pre.scrollTop = pre.scrollHeight;
+      if (snap.status !== 'running') break;
+    }
+    if (snap.status !== 'done') {
+      throw new Error(snap.error || (snap.status === 'cancelled'
+        ? '任务已停止' : '生成失败'));
+    }
+    const st = await jfetch(`/api/submit/table/${encodeURIComponent(CUR)}/sqn_status`);
+    const s = st.stats || {};
     pre.textContent =
       `✅ .sqn 生成完成\n` +
-      `文件: ${d.sqn}\n` +
-      `校验: Error ${st.error} / Warning ${st.warning} / Info ${st.info}\n\n` +
+      `文件: ${st.sqn}\n` +
+      `校验: Error ${s.error} / Warning ${s.warning} / Info ${s.info}\n\n` +
       `—— 校验摘要（前若干条）——\n` +
-      (d.val_head && d.val_head.length ? d.val_head.join('\n') : '(无)');
-    toast('📦 .sqn 已生成', `Error ${st.error} · Warning ${st.warning}`, {ttl: 8000});
+      ((st.val_head && st.val_head.length) ? st.val_head.join('\n') : '(无)');
+    toast('📦 .sqn 已生成', `Error ${s.error} · Warning ${s.warning}`, {ttl: 8000});
     await openTable(CUR);
   } catch (e) {
     pre.textContent = '❌ 生成失败：' + e.message;

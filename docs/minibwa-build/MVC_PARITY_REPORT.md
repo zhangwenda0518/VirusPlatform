@@ -1,6 +1,6 @@
 # MultiVirusConsensus（MVC）对拍报告
 
-**版本**：平台 `vp/consensus.py` vs ViralConsensus 原生 v1.0.4 vs ViralWasm 0.0.6
+**版本**：平台 `Virus_Platform_Core/consensus.py` vs ViralConsensus 原生 v1.0.4 vs ViralWasm 0.0.6
 **数据**：ERR7586041 真实 reads（`conv_R1.fa.gz` + `conv_R2.fa.gz`）→ minibwa（`-x sr`）→ 同一份 SAM
 **参考**：`results/ERR7586041/03_assembly/viral_contigs.fasta`，2 条 contig（18001 bp / 11735 bp）
 **日期**：2026-09-08
@@ -64,7 +64,7 @@ read=ERR7586041.10 l_qseq=34 qual[0..4]=255,255,255,255,255
 
 SAM 规范规定 QUAL=`*` 表示质量不可用，htslib 填充 **0xFF(255)**。官方 `count.cpp:142` 读的就是这个值，因此 255 ≥ 20 全部通过。
 
-**修复**（`vp/consensus.py::pileup`）：
+**修复**（`Virus_Platform_Core/consensus.py::pileup`）：
 
 ```python
 if qual == '*':
@@ -160,7 +160,7 @@ FAIL_FLAGS = BAM_FUNMAP | BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP
 
 **无 MAPQ 过滤**。
 
-### 平台参数（`vp/consensus.py`）
+### 平台参数（`Virus_Platform_Core/consensus.py`）
 
 ```
 MIN_BASE_QUALITY=20  MIN_DEPTH=10  MIN_FREQ=0.5  AMBIG='N'
@@ -186,8 +186,8 @@ FAIL_FLAGS=0x4|0x100|0x200|0x400   MIN_COV_PCT=10.0
 
 | 文件 | 内容 |
 |---|---|
-| `vp/consensus.py` | QUAL=`*` 按 htslib 语义处理为 255 |
-| `vp/consensus.py.bak_qualstar_20260908.orig` | 改动前备份 |
+| `Virus_Platform_Core/consensus.py` | QUAL=`*` 按 htslib 语义处理为 255 |
+| `Virus_Platform_Core/consensus.py.bak_qualstar_20260908.orig` | 改动前备份 |
 
 ## 八、产物索引
 

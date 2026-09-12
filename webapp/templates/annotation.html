@@ -38,7 +38,7 @@
           </div>
           <div class="gp-item">
             <label data-i18n="an.dbLabel">参考数据库</label>
-            <select id="oa_db" onchange="$('oa_db_custom').style.display = this.value === 'custom' ? '' : 'none'">
+            <select id="oa_db" onchange="libsUiSync()">
               <option value="" data-i18n="an.dbRefseq">RefSeq 病毒蛋白库（默认）</option>
               <option value="custom" data-i18n="an.dbCustom">自备本地蛋白 FASTA…</option>
             </select>
@@ -54,6 +54,24 @@
             <input id="oa_db_fa" type="text" data-i18n-ph="an.dbFaPh" placeholder="自备蛋白库 .faa">
             <button class="btn small" onclick="browse('oa_db_fa')">📁</button>
           </div>
+        </div>
+
+        <div style="margin:4px 0 4px">
+          <label data-i18n="an.libsLabel">注释层（可多选，至少一层）</label>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-top:4px">
+            <label class="chk"><input type="checkbox" id="oa_lib_prot" checked
+              onchange="libsUiSync()"><span data-i18n="an.libProt">层1 序列同源（RefSeq 病毒蛋白）</span></label>
+            <label class="chk"><input type="checkbox" id="oa_lib_pfam" checked
+              onchange="libsUiSync()"><span data-i18n="an.libPfam">层2 Pfam HMM（Pfam-A-Viruses）</span></label>
+            <label class="chk"><input type="checkbox" id="oa_lib_cdd" checked
+              onchange="libsUiSync()"><span data-i18n="an.libCdd">层2 CDD 结构域（mmseqs2）</span></label>
+            <button class="btn small" onclick="libsSetAll(true)" data-i18n="an.libsAll">全部层</button>
+            <span class="hint" id="oa_libs_warn" style="display:none"></span>
+          </div>
+          <p class="hint" id="oa_libs_hint" style="margin:6px 0 0" data-i18n="an.libsHint">层1 做
+          DIAMOND/MMseqs2/blastp 同源搜索（首次会下载 ~107MB 参考库）；层2 Pfam HMM 与
+          CDD 结构域为本地库、无需下载。只勾层2 时可跳过层1，速度快很多，但不会有
+          物种/科属与类别投票结果。</p>
         </div>
 
         <h2 style="margin:14px 0 6px" data-i18n="an.modeA">方式 A · 对已有 ORF 运行做注释</h2>
@@ -73,9 +91,13 @@
         <div class="filerow">
           <input id="oa_fa" type="text" data-i18n-ph="an.faPh" placeholder="选择 .fasta / .fna[.gz]">
           <button class="btn small" onclick="browse('oa_fa')">📁</button>
-          <button class="btn small" onclick="pasteSeq('oa_fa', '.fasta')" title="粘贴 FASTA" data-i18n-title="an.pasteFa">📋</button>
+          <button class="btn small" onclick="oaSeqFromPaste()" title="粘贴剪贴板序列到下方文本框" data-i18n-title="an.pasteFa">📋</button>
           <button class="btn small" onclick="fillExample('oa_fa')" title="填入内置示例" data-i18n-title="an.fillExampleTitle" data-i18n="c.example">✨ 示例</button>
         </div>
+        <textarea id="oa_fa_text" rows="10" spellcheck="false"
+          style="width:100%;min-height:220px;font-family:var(--mono);font-size:12.5px;line-height:1.55;margin-top:6px;padding:10px 12px;resize:vertical;border-radius:6px"
+          placeholder=">contig_name\nATGC...（核酸序列，>header 开头）" data-i18n-ph="an.faTextPh"></textarea>
+        <div class="hint" style="margin:4px 0 0" data-i18n="an.faTextHint">可直接 Ctrl+V 粘贴多行 FASTA / 纯序列；文本框右下角可拖拽放大。文本框与上方文件路径二选一，<b>文本框优先</b>（无需先落到文件）。</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
           <div class="gp-item">
             <label data-i18n="an.minAa">最短 ORF 长度（aa）</label>
@@ -105,17 +127,7 @@
 </div>
 
 <!-- 文件/目录选择对话框 -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -124,6 +136,32 @@
 /* $ / esc / browse / pasteSeq / fillExample / toast / startPolling / taskLogOpen 均来自 app.js */
 
 function val(id) { return ($(id)?.value || '').trim(); }
+
+/* ---- 注释层选择（prot 层1 序列同源 / pfam 层2 HMM / cdd 层2 结构域） ---- */
+const OA_LIBS = ['prot', 'pfam', 'cdd'];
+
+function libsSel() {
+  return OA_LIBS.filter(k => $(`oa_lib_${k}`)?.checked);
+}
+
+function libsSetAll(on) {
+  OA_LIBS.forEach(k => { const el = $(`oa_lib_${k}`); if (el) el.checked = !!on; });
+  libsUiSync();
+}
+
+function libsUiSync() {
+  const on1 = !!$('oa_lib_prot')?.checked;
+  ['oa_engine', 'oa_db'].forEach(id => { const el = $(id); if (el) el.disabled = !on1; });
+  const row = $('oa_db_custom');
+  const cust = val('oa_db') === 'custom';
+  if (row) row.style.display = (on1 && cust) ? '' : 'none';
+  const warn = $('oa_libs_warn');
+  if (warn) {
+    warn.textContent = on1 ? '' : '⚠ ' + t('an.libsOff',
+      '已关闭层1 序列同源：搜索引擎与参考库选择不生效');
+    warn.style.display = on1 ? 'none' : '';
+  }
+}
 
 async function loadOrfRuns(auto) {
   try {
@@ -155,16 +193,22 @@ async function _runOrfa(params, btn) {
 }
 
 function annotDbParams(p) {
-  const eng = val('oa_engine');
-  if (eng) p.engine = eng;
+  const libs = libsSel();
+  if (!libs.length) { alert(t('an.needLib', '请至少勾选一个注释层')); return null; }
+  p.libs = libs;
+  // 层1 关闭时搜索引擎与参考库都不参与，不必传（传了也被忽略）
+  if (libs.indexOf('prot') >= 0) {
+    const eng = val('oa_engine');
+    if (eng) p.engine = eng;
+    const dbk = val('oa_db');
+    if (dbk === 'custom') {
+      const fa = val('oa_db_fa');
+      if (!fa) { alert(t('an.needDbFa','请选择自备蛋白库 .faa（或改回 RefSeq 默认库）')); return null; }
+      p.db = fa;
+    }
+  }
   const mdl = val('oa_model');
   if (mdl) p.model = mdl;
-  const dbk = val('oa_db');
-  if (dbk === 'custom') {
-    const fa = val('oa_db_fa');
-    if (!fa) { alert(t('an.needDbFa','请选择自备蛋白库 .faa（或改回 RefSeq 默认库）')); return null; }
-    p.db = fa;
-  }
   return p;
 }
 function runAnnotRun(btn) {
@@ -174,13 +218,65 @@ function runAnnotRun(btn) {
   if (p) _runOrfa(p, btn);
 }
 
+/* 直接输入序列模式（与「保守域与功能元件注释（CDD）」卡同款）：
+   「📋」= 把剪贴板内容填进下方大文本框，也兼容「序列被误粘到文件路径框」的情况；
+   文本框本身支持 Ctrl+V 多行粘贴，右下角可拖拽放大。 */
+async function oaSeqFromPaste() {
+  const ta = $('oa_fa_text');
+  const inp = $('oa_fa');
+  if (!ta) return;
+  // ① 路径框里已是序列正文（> 开头 / 多行）→ 搬到下方文本框
+  const raw = (inp?.value || '').trim();
+  if (raw.startsWith('>') || raw.includes('\n')) {
+    ta.value = raw;
+    if (inp) inp.value = '';
+    toast('已移入下方序列文本框', '', { ttl: 2500 });
+    ta.focus();
+    return;
+  }
+  // ② 读剪贴板（localhost/https 下浏览器允许）
+  try {
+    const txt = ((await navigator.clipboard.readText()) || '').trim();
+    if (!txt) { ta.focus(); alert(t('an.clipEmpty','剪贴板为空，请直接在下方文本框内 Ctrl+V 粘贴')); return; }
+    ta.value = ta.value.trim() ? ta.value.replace(/\s*$/, '\n') + txt : txt;
+    toast('已粘贴剪贴板内容', txt.replace(/\s/g, '').length + ' 字符', { ttl: 2500 });
+    ta.focus();
+  } catch (e) {
+    ta.focus();
+    alert(t('an.clipDenied','浏览器不允许读取剪贴板，请直接在下方文本框内 Ctrl+V 粘贴'));
+  }
+}
+
 function runAnnotFasta(btn) {
-  if (!val('oa_fa')) { alert(t('an.needFa','请选择输入 FASTA')); return; }
-  const p = annotDbParams({ fasta: val('oa_fa'), min_aa: +val('oa_min') || 100 });
+  // 文本框优先；文件路径框里若粘进了序列（> 开头 / 多行），也按正文处理
+  let pathVal = val('oa_fa');
+  let text = ($('oa_fa_text')?.value || '').trim();
+  if (!text && (pathVal.startsWith('>') || pathVal.includes('\n'))) {
+    text = pathVal; pathVal = '';
+  }
+  const minAa = +val('oa_min') || 100;
+  if (text) {
+    if (!text.startsWith('>')) {
+      alert(t('an.faNeedHeader','粘贴序列需为 FASTA 格式（> 开头）')); return;
+    }
+    // 落到临时文件后复用既有 orfa 流程（与「📋 粘贴」按钮同一落盘通道）
+    fetch('/api/paste_input', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, ext: '.fasta' })
+    }).then(r => r.json()).then(d => {
+      if (!d.path) { alert(d.error || t('an.pasteFail','粘贴内容写入失败')); return; }
+      const p = annotDbParams({ fasta: d.path, min_aa: minAa });
+      if (p) _runOrfa(p, btn);
+    }).catch(e => alert(t('an.connFail','无法连接平台服务: ') + e));
+    return;
+  }
+  if (!pathVal) { alert(t('an.needFa','请选择输入 FASTA 或在下方粘贴序列')); return; }
+  const p = annotDbParams({ fasta: pathVal, min_aa: minAa });
   if (p) _runOrfa(p, btn);
 }
 
 loadOrfRuns(false);
+libsUiSync();
 startPolling();
 </script>
 </body>

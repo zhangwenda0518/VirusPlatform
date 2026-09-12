@@ -12,10 +12,45 @@
 {% include "_nav.html" %}
 
 <div class="page">
-  <div class="hero">
-    <h1 data-i18n="hm.heroTitle">植物病毒分析平台</h1>
-    <p data-i18n="hm.heroSub">本地化病毒诊断与深度分析：宿主去除 → 病毒鉴定 → 组装 →
-       编码预测 / 进化树 / SDT / 引物 → 可视化报告，全程鼠标点击。</p>
+  <!-- 环境状态条：模块 / 工具 / 数据库 / 磁盘一览。
+       数据异步取 /api/selfcheck（服务端进程内缓存），不阻塞首屏；
+       请求失败或未就绪时整条隐藏，不打扰封面。 -->
+  <div id="envStrip" class="env-strip" hidden>
+    <span id="envStripBody"></span>
+    <a href="/settings" data-i18n="hm.env.settings">设置与自检 ›</a>
+  </div>
+
+  <!-- 封面：把平台的「背景 / 方法 / 流程 / 意义」压成一张可一眼读完的文字封面。
+       上半是平台名 + 科研定位句 + 工程口径行；下方四张卡片分别答
+       「为什么做 / 怎么做 / 做什么 / 值在哪」。 -->
+  <div class="hero cover">
+    <div class="cover-txt">
+      <h1 data-i18n="hm.heroTitle">植物病毒分析平台</h1>
+      <!-- 主标题下的一句科研定位（口径：看见样本里的病毒世界） -->
+      <p class="cover-lead" data-i18n="hm.heroLead">看见样本里的病毒世界。</p>
+      <p data-i18n="hm.heroSub">发现、鉴定、定量、溯源植物 RNA 病毒——再低的丰度也看得见；从原始测序数据到可发表的基因组证据，一台 Windows 电脑完成。</p>
+      <!-- 工程口径一行：本地化 / 内置库 / 13 步级联 / 默认离线 -->
+      <p class="cover-eng" data-i18n="hm.heroEng">Windows 单机本地分析 · 内置病毒数据库 3.4 GB · 13 步级联默认全程离线</p>
+    </div>
+  </div>
+
+  <div class="cover-grid">
+    <div class="cover-card">
+      <div class="cc-head"><b>Ⅰ</b><span data-i18n="hm.cover.bg.t">背景</span></div>
+      <p data-i18n="hm.cover.bg.d">高通量测序已成为植物病毒发现的主流手段。但"读到一条序列"与"确认一种病毒"之间，隔着基因组重建、功能注释、宿主判定、进化定位、公共数据佐证等十几个环节——从拿到数据到产出结论，仍是一道横在多数实验室面前的专业鸿沟。</p>
+    </div>
+    <div class="cover-card">
+      <div class="cc-head"><b>Ⅱ</b><span data-i18n="hm.cover.mt.t">方法</span></div>
+      <p data-i18n="hm.cover.mt.d">发现与验证双轨并行：比对引擎对已知病毒灵敏检出并定量，组装引擎为未知病毒重建基因组；三层注释为 ORF 定功能，ICTV 级联预测宿主，再以 2340 万公共样本溯源交叉印证——序列、功能、宿主、来源，环环有据。</p>
+    </div>
+    <div class="cover-card">
+      <div class="cc-head"><b>Ⅲ</b><span data-i18n="hm.cover.wf.t">流程</span></div>
+      <p data-i18n="hm.cover.wf.d">原始 reads 进，基因组图谱出：质控、去宿主、识别、组装、验证、注释、建树、引物、基因组图、报告，13 步自动衔接——一条候选病毒的"全套尽调"，一次运行完成。</p>
+    </div>
+    <div class="cover-card">
+      <div class="cc-head"><b>Ⅳ</b><span data-i18n="hm.cover.sg.t">意义</span></div>
+      <p data-i18n="hm.cover.sg.d">分析链条的完备程度，决定一个团队能做出多少病毒发现。平台把从检出到发表的全部环节装进一台 Windows 电脑——数据不出本机，序列可直接提交 GenBank/BioSample；发现的上限，从此取决于样品与科学问题，而不是服务器与生信团队。</p>
+    </div>
   </div>
 
   <!-- 数据库模块 -->
@@ -34,7 +69,7 @@
     <a class="module-card entry" href="/pipeline">
       <div class="mc-icon">🧪</div>
       <div class="mc-name" data-i18n="nav.pipeline">自动化分析流程</div>
-      <div class="mc-desc" data-i18n="hm.entry.flow.d">新建样品，13 步级联：质控 → 宿主去除 → 病毒筛查 → 组装 → ORF/注释 → 进化树/引物 → 基因组图 → 报告</div>
+      <div class="mc-desc" data-i18n="hm.entry.flow.d">新建样品，13 步级联：质控 → 宿主去除 → 已知病毒识别与定量 → 组装 → ORF/注释 → 进化树/引物 → 基因组图 → 报告</div>
     </a>
     <a class="module-card entry" href="/tools?g=resource">
       <div class="mc-icon">🌐</div>
@@ -46,15 +81,15 @@
       <div class="mc-name" data-i18n="nav.g.sample">样本处理</div>
       <div class="mc-desc" data-i18n="hm.entry.sample.d">格式转换（sra/fastq→fasta）· 序列质控 · 宿主去除 · 序列查看器</div>
     </a>
-    <a class="module-card entry" href="/tools?g=virus">
-      <div class="mc-icon">🦠</div>
-      <div class="mc-name" data-i18n="nav.g.virus">病毒识别和分类分析</div>
-      <div class="mc-desc" data-i18n="hm.entry.virus.d">病毒识别分类与提取 · 提取序列组装 · 组装结果再鉴定</div>
-    </a>
     <a class="module-card entry" href="/tools?g=kvsuite">
       <div class="mc-icon">📈</div>
       <div class="mc-name" data-i18n="nav.g.kvsuite">病毒定量与共识</div>
       <div class="mc-desc" data-i18n="hm.entry.kvsuite.d">已知病毒识别与定量 · 共识序列分析 · 深度图 · 变异注释</div>
+    </a>
+    <a class="module-card entry" href="/tools?g=virus">
+      <div class="mc-icon">🦠</div>
+      <div class="mc-name" data-i18n="nav.g.virus">病毒识别和分类分析</div>
+      <div class="mc-desc" data-i18n="hm.entry.virus.d">病毒识别分类与提取 · 提取序列组装 · 组装结果再鉴定</div>
     </a>
     <a class="module-card entry" href="/tools?g=annotate">
       <div class="mc-icon">🔬</div>
@@ -86,5 +121,39 @@
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
 <script src="/static/examples.js?v={{ asset_v }}"></script>
+<script>
+/* 环境状态条：异步拉 /api/selfcheck（服务端缓存 5 分钟），渲染一行摘要。
+   任何异常都静默——总览页不该因为自检挂掉而受影响。 */
+(async () => {
+  try {
+    const d = await (await fetch('/api/selfcheck')).json();
+    const sec = {};
+    for (const s of (d.sections || [])) sec[s.id] = s;
+    if (!sec.modules && !sec.tools) return;
+    const bit = (label, val, state) =>   // state: ok / warn / bad
+      `<span class="env-bit ${state}">${state === 'ok' ? '✔' : state === 'warn' ? '△' : '✘'} ` +
+      `${esc(label)} <b>${esc(val)}</b></span>`;
+    const disk = sec.disk && sec.disk.items && sec.disk.items[0];
+    const tools = sec.tools || {};
+    const nMiss = (tools.missing || []).length;
+    const bits = [
+      bit(t('hm.env.modules', '模块'),
+          sec.modules ? sec.modules.summary : '—',
+          sec.modules && sec.modules.ok ? 'ok' : 'bad'),
+      bit(t('hm.env.tools', '外部工具'),
+          tools.summary || '—',
+          nMiss === 0 ? 'ok' : (tools.summary ? 'warn' : 'bad')),
+      bit(t('hm.env.databases', '数据库'),
+          sec.databases ? (sec.databases.ok ? '就绪' : '未就绪') : '—',
+          sec.databases && sec.databases.ok ? 'ok' : 'bad'),
+      bit(t('hm.env.disk', '磁盘'),
+          disk ? disk.detail.replace(/^剩余\s*/, '') : '—',
+          disk ? (disk.ok ? 'ok' : 'warn') : 'ok'),
+    ];
+    $('envStripBody').innerHTML = bits.join('');
+    $('envStrip').hidden = false;
+  } catch (e) { /* 静默 */ }
+})();
+</script>
 </body>
 </html>

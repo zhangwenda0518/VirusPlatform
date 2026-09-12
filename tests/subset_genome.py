@@ -7,8 +7,8 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vp.utils import safe_open, check_path
-from vp.config import current_host_genome
+from Virus_Platform_Core.utils import safe_open, check_path
+from Virus_Platform_Core.config import current_host_genome
 
 target_mb = int(sys.argv[1]) if len(sys.argv) > 1 else 800
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

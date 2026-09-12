@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BioAider SeqTools 十项功能详解</title>
+<style>
+  :root{
+    --bg:#fff; --panel:#f7f8fa; --line:#e3e6ec; --text:#1c2230; --muted:#5b6577;
+    --green:#0f8a6a; --amber:#b45309; --red:#c0392b; --blue:#1f6feb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 28px 80px}
+  h1{font-size:25px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:22px}
+  h2{font-size:18px;margin:34px 0 10px;padding:8px 0 8px 0;border-bottom:2px solid var(--line)}
+  h2 .no{display:inline-block;min-width:26px;color:var(--blue)}
+  h3{font-size:14px;margin:16px 0 6px;color:var(--muted);font-weight:600;
+     letter-spacing:.5px}
+  p{margin:8px 0}
+  code{background:#f2f4f8;padding:2px 6px;border-radius:4px;
+       font-family:Consolas,monospace;font-size:12.8px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600;width:96px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+       padding:12px 16px;margin:14px 0}
+  .box.warn{border-left:4px solid var(--amber)}
+  .box.err{border-left:4px solid var(--red)}
+  .box.info{border-left:4px solid var(--blue)}
+  .box.ok{border-left:4px solid var(--green)}
+  ul,ol{margin:8px 0;padding-left:22px}
+  li{margin:4px 0}
+  .flow{font-family:Consolas,monospace;font-size:12.8px;background:#f2f4f8;
+        border-radius:6px;padding:10px 14px;margin:10px 0;white-space:pre-wrap;line-height:1.7}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:12.5px}
+  .toc{columns:2;font-size:13.5px;margin:14px 0 0}
+  .toc a{color:var(--blue);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>BioAider SeqTools 十项功能详解</h1>
+<div class="sub">
+依据：<code>_bioaider_re/decompiled/seqtools/</code>（v1.727 反编译源码，3493 行）&nbsp;|&nbsp;2026-09-11
+</div>
+
+<div class="box info">
+<b>先记住两条贯穿全部 10 个功能的约定</b>
+<ol>
+<li><b>输出前缀</b>统一由 <code>resolve_file_path()</code> 生成：
+   取文件名 → 删掉扩展名 → 把剩下的 <code>.</code> 全换成 <code>_</code>。
+   例：<code>seqs.txt</code> → 前缀 <code>seqs_</code>。
+   各功能再自己拼后缀（有的会再补一个 <code>_</code>，所以会出现双下划线，见下文）。</li>
+<li><b>输出一律写在输入文件同目录</b>，没有子目录、没有覆盖确认。
+   同名文件会被直接覆盖。</li>
+</ol>
+</div>
+
+<div class="toc">
+<a href="#f1">1. SeqFormat Convertor</a><br>
+<a href="#f2">2. Sequence Vary</a><br>
+<a href="#f3">3. SequenceID Rename</a><br>
+<a href="#f4">4. Split Sequence Fragment</a><br>
+<a href="#f5">5. Combine Gene</a><br>
+<a href="#f6">6. Visual Gene Extractor</a><br>
+<a href="#f7">7. Sequential Extraction Text</a><br>
+<a href="#f8">8. Viral *.gb file parser</a><br>
+<a href="#f9">9. Fast Annotation</a><br>
+<a href="#f10">10. Ambiguous Base Edition</a>
+</div>
+
+<h2 id="f1"><span class="no">1</span>SeqFormat Convertor —— 格式转换</h2>
+<p>四种序列格式之间互相转换，<b>12 种有向组合全覆盖</b>。</p>
+<table>
+<tr><th>输入</th><td>单个序列文件，格式为 <code>Fasta</code> / <code>Nexus</code> / <code>Paml</code> / <code>Phylip</code> 之一</td></tr>
+<tr><th>选项</th><td>源格式下拉框 → 目标格式下拉框；<br>
+<b>Data type</b>（Nucleotide / Protein）<b>只在目标格式选 Nexus 时可点</b>，其他情况置灰</td></tr>
+<tr><th>输出</th><td>Fasta→Fasta：<code>&lt;前缀&gt;_trans.fasta</code><br>
+其余：<code>&lt;前缀&gt;.nex</code> / <code>.pml</code> / <code>.phy</code> / <code>.fasta</code></td></tr>
+</table>
+<div class="box warn">
+<b>实现细节：</b>所有转换都<b>走 FASTA 中转</b>——先 <code>x_to_fas()</code> 再 <code>fas_to_x()</code>。
+所以 Nexus→Phylip 实际是 Nexus→Fasta→Phylip，中间若有 FASTA 表达不了的信息会丢。<br>
+另外 Fasta→Fasta 的输出名（<code>_trans</code>）跟其他转换的命名规则不一致，容易找不到文件。
+</div>
+
+<h2 id="f2"><span class="no">2</span>Sequence Vary —— 一个窗口 10 种序列处理</h2>
+<p>左侧是单选按钮列表，每个选项对应一种处理，输出文件名各不相同：</p>
+<table>
+<tr><th>处理</th><td><b>输出文件</b>（<code>前缀_</code> 之后再拼）</td></tr>
+<tr><th>Extract SeqTaxon</th><td><code>_seq_taxon.txt</code> —— 只导出序列名，去掉 <code>&gt;</code></td></tr>
+<tr><th>Uniform Seqname Length: N</th><td><code>_seq_len.&lt;ext&gt;</code> —— 序列名截断到前 N 个字符</td></tr>
+<tr><th>Reverse</th><td><code>_reverse.&lt;ext&gt;</code></td></tr>
+<tr><th>Reverse complement</th><td><code>_reverse_complement.&lt;ext&gt;</code></td></tr>
+<tr><th>U to T</th><td><code>_U_to_T.&lt;ext&gt;</code></td></tr>
+<tr><th>T to U</th><td><code>_T_to_U.&lt;ext&gt;</code></td></tr>
+<tr><th>SeqLength + GC%</th><td><code>_SeqLength_GC.txt</code> —— 表头 <code>SeqName / Lenth / GC%</code></td></tr>
+<tr><th>Translation to AA</th><td><code>_translate.&lt;ext&gt;</code> —— 需选遗传密码表</td></tr>
+<tr><th>DNA_Protein</th><td><code>_DNA_PROT.&lt;ext&gt;</code> —— 同时输出 <code>&gt;名_nt</code> 和 <code>&gt;名_aa</code></td></tr>
+<tr><th>Extract codon sites</th><td><code>Codon (1+2, 3)</code> → <code>_codon_1-2</code> + <code>_codon_3</code><br>
+<code>Codon (1,2,3)</code> → <code>_codon_1</code> + <code>_codon_2</code> + <code>_codon_3</code></td></tr>
+</table>
+<div class="box">
+<b>值得注意的实现细节</b>
+<ul>
+<li><b>反向互补</b>用的是<b>手写 IUPAC 互补表</b>（含 <code>R↔Y / M↔K / B↔V / D↔H / S↔S / W↔W / N↔N</code>），
+并且按序列里有没有 <code>T</code> 决定用 DNA 表还是 RNA 表——所以 RNA 序列也能正确处理。</li>
+<li><b>GC%</b> 计算前会先去掉 <code>-</code> 和空格，即 <b>按非 gap 位点计算</b>。</li>
+<li><b>DNA_Protein</b> 用的是 <code>gap_DNA_genetic_godes_transle</code>（带 gap 的翻译版本），
+保证氨基酸序列与核苷酸的 gap 对齐——这点和 <code>Translation to AA</code> 用的普通翻译函数不同。</li>
+<li>可选 <b>25 张遗传密码表</b>（标准码 / 脊椎动物线粒体 / 酵母线粒体 / 纤毛虫核 …）。</li>
+<li><b>Extract codon sites</b> 会先校验序列长度是否为 3 的倍数，不是就报错退出。</li>
+</ul>
+</div>
+
+<h2 id="f3"><span class="no">3</span>SequenceID Rename —— 批量改序列名</h2>
+<table>
+<tr><th>输入</th><td><b>任意文本文件</b>——序列文件<b>或系统发育树文件</b>都行；<br>
+外加粘贴一张对照表：<code>旧名称</code> + TAB + <code>新名称</code>，一行一条</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;rename.&lt;ext&gt;</code></td></tr>
+</table>
+<div class="flow">读取整个文件为字符串 → 逐行 replace(旧名, 新名) → 整体写回</div>
+<div class="box err">
+<b>三个必须知道的坑</b>
+<ul>
+<li><b>是纯子串替换，没有词边界保护。</b>规则 <code>seq1 → A</code> 会把 <code>seq10</code> 也改成 <code>A0</code>。</li>
+<li><b>规则按顺序执行、会级联。</b>若同时有 <code>A→B</code> 和 <code>B→C</code>，
+原来叫 <code>A</code> 的会被改两次，最终变成 <code>C</code>。<br>
+<span style="color:#5b6577">规避办法：新名不要和任何旧名重合。</span></li>
+<li>对照表每行必须<b>恰好含 1 个 TAB</b>，否则报 "The format is error ... at line N" 并中止。</li>
+</ul>
+</div>
+
+<h2 id="f4"><span class="no">4</span>Split Sequence Fragment —— 按坐标切片段</h2>
+<table>
+<tr><th>输入</th><td>FASTA 序列文件</td></tr>
+<tr><th>两种模式</th><td>
+<b>Different range</b>：粘贴表格 <code>序列名</code> + TAB + <code>起始</code> + TAB + <code>结束</code>，
+<b>每条序列用各自坐标</b>（此时下方文本框可用）<br>
+<b>Equal range</b>：直接填一组起止坐标，<b>所有序列统一</b>（表格置灰）</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;split.&lt;ext&gt;</code></td></tr>
+</table>
+<p>坐标是 <b>1-based、含首含尾</b>：源码里是 <code>seq[start-1 : end]</code>。</p>
+<div class="box warn">
+<b>注意：</b>Different range 模式下序列名必须<b>完全相等</b>（<code>u1 == seq_name</code>）才匹配；
+<b>不在表里的序列会被静默丢弃</b>，输出文件里根本不出现——不会报错，也不会保留原样。
+另外每条序列只取<b>第一条</b>命中的规则。
+</div>
+
+<h2 id="f5"><span class="no">5</span>Combine Gene —— 多基因串联 ★</h2>
+<p>把多个已比对的基因文件<b>水平拼接</b>成一个整体，用于多基因联合建树。</p>
+<table>
+<tr><th>输入</th><td><b>一个文件夹</b>（内含多个已比对的基因 FASTA）；<br>
+点 "Load file" 后，文本框里会列出所有文件路径——<b>这个顺序就是串联顺序</b>，可手工调整</td></tr>
+<tr><th>选项</th><td>Data type：Nucleotide / Protein<br>
+输出格式（可多选）：<code>Fasta</code> / <code>Nexus (Sequential)</code> / <code>Nexus (Interleave)</code></td></tr>
+<tr><th>输出</th><td>写在<b>输入文件夹</b>里：<br>
+<code>Combine.fasta</code><br>
+<code>Combine(Sequential).nex</code><br>
+<code>Combine(Interleave).nex</code></td></tr>
+</table>
+
+<h3>算法</h3>
+<ol>
+<li>以<b>第一个文件</b>的序列集合和顺序为准（taxon 集合由它决定）</li>
+<li>后续每个基因按序列名查找对应序列，依次拼在后面</li>
+<li>NEXUS 输出里<b>自带分区块</b>，基因名取自文件名（去扩展名）：</li>
+</ol>
+<div class="flow">begin sets;
+charset gene1=1-450;
+charset gene2=451-900;
+partition Names = 2:gene1,gene2;
+set partition=Names;
+end;</div>
+<p>Interleave 模式按每 <b>100 字符</b>一块换行排列。</p>
+
+<div class="box err">
+<b>两个需要注意的地方</b>
+<ul>
+<li><b>补 gap 的实现有隐患。</b>某个基因里找不到某条序列时，源码执行的是
+<code>ww.popitem()</code> —— <b>从该基因的序列字典里随机弹一条出来，拿它的长度补 gap</b>，
+而且<b>会把这条序列从字典里删掉</b>。<br>
+如果该基因内序列长度不一致，补出来的 gap 长度就是错的；而且后续再遇到缺失，候选池已经少了一条。</li>
+<li><b>分区块是 MrBayes 风格</b>（<code>set partition=</code>）。IQ-TREE 需要的是
+<code>charpartition mymodels = ...</code>，两者不通用——要喂 IQ-TREE <code>-p</code>，
+得另外用 <b>Partition-Model Make</b>（Evolution ▸ Phylogeny）生成分区文件。</li>
+</ul>
+</div>
+<div class="box info">
+<b>还有个容易忽略的点：</b>文本框里的文件顺序来自 <code>os.listdir()</code>，
+<b>不保证按文件名排序</b>（取决于文件系统）。跑之前务必确认一下顺序对不对——
+串联顺序错了，分区坐标就全错。
+</div>
+
+<h2 id="f6"><span class="no">6</span>Visual Gene Extractor —— 按关键词批量提序列</h2>
+<table>
+<tr><th>输入</th><td>FASTA 文件（拖拽或点击加载）<br>
++ 一个或多个<b>关键词</b>，每行一个，<b>多个关键词取并集</b></td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;_extract_result.fasta</code></td></tr>
+</table>
+<p>界面右侧会列出文件里<b>所有序列名</b>，方便你对照着填关键词；下方是提取日志。</p>
+<div class="box">
+<b>细节</b>
+<ul>
+<li>匹配是<b>子串匹配</b>（<code>name.find(关键词) != -1</code>）且<b>大小写敏感</b>。<br>
+填 <code>gene</code> 会同时命中 <code>geneX</code> 和 <code>mygene</code>——要精确匹配就填全名。</li>
+<li>输出时会把序列名里的 <code>lcl|</code> 前缀去掉。</li>
+<li>右侧那份「GenID → 已提取基因」的汇总日志用的是<b>硬编码的 GenBank 命名正则</b>
+（匹配 <code>&gt;lcl..._cds</code>）。<b>非 GenBank 风格的名字这份日志会静默失败</b>
+（整段包在 <code>try/except</code> 里），但序列提取本身不受影响。</li>
+</ul>
+</div>
+
+<h2 id="f7"><span class="no">7</span>Sequential Extraction Text —— 按列表顺序提取</h2>
+<table>
+<tr><th>输入</th><td>FASTA 文件 <b>或</b> 普通文本文件（用 Data type 单选切换）<br>
++ 一个字符串列表，每行一个</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;extra.&lt;ext&gt;</code></td></tr>
+</table>
+<div class="flow">for 列表里的每个字符串:
+    在文件里从头扫描，找到第一条「名称/行内容包含该字符串」的记录
+    输出它，然后 break（每个字符串只取第一条命中）</div>
+<p>关键点是<b>输出顺序 = 你给的列表顺序</b>，而不是文件里的原始顺序。</p>
+<div class="box">
+<b>两种模式的输出差异</b>
+<ul>
+<li><b>Fasta file 模式</b>：输出 <code>&gt;序列名</code> + 序列。<b>没找到就什么都不输出。</b></li>
+<li><b>Normal text 模式</b>：输出整行。<b>没找到会写一行 <code>&lt;字符串&gt;\tNULL</code></b>
+——这个哨兵很有用，能一眼看出哪些没匹配上。</li>
+</ul>
+<b>典型用途：</b>把一批序列按你指定的顺序重排（比如对齐到参考数据集的排列），
+或从大文件里按清单抽取子集。
+</div>
+
+<h2 id="f8"><span class="no">8</span>Viral *.gb file parser —— GenBank 批量信息提取</h2>
+<table>
+<tr><th>输入</th><td>单个 <code>.gb</code> 文件（可含多条记录）</td></tr>
+<tr><th>参数</th><td>Threads（进程数）<br>
+Max.num.seqs in iterative（分片读取阈值，默认 <b>10000</b>；值小省内存但慢）</td></tr>
+<tr><th>选项</th><td><code>Export sequence to table</code> —— 额外导出一列序列<br>
+<code>Influenza virus</code> —— 额外提取流感病毒的蛋白 <code>translation</code><br>
+<code>Classification extraction</code> —— 按分类层级建目录、把每条 gb 分门别类存好</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;strain_information.xlsx</code>（28 列）<br>
+若勾选分类提取：按 <code>界/门/纲/…/属/种</code> 建目录，每条毒株一个 <code>.gb</code>，
+外加每个目录一份 <code>starin summary.txt</code></td></tr>
+</table>
+<h3>提取的字段（28 列）</h3>
+<p><code>Accession · Version · Length · Genomic · Topology · Updated date</code>，
+然后是 <b>12 级分类</b>（Biological / Realm / Kingdom / Phylum / Class / Order / Suborder /
+Family / Subfamily / Genus / Subgenus / Species），再是
+<code>Organism · Strain · Isolation source · Metagenome source · Host · Collection region ·
+geo_loc_name · Collection date · Title</code>（勾选后再加 <code>Sequence</code>）。</p>
+<div class="box">
+<b>实现要点</b>
+<ul>
+<li>用 <code>multiprocessing.Pool</code> 多进程并行；按 <code>max_num_seq</code> <b>分片流式读取</b>控内存。</li>
+<li>先把记录按 <code>//</code> 切开，再把换行统一替换成 <code>&amp;&amp;</code>，然后跑正则。</li>
+<li><b>同时抓 <code>country</code> 和 <code>geo_loc_name</code> 两个字段</b>——
+这是 V1.727 针对 NCBI 把 <code>country</code> 改名为 <code>geo_loc_name</code> 做的适配。</li>
+</ul>
+</div>
+<div class="box warn">
+<b>三个已知瑕疵</b>
+<ul>
+<li><b>分类学列可能错位</b>：程序自己的提示里就写了
+"Taxonomy information may be misaligned with the column names due to some absent annotation"。
+gb 文件里分类注释缺级时，后面所有分类列会整体前移。</li>
+<li>输出文件名 <code>starin summary.txt</code> <b>拼写错误</b>（应为 strain）。</li>
+<li>分类提取以 <code>Version</code> 作为索引键；<b>缺 Version 的记录会被跳过</b>，不会进目录。</li>
+</ul>
+</div>
+
+<h2 id="f9"><span class="no">9</span>Fast Annotation —— 快速注释 / 批量抽基因</h2>
+<table>
+<tr><th>输入</th><td><b>已比对</b>的 FASTA，且 <b>参考序列必须放在第一条</b></td></tr>
+<tr><th>参数</th><td>表格输入，可增删行：<code>Gene name</code> + <code>Start string</code> + <code>End string</code></td></tr>
+<tr><th>输出</th><td><b>每个基因一个 FASTA</b>：<code>&lt;输入目录&gt;/&lt;基因名&gt;.fasta</code><br>
+<code>&lt;输入目录&gt;/qury_index_table.csv</code>（Gene name, Start index, End index）</td></tr>
+</table>
+<div class="flow">在第一条（参考）序列上:
+    start_index = 参考序列.find(起始字符串) + 1
+    end_index   = 参考序列.find(结束字符串) + len(结束字符串)
+把这套坐标套用到**所有序列**：seq[start_index-1 : end_index]</div>
+<div class="box warn">
+<b>前提与风险</b>
+<ul>
+<li>起始/结束字符串<b>必须在参考序列里唯一</b>——这是硬要求，否则定位到错误位置。</li>
+<li>坐标是在<b>参考序列</b>上算的，然后套到所有序列上。这依赖"序列已比对且 gap 一致"这个前提；
+如果参考序列本身有缺失、或比对质量差，切出来的片段会错位。</li>
+<li>官方建议：序列相似度越高，注释越准。</li>
+<li>输出<b>直接写在输入文件所在目录</b>（不是子目录），基因名就是文件名——
+基因名里若有 <code>/</code> 之类的字符会出问题。</li>
+</ul>
+</div>
+
+<h2 id="f10"><span class="no">10</span>Ambiguous Base Edition —— 模糊碱基 + 提前终止密码子校正 ★</h2>
+<p>这个功能最有意思，也最复杂。<b>目的是为 PAML 等分析准备干净的序列</b>。</p>
+<table>
+<tr><th>输入</th><td><b>基于密码子方式对齐</b>的 FASTA</td></tr>
+<tr><th>输出</th><td><code>&lt;前缀&gt;_clean.fasta</code> —— 校正后的序列<br>
+<code>&lt;前缀&gt;_hamming_distance.csv</code> —— 中间产物，全对全 Hamming 距离矩阵</td></tr>
+</table>
+
+<h3>第一步：模糊碱基校正</h3>
+<ol>
+<li>先算<b>全对全 Hamming 距离矩阵</b>（O(n²)，程序日志里自己都写了 "This step will take a long time"）</li>
+<li>找出每条序列里所有 IUPAC 简并碱基的位置
+    （<code>R Y M K S W H B V D N</code> 共 11 种）</li>
+<li>对每个简并位点，取<b>最近的 10 条邻居序列</b>（按 Hamming 距离排序，跳过自己）</li>
+<li>看这 10 条在<b>该位点</b>是什么碱基，取<b>众数</b></li>
+<li><b>如果众数落在该简并码允许的碱基集合里 → 用众数；否则 → 用允许集合里的第一个</b></li>
+</ol>
+<div class="flow">例：某位点是 R（允许 A/G）
+  邻居 10 条里多数是 A  → 替换为 A
+  邻居 10 条里多数是 C  → C 不在 {A,G} 里 → 回退为 A（允许集合的第一个）</div>
+
+<h3>第二步：提前终止密码子清理</h3>
+<ol>
+<li>按密码子切分；<b>若序列末尾本身就是终止密码子（TAG/TGA/TAA），则排除最后一位密码子</b></li>
+<li>扫描内部终止密码子，发现时从<b>同密码子位置的其他序列</b>借碱基：</li>
+</ol>
+<table>
+<tr><th>位置</th><td>取材范围</td></tr>
+<tr><th>靠前（前 3 条序列）</th><td>取第 i+1 ~ i+4 条序列在同一密码子位置的密码子</td></tr>
+<tr><th>中间</th><td>取 i−1、i−2、i+1、i+2 四条</td></tr>
+<tr><th>靠后</th><td>取 i−1 ~ i−4 四条</td></tr>
+</table>
+<p>然后对这 4 个候选密码子取<b>众数</b>替换掉终止密码子。</p>
+
+<div class="box err">
+<b>我发现的一个 bug（用之前要知道）</b><br>
+候选列表 <code>st_codon_to</code> 在双重循环<b>外面</b>初始化，循环内只 append、<b>从不重置</b>。
+所以处理第二个及以后的提前终止密码子时，候选池里还留着前面位点的候选——
+<b>众数统计会被污染</b>。一条序列里终止密码子越多，偏差越大。<br>
+<span style="color:#5b6577">（这解释了为什么作者建议只对相似度高的序列集使用该功能。）</span>
+</div>
+
+<div class="box info">
+<b>作者与使用建议</b><br>
+该功能由 <b>Xiyue Wang</b> 贡献（源码内署名 "Yusy"，版本 V0.3），界面上还写着
+"Special thanks to the developer of Yusy!"。<br>
+官方给出的两条建议（来自 <code>Update_record.md</code>）：
+<ul>
+<li>单条序列的模糊碱基占比<b>不宜超过 2%</b>；</li>
+<li><b>遗传距离远的序列不适合做这种校正</b>——因为算法本质是"从近邻借碱基"，
+   近邻越远，借来的碱基越不可信。</li>
+</ul>
+</div>
+
+<h2>附：横向对比速查</h2>
+<table>
+<tr><th style="width:150px">功能</th><th style="width:110px">输入单位</th><th>输出</th><th style="width:120px">值得注意</th></tr>
+<tr><td>SeqFormat Convertor</td><td>单文件</td><td>4 格式互转</td><td>走 FASTA 中转</td></tr>
+<tr><td>Sequence Vary</td><td>单文件</td><td>10 种处理各自输出</td><td>一次只能做一种</td></tr>
+<tr><td>SequenceID Rename</td><td>任意文本</td><td><code>_rename</code></td><td>子串替换会级联</td></tr>
+<tr><td>Split Sequence Fragment</td><td>FASTA</td><td><code>_split</code></td><td>未命中序列静默丢弃</td></tr>
+<tr><td>Combine Gene</td><td><b>文件夹</b></td><td><code>Combine.*</code></td><td>顺序靠文本框；分区是 MrBayes 风格</td></tr>
+<tr><td>Visual Gene Extractor</td><td>FASTA + 关键词</td><td><code>_extract_result</code></td><td>子串匹配、大小写敏感</td></tr>
+<tr><td>Sequential Extraction Text</td><td>FASTA / 文本</td><td><code>_extra</code></td><td>输出顺序 = 列表顺序</td></tr>
+<tr><td>Viral *.gb file parser</td><td>.gb</td><td>xlsx + 分类目录</td><td>分类列可能错位</td></tr>
+<tr><td>Fast Annotation</td><td>已比对 FASTA</td><td>每基因一个 fasta</td><td>参考须在第一条</td></tr>
+<tr><td>Ambiguous Base Edition</td><td>密码子比对 FASTA</td><td><code>_clean.fasta</code></td><td>候选池未重置的 bug</td></tr>
+</table>
+
+<footer>
+依据 <code>_bioaider_re/decompiled/seqtools/</code> 下 10 个模块的反编译源码逐行核对。<br>
+BioAider 为第三方软件，本文仅作功能与算法说明，未复制其代码。
+</footer>
+
+</div>
+</body>
+</html>

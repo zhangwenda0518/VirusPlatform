@@ -9,8 +9,8 @@ import sys
 import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vp.config import DIRS, get_config  # noqa: E402
-from vp.utils import safe_open  # noqa: E402
+from Virus_Platform_Core.config import DIRS, get_config  # noqa: E402
+from Virus_Platform_Core.utils import safe_open  # noqa: E402
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
     src = os.path.join('examples', 'example_viral_contigs.fasta')
     shutil.copyfile(src, os.path.join(a_dir, 'contigs.fasta'))
 
-    from vp.assembly import assemble_and_classify
+    from Virus_Platform_Core.assembly import assemble_and_classify
     cfg = get_config()
     res = assemble_and_classify(sample, src, None, cfg.databases['virus'],
                                 mode='metaviral', threads=8, min_contig_len=500)

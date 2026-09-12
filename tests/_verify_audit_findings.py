@@ -25,21 +25,21 @@ def rep(tag, ok, detail=''):
 # ---------------------------------------------------------------- 1
 print('=== 1. db_migrate: from .config import cfg ===')
 try:
-    src = io.open(os.path.join(ROOT, 'vp', 'db_migrate.py'),
+    src = io.open(os.path.join(ROOT, 'Virus_Platform_Core', 'db_migrate.py'),
                   encoding='utf-8').read()
     rep('db_migrate.py 源码含 `from .config import cfg`',
         'from .config import cfg' in src)
     try:
-        from vp.config import cfg  # noqa: F401
-        rep('vp.config.cfg 可导入', False, '竟然存在')
+        from Virus_Platform_Core.config import cfg  # noqa: F401
+        rep('Virus_Platform_Core.config.cfg 可导入', False, '竟然存在')
     except ImportError as e:
-        rep('vp.config.cfg 不存在 → db-migrate 会 ImportError', True, str(e))
+        rep('Virus_Platform_Core.config.cfg 不存在 → db-migrate 会 ImportError', True, str(e))
 except Exception as e:
-    rep('导入 vp.db_migrate', False, repr(e))
+    rep('导入 Virus_Platform_Core.db_migrate', False, repr(e))
 
 # ---------------------------------------------------------------- 2
 print('\n=== 2. taxonomy 目录映射 ===')
-from vp.config import DIRS, _DATABASE_KEYS, PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import DIRS, _DATABASE_KEYS, PLATFORM_ROOT  # noqa: E402
 rep('_DATABASE_KEYS["taxonomy"] 指向 databases/taxonomy（真实布局为 databases/tax/core）',
     _DATABASE_KEYS.get('taxonomy') == os.path.join('databases', 'taxonomy'),
     f'_DATABASE_KEYS={_DATABASE_KEYS.get("taxonomy")!r}, '
@@ -52,13 +52,13 @@ rep('按该映射得到的 taxonomy 目录无 nodes.dmp',
 
 # ---------------------------------------------------------------- 3
 print('\n=== 3. meta.py 引擎脚本路径 ===')
-mp = os.path.join(ROOT, 'vp', 'web', 'meta.py')
+mp = os.path.join(ROOT, 'Virus_Platform_Core', 'web', 'meta.py')
 txt = io.open(mp, encoding='utf-8').read()
-bad = os.path.join(os.path.dirname(mp), 'vp', 'public_meta', 'search_engine.py')
+bad = os.path.join(os.path.dirname(mp), 'Virus_Platform_Core', 'public_meta', 'search_engine.py')
 rep('meta.py 拼出的 search_engine.py 路径不存在',
     not os.path.isfile(bad), bad)
 rep('正确路径存在',
-    os.path.isfile(os.path.join(ROOT, 'vp', 'public_meta', 'search_engine.py')))
+    os.path.isfile(os.path.join(ROOT, 'Virus_Platform_Core', 'public_meta', 'search_engine.py')))
 
 # ---------------------------------------------------------------- 4
 print('\n=== 4. refs.py /api/tree/data 任意文件读取 ===')
@@ -93,8 +93,7 @@ else:
 
 # ---------------------------------------------------------------- 5
 print('\n=== 5. meta 删除接口 name="." 解析 ===')
-from vp.config import DIRS  # noqa: E402
-from vp.utils import check_path  # noqa: E402
+from Virus_Platform_Core.utils import check_path  # noqa: E402
 try:
     p = check_path(os.path.join(DIRS['meta_search'], '.'),
                    must_exist=True, in_platform=True)
@@ -103,7 +102,7 @@ try:
 except Exception as e:
     rep('check_path(meta_search/.) 被拒绝', False, repr(e))
 rep('meta.py 删除路由缺 name 白名单',
-    "re.fullmatch" not in io.open(os.path.join(ROOT, 'vp', 'web', 'meta.py'),
+    "re.fullmatch" not in io.open(os.path.join(ROOT, 'Virus_Platform_Core', 'web', 'meta.py'),
                                   encoding='utf-8').read().split(
         'def api_meta_collection_delete')[1][:400])
 

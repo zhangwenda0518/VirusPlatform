@@ -12,6 +12,15 @@ import io
 import os
 import re
 import sys
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -200,7 +209,7 @@ _IMPORT_RE = re.compile(
 
 
 def _pkg_of(rel_path):
-    """文件相对仓库根的路径 → 其所在包名（如 vp/web/tasks.py → vp.web）。"""
+    """文件相对仓库根的路径 → 其所在包名（如 Virus_Platform_Core/web/tasks.py → Virus_Platform_Core.web）。"""
     parts = rel_path.replace('\\', '/').split('/')[:-1]
     return '.'.join(parts)
 
@@ -239,7 +248,7 @@ def _imported_modules(txt, rel_path):
 
 
 def module_reachability():
-    pkg = os.path.join(ROOT, 'vp')
+    pkg = os.path.join(ROOT, 'Virus_Platform_Core')
     mods = {}
     for dp, dns, fns in os.walk(pkg):
         dns[:] = [d for d in dns if d != '__pycache__']
@@ -269,7 +278,7 @@ def module_reachability():
                 if not mod:
                     continue
                 refs.add(mod)
-                # vp.a.b 也记 vp.a
+                # Virus_Platform_Core.a.b 也记 Virus_Platform_Core.a
                 parts = mod.split('.')
                 for k in range(1, len(parts)):
                     refs.add('.'.join(parts[:k]))
@@ -277,7 +286,7 @@ def module_reachability():
                 string_refs.add(m.group(1))
     unreachable = []
     for name, rel in sorted(mods.items()):
-        if name in ('vp', 'vp.web'):
+        if name in ('Virus_Platform_Core', 'Virus_Platform_Core.web'):
             continue
         if name in refs:
             continue

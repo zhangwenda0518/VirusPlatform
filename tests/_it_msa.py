@@ -3,12 +3,21 @@
 import os
 import sys
 import shutil
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import DIRS  # noqa: E402
-from vp.msa_view import snp_view_data  # noqa: E402
-from vp.utils import check_path, safe_open, write_fasta_record  # noqa: E402
+from Virus_Platform_Core.config import DIRS  # noqa: E402
+from Virus_Platform_Core.msa_view import snp_view_data  # noqa: E402
+from Virus_Platform_Core.utils import check_path, safe_open, write_fasta_record  # noqa: E402
 
 BASES = 'ACGT'
 

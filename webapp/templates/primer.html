@@ -7,6 +7,121 @@
 <meta name="vp-lang" content="{{ lang }}">
 <script>try{if(localStorage.getItem("vp_theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+<style>
+/* ---------------- 引物设计：两栏布局 ---------------- */
+.pd-layout { display: grid; grid-template-columns: minmax(330px, 400px) 1fr;
+  gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .pd-layout { grid-template-columns: 1fr; } }
+
+.pd-panel { position: sticky; top: 14px; max-height: calc(100vh - 28px);
+  overflow-y: auto; }
+@media (max-width: 1100px) { .pd-panel { position: static; max-height: none; } }
+
+/* 分段标题 */
+.pd-sec { font-size: 12px; font-weight: 650; color: var(--ink-500);
+  letter-spacing: .04em; margin: 14px 0 8px; padding-bottom: 5px;
+  border-bottom: 1px solid var(--line-100); }
+.pd-sec:first-of-type { margin-top: 4px; }
+
+/* 参数网格 */
+.pd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.pd-grid.one { grid-template-columns: 1fr; }
+.pd-grid label { font-size: 11.5px; color: var(--ink-500); display: block;
+  margin-bottom: 3px; }
+.pd-grid input[type=number], .pd-grid input[type=text], .pd-grid select {
+  width: 100%; padding: 6px 8px; font-size: 12.5px; }
+
+/* 折叠区 */
+.pd-fold-head { display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; padding: 8px 0 7px;
+  font-size: 12px; font-weight: 650; color: var(--ink-500);
+  letter-spacing: .04em; border-bottom: 1px solid var(--line-100); }
+.pd-fold-head:hover { color: var(--green-700); }
+.pd-fold-head .arr { transition: transform .18s; font-size: 10px; color: var(--ink-400); }
+.pd-fold.open .arr { transform: rotate(90deg); }
+.pd-fold-body { display: none; padding-top: 10px; }
+.pd-fold.open .pd-fold-body { display: block; }
+
+/* 覆盖图（交互式：滚轮缩放 / 拖动平移 / 碱基层 / 点击跳表） */
+.pd-track-wrap { border: 1px solid var(--line-200); border-radius: var(--r-md);
+  padding: 12px 14px; background: var(--surface-2); margin-bottom: 14px; }
+.pd-track-name { font-size: 12.5px; font-weight: 620; color: var(--ink-700);
+  margin-bottom: 3px; }
+.pd-track-meta { font-size: 11.5px; color: var(--ink-400); margin-bottom: 10px; }
+.pdz-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.pdz-range { font-size: 11.5px; color: var(--ink-400); margin-left: auto;
+  font-variant-numeric: tabular-nums; }
+.pdz-body { position: relative; overflow: hidden; border: 1px solid var(--line-100);
+  border-radius: 4px; cursor: grab; user-select: none; touch-action: none;
+  background: var(--surface-1, transparent); }
+.pdz-body.dragging { cursor: grabbing; }
+.pdz-ruler { position: relative; height: 20px; border-bottom: 1px solid var(--line-100); }
+.pdz-tick { position: absolute; bottom: 0; height: 100%; border-left: 1px solid var(--line-200); }
+.pdz-tick i { position: absolute; left: 3px; top: 2px; font-style: normal;
+  font-size: 10px; color: var(--ink-400); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.pdz-lanes { position: relative; }
+.pdz-lane { position: absolute; left: 0; right: 0; height: 16px; }
+.pdz-amp { position: absolute; height: 6px; top: 5px; border-radius: 3px;
+  background: var(--green-100); border: 1px solid var(--green-300); cursor: pointer; }
+.pdz-amp:hover { filter: brightness(.94); }
+.pdz-mk { position: absolute; top: 1px; height: 14px; border-radius: 2px; cursor: pointer; }
+.pdz-mk.fwd { background: #2b8a3e; }
+.pdz-mk.rev { background: #1971c2; }
+.pdz-probe { position: absolute; height: 5px; top: 5px; border-radius: 2px;
+  background: rgba(103, 65, 217, .18); border: 1px dashed #6741d9; cursor: pointer; }
+.pdz-lane.flash .pdz-amp { animation: pdzFlash .8s ease 3; }
+@keyframes pdzFlash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(43, 138, 62, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(43, 138, 62, .5); }
+}
+.pdz-bases { border-top: 1px solid var(--line-100); }
+.pdz-basecap { font-size: 10px; color: var(--ink-400); padding: 3px 4px 0; }
+.pdz-brow { position: relative; height: 15px; font-family: var(--mono, monospace);
+  font-size: 11px; line-height: 15px; white-space: nowrap; }
+.pdz-b { position: absolute; width: 9px; text-align: center; top: 0; height: 15px; }
+.pdz-b.A { color: #2f9e44; }
+.pdz-b.T { color: #e03131; }
+.pdz-b.G { color: #f08c00; }
+.pdz-b.C { color: #1971c2; }
+.pdz-b.other { color: var(--ink-400); }
+.pdz-b.rg-F { background: rgba(47, 158, 68, .16); border-radius: 2px; }
+.pdz-b.rg-R { background: rgba(25, 113, 194, .16); border-radius: 2px; }
+.pdz-b.rg-P { background: rgba(103, 65, 217, .16); border-radius: 2px; }
+
+/* 图例 */
+.pd-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px;
+  color: var(--ink-500); margin: 4px 0 12px; }
+.pd-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 5px; vertical-align: -1px; }
+
+/* 统计卡 */
+.pd-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px; margin-bottom: 14px; }
+.pd-card { border: 1px solid var(--line-200); border-radius: var(--r-md);
+  padding: 9px 12px; background: var(--surface-2); }
+.pd-card .k { font-size: 10.5px; color: var(--ink-400); }
+.pd-card .v { font-size: 19px; font-weight: 650; color: var(--ink-900);
+  line-height: 1.3; font-variant-numeric: tabular-nums; }
+
+/* 评分徽章 */
+.pd-badge { display: inline-block; padding: 2px 7px; border-radius: 9px;
+  font-size: 10.5px; font-weight: 620; white-space: nowrap; }
+.pd-badge.rec { background: var(--green-100); color: var(--green-800); }
+.pd-badge.usa { background: #fff4e0; color: #b06000; }
+.pd-badge.no { background: var(--red-100); color: var(--red-700); }
+
+/* 表格 */
+.pd-table-wrap { overflow-x: auto; }
+.pd-table-wrap table.tbl td.seq { font-family: var(--mono, monospace);
+  font-size: 11.5px; letter-spacing: .01em; }
+.pd-row-flash { animation: pdRowFlash 1s ease 2; }
+@keyframes pdRowFlash { 50% { background: var(--green-100); } }
+.pd-empty { padding: 34px 20px; text-align: center; color: var(--ink-400);
+  font-size: 13px; }
+.pd-explain { font-size: 11.5px; color: var(--ink-400); margin-top: 8px;
+  line-height: 1.6; word-break: break-all; }
+</style>
 </head>
 <body>
 {% include "_nav.html" %}
@@ -15,96 +130,687 @@
   <div class="tools-layout group-layout">
     {% include "_group_nav.html" %}
     <main class="group-main">
-  <div class="layout">
-    <div class="col">
-      <div class="card">
-        <h1 data-i18n="pr.title">🧪 引物设计（primer3）</h1>
-        <p class="hint" data-i18n="pr.hint">独立模块，两种模式：
-        <b data-i18n="pr.modePlainDesc">全长分窗</b>——对基因组 / contigs FASTA 按 3kb 窗全覆盖设计；
-        <b data-i18n="pr.modeConservedDesc">保守区</b>——输入<b data-i18n="pr.alignedDesc">已比对</b>的多序列 FASTA（如结构比较产物的 aln.fasta），
-        自动找保守区设计。产物 primers.tsv（含 Tm / GC / 产物长 / 罚分）。</p>
+      <div class="pd-layout">
 
-        <label data-i18n="pr.modeLabel">设计模式</label>
-        <select id="pr_mode">
-          <option value="plain" data-i18n="pr.modePlain">全长分窗（基因组 / contigs FASTA）</option>
-          <option value="conserved" data-i18n="pr.modeConserved">保守区（多序列比对 FASTA）</option>
-        </select>
-        <label data-i18n="pr.faLabel">输入 FASTA</label>
-        <div class="filerow">
-          <input id="pr_fa" type="text" data-i18n-ph="pr.faPh" placeholder="选择 .fasta[.gz]">
-          <button class="btn small" onclick="browse('pr_fa')">📁</button>
-          <button class="btn small" onclick="pasteSeq('pr_fa', '.fasta')" title="粘贴 FASTA" data-i18n-title="pr.pasteFa">📋</button>
-          <button class="btn small" onclick="fillExample('pr_fa', ($('pr_mode')?.value === 'conserved') ? EXAMPLE_CONSERVED_FASTA : EXAMPLE_FASTA)"
-                  title="按模式填入内置示例：全长=2 条病毒基因组；保守区=5 条近缘序列" data-i18n-title="pr.fillExampleTitle">✨ 示例</button>
-        </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
-          <div class="gp-item">
-            <label data-i18n="pr.numLabel">每区返回引物对数</label>
-            <input id="pr_num" type="number" value="3" min="1" max="10">
+        <!-- ==================== 左栏：参数 ==================== -->
+        <div class="pd-panel">
+          <div class="card">
+            <h1 data-i18n="prd.title">🧪 引物设计（primer3）</h1>
+            <p class="hint" data-i18n="prd.hint">输入 FASTA 序列，设计 PCR 或 qPCR 引物（qPCR 含 TaqMan 探针），
+            并完成热力学评估。结果含序列覆盖图与明细表格。</p>
+
+            <div class="pd-sec" data-i18n="prd.secInput">输入</div>
+            <label data-i18n="prd.typeLabel">设计类型</label>
+            <select id="pd_type" onchange="pdOnTypeChange()">
+              <option value="PCR" data-i18n="prd.typePcr">PCR（引物对）</option>
+              <option value="qPCR" data-i18n="prd.typeQpcr">qPCR（引物对 + 探针）</option>
+            </select>
+
+            <label data-i18n="prd.faLabel" style="margin-top:8px">输入 FASTA</label>
+            <div class="filerow">
+              <input id="pd_fa" type="text" data-i18n-ph="prd.faPh" placeholder="选择 .fasta 或粘贴序列">
+              <button class="btn small" onclick="browse('pd_fa')" title="选择文件">📁</button>
+              <button class="btn small" onclick="pdPaste()" data-i18n-title="prd.pasteFa" title="粘贴 FASTA">📋</button>
+              <button class="btn small" onclick="fillExample('pd_fa', EXAMPLE_FASTA)"
+                      data-i18n-title="prd.fillExample" title="填入内置示例（2 条病毒基因组）">✨ 示例</button>
+            </div>
+
+            <div class="pd-sec" data-i18n="prd.secCore">核心参数</div>
+            <div class="pd-grid">
+              <div>
+                <label data-i18n="prd.optSize">引物长度 (opt)</label>
+                <input id="pd_opt_size" type="number" value="20" min="15" max="35">
+              </div>
+              <div>
+                <label data-i18n="prd.numReturn">返回对数</label>
+                <input id="pd_num" type="number" value="5" min="1" max="50">
+              </div>
+              <div>
+                <label data-i18n="prd.minTm">Tm 下限 (℃)</label>
+                <input id="pd_min_tm" type="number" value="57" step="0.5">
+              </div>
+              <div>
+                <label data-i18n="prd.maxTm">Tm 上限 (℃)</label>
+                <input id="pd_max_tm" type="number" value="63" step="0.5">
+              </div>
+              <div>
+                <label data-i18n="prd.minGc">GC 下限 (%)</label>
+                <input id="pd_min_gc" type="number" value="40" step="1">
+              </div>
+              <div>
+                <label data-i18n="prd.maxGc">GC 上限 (%)</label>
+                <input id="pd_max_gc" type="number" value="60" step="1">
+              </div>
+              <div>
+                <label data-i18n="prd.pMin">产物长度下限</label>
+                <input id="pd_p_min" type="number" value="100" min="40">
+              </div>
+              <div>
+                <label data-i18n="prd.pMax">产物长度上限</label>
+                <input id="pd_p_max" type="number" value="1000" min="50">
+              </div>
+            </div>
+
+            <div class="pd-fold" id="pd_fold_adv">
+              <div class="pd-fold-head" onclick="pdToggleFold('pd_fold_adv')">
+                <span data-i18n="prd.secAdv">进阶参数</span><span class="arr">▶</span>
+              </div>
+              <div class="pd-fold-body">
+                <div class="pd-grid">
+                  <div>
+                    <label data-i18n="prd.polyX">最大 poly-X</label>
+                    <input id="pd_poly_x" type="number" value="4" min="1" max="10">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.endStab">3' 端稳定性上限</label>
+                    <input id="pd_end_stab" type="number" value="9" step="0.5" min="0">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.hairpinTh">发夹 Tm 上限 (℃)</label>
+                    <input id="pd_hairpin" type="number" value="47" step="1">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.naConc">Na⁺ 浓度 (mM)</label>
+                    <input id="pd_na" type="number" value="50" step="1">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.mgConc">Mg²⁺ 浓度 (mM)</label>
+                    <input id="pd_mg" type="number" value="1.5" step="0.1">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.dnaConc">DNA 浓度 (nM)</label>
+                    <input id="pd_dna" type="number" value="50" step="1">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.regStart">设计区起点 (1-based)</label>
+                    <input id="pd_reg_s" type="number" value="0" min="0">
+                  </div>
+                  <div>
+                    <label data-i18n="prd.regEnd">设计区终点（0=末尾）</label>
+                    <input id="pd_reg_e" type="number" value="0" min="0">
+                  </div>
+                </div>
+
+                <div id="pd_probe_box" style="display:none">
+                  <div class="pd-sec" data-i18n="prd.secProbe">探针参数（qPCR）</div>
+                  <div class="pd-grid">
+                    <div>
+                      <label data-i18n="prd.probeOpt">探针长度 (opt)</label>
+                      <input id="pd_pr_opt" type="number" value="22" min="15" max="35">
+                    </div>
+                    <div>
+                      <label data-i18n="prd.probeMinTm">探针 Tm 下限</label>
+                      <input id="pd_pr_min_tm" type="number" value="65" step="0.5">
+                    </div>
+                    <div>
+                      <label data-i18n="prd.probeOptTm">探针 Tm 目标</label>
+                      <input id="pd_pr_opt_tm" type="number" value="67" step="0.5">
+                    </div>
+                    <div>
+                      <label data-i18n="prd.probeMaxTm">探针 Tm 上限</label>
+                      <input id="pd_pr_max_tm" type="number" value="73" step="0.5">
+                    </div>
+                    <div>
+                      <label data-i18n="prd.probeMinGc">探针 GC 下限</label>
+                      <input id="pd_pr_min_gc" type="number" value="40" step="1">
+                    </div>
+                    <div>
+                      <label data-i18n="prd.probeMaxGc">探针 GC 上限</label>
+                      <input id="pd_pr_max_gc" type="number" value="70" step="1">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px">
+              <button class="btn primary big" id="pd_run" onclick="pdRun()"
+                      data-i18n="prd.runBtn">▶ 设计引物</button>
+            </div>
           </div>
-          <label style="font-size:12.5px;display:flex;align-items:center;gap:5px;padding-bottom:8px">
-            <input type="checkbox" id="pr_spec"> <span data-i18n="pr.spec">宿主特异性 BLAST 检查</span>
-            <small data-i18n="pr.specHint">（需已建宿主 BLAST 库）</small></label>
         </div>
-        <div style="margin-top:12px">
-          <button class="btn primary" onclick="runPrimer(this)" data-i18n="pr.runBtn">▶ 运行引物设计</button>
+
+        <!-- ==================== 右栏：结果 ==================== -->
+        <div class="col">
+          <div class="card">
+            <h2 data-i18n="prd.resTitle">📊 设计结果</h2>
+            <div id="pd_out">
+              <div class="pd-empty" data-i18n="prd.emptyHint">填写左侧参数后点击「设计引物」</div>
+            </div>
+          </div>
+          <!-- 历史运行（app.js:874 按 primer_ 前缀填充；重设计时遗漏了该容器） -->
+          <div class="rh" id="rh-primer"></div>
         </div>
-        <div class="tool-out">
-          <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
-          <div class="toolrun" id="toolrun-primer"></div>
-      <div class="rh" id="rh-primer"></div>
-        </div>
+
       </div>
-    </div>
-  </div>
     </main>
   </div>
 </div>
 
-<!-- 文件/目录选择对话框 -->
-<div id="dlgMask" class="dlgmask" style="display:none">
-  <div class="dlg">
-    <div class="dlghead"><b data-i18n="c.chooseFile">选择文件</b>
-      <button class="btn small" onclick="closeDlg()">✕</button></div>
-    <div id="dlgPath" class="dlgpath"></div>
-    <div id="dlgList" class="dlglist"></div>
-    <div id="dlgPickDir" style="display:none;padding:10px 16px;border-top:1px solid var(--line-100);text-align:right">
-      <button class="btn small primary" onclick="pickDir()" data-i18n="c.pickDir">选择此目录 ✔</button>
-    </div>
-  </div>
-</div>
+<!-- 文件选择对话框 -->
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
-<script src="/static/examples.js?v={{ asset_v }}"></script>
 <script>
-/* $ / esc / browse / startPolling / taskLogOpen 均来自 app.js */
+/* $ / esc / browse 来自 app.js */
 
 function val(id) { return ($(id)?.value || '').trim(); }
+function num(id, dflt) { const v = parseFloat(val(id)); return isNaN(v) ? dflt : v; }
 
-async function _runTool(tool, params, btn, busyText) {
+function pdToggleFold(id) {
+  const el = $(id);
+  if (el) el.classList.toggle('open');
+}
+
+function pdOnTypeChange() {
+  const isQ = val('pd_type') === 'qPCR';
+  const box = $('pd_probe_box');
+  if (box) box.style.display = isQ ? '' : 'none';
+  if (isQ) $('pd_fold_adv')?.classList.add('open');
+  // qPCR 默认产物更短
+  if (isQ && val('pd_p_max') === '1000') {
+    $('pd_p_min').value = '80';
+    $('pd_p_max').value = '300';
+  }
+}
+
+function pdPaste() {
+  const txt = prompt(t('prd.pastePrompt', '粘贴 FASTA 内容：'));
+  if (txt && txt.trim()) $('pd_fa').value = txt.trim();
+}
+
+function pdCollectParams() {
+  const core = {
+    primer_opt_size: num('pd_opt_size', 20),
+    num_return: num('pd_num', 5),
+    primer_min_tm: num('pd_min_tm', 57),
+    primer_max_tm: num('pd_max_tm', 63),
+    primer_min_gc: num('pd_min_gc', 40),
+    primer_max_gc: num('pd_max_gc', 60),
+    product_min: num('pd_p_min', 100),
+    product_max: num('pd_p_max', 1000),
+    salt_monovalent: num('pd_na', 50),
+    salt_divalent: num('pd_mg', 1.5),
+    dna_conc: num('pd_dna', 50)
+  };
+  // Tm 目标取上下限中值，保证落在范围内
+  core.primer_opt_tm = (core.primer_min_tm + core.primer_max_tm) / 2;
+  const adv = {
+    max_poly_x: num('pd_poly_x', 4),
+    max_end_stability: num('pd_end_stab', 9),
+    max_hairpin_th: num('pd_hairpin', 47),
+    max_self_any_th: num('pd_hairpin', 47),
+    max_self_end_th: num('pd_hairpin', 47),
+    region_start: num('pd_reg_s', 0),
+    region_end: num('pd_reg_e', 0),
+    probe_opt_size: num('pd_pr_opt', 22),
+    probe_min_tm: num('pd_pr_min_tm', 65),
+    probe_opt_tm: num('pd_pr_opt_tm', 67),
+    probe_max_tm: num('pd_pr_max_tm', 73),
+    probe_min_gc: num('pd_pr_min_gc', 40),
+    probe_max_gc: num('pd_pr_max_gc', 70)
+  };
+  return { core, adv };
+}
+
+async function pdRun() {
+  const inp = val('pd_fa');
+  if (!inp) { alert(t('prd.needFa', '请选择输入 FASTA 或粘贴序列')); return; }
+  const btn = $('pd_run');
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = t('prd.designing', '⏳ 设计中…');
+  const p = pdCollectParams();
+  // 含换行的视为 FASTA 文本，否则视为文件路径
+  const payload = {
+    type: val('pd_type') || 'PCR',
+    core: p.core, adv: p.adv
+  };
+  if (inp.indexOf('\n') >= 0) payload.fasta_text = inp; else payload.fasta = inp;
+
   try {
-    const r = await fetch('/api/tool/run', {
+    const r = await fetch('/api/tool/primer_design', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool, params })});
-    if (!r.ok) { alert(t('pr.startFail','启动失败: ') + ((await r.json()).error || '')); return; }
+      body: JSON.stringify(payload)
+    });
     const d = await r.json();
-    taskLogOpen.add(d.task);
-    startPolling();
-    $('tasks')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    watchTaskBtn(d.task, btn, busyText || t('pr.busy','⏳ 运行中…'));
-  } catch (e) { alert(t('pr.connFail','无法连接平台服务: ') + e); }
+    if (!r.ok) { pdError(d.error || ('HTTP ' + r.status)); return; }
+    pdRender(d);
+  } catch (e) {
+    pdError(t('prd.connFail', '无法连接平台服务: ') + e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = old;
+  }
 }
 
-function runPrimer(btn) {
-  if (!val('pr_fa')) { alert(t('pr.needFa','请选择输入 FASTA')); return; }
-  _runTool('primer', {
-    fasta: val('pr_fa'), mode: $('pr_mode').value,
-    num_return: +val('pr_num') || 3, specificity: !!$('pr_spec').checked },
-    btn, t('pr.designing','⏳ 设计中…'));
+function pdError(msg) {
+  $('pd_out').innerHTML = '<div class="pd-empty" style="color:var(--red-700)">' +
+    esc(t('prd.fail', '设计失败：') + msg) + '</div>';
 }
 
-startPolling();
+function pdBadge(score, rec) {
+  let cls = 'no', label = t('prd.notRec', '不推荐');
+  if (rec === 'RECOMMENDED') { cls = 'rec'; label = t('prd.rec', '推荐'); }
+  else if (rec === 'USABLE') { cls = 'usa'; label = t('prd.used', '可用'); }
+  return '<span class="pd-badge ' + cls + '">' + esc(label) + '</span>';
+}
+
+function pdRender(d) {
+  const s = d.summary || {};
+  const tracks = d.tracks || [];
+  const out = [];
+
+  // ---- 统计卡 ----
+  out.push('<div class="pd-cards">');
+  const cards = [
+    [t('prd.cType', '类型'), esc(s.type || '')],
+    [t('prd.cSeq', '序列'), s.n_sequences || 0],
+    [t('prd.cPairs', '引物对'), s.n_pairs || 0],
+    [t('prd.cBest', '最高分'), (s.best_score || 0).toFixed(1)],
+    [t('prd.cAvg', '平均分'), (s.avg_score || 0).toFixed(1)],
+    [t('prd.cBase', '基准分'), (s.base_score || 0).toFixed(0)]
+  ];
+  cards.forEach(function (c) {
+    out.push('<div class="pd-card"><div class="k">' + c[0] +
+             '</div><div class="v">' + c[1] + '</div></div>');
+  });
+  out.push('</div>');
+
+  // ---- 图例 ----
+  out.push('<div class="pd-legend">' +
+    '<span><i style="background:#2b8a3e"></i>' + esc(t('prd.legFwd', '正向引物')) + '</span>' +
+    '<span><i style="background:#1971c2"></i>' + esc(t('prd.legRev', '反向引物')) + '</span>' +
+    '<span><i style="background:var(--green-100);border:1px solid var(--green-300)"></i>' +
+    esc(t('prd.legAmp', '扩增产物')) + '</span>' +
+    '<span><i style="background:rgba(103,65,217,.18);border:1px dashed #6741d9"></i>' +
+    esc(t('prd.legProbe', '探针')) + '</span></div>');
+
+  out.push('<div class="hint" style="margin:4px 0 12px">' +
+    esc(t('prd.plotHint', '💡 覆盖图支持滚轮缩放 / 拖动平移（双击放大），放大到足够倍数会显示碱基层（正向链 + 互补链）；点击产物条或引物可跳到下方表格对应行，点击表格行也会反向高亮图中引物。')) + '</div>');
+
+  // ---- 覆盖图（交互式，pdTrackWidget 渲染） ----
+  if (!s.n_pairs) {
+    out.push('<div class="pd-empty">' + esc(t('prd.noPairs',
+      '未设计出符合参数的引物对，请放宽 Tm / GC / 产物长度范围')) + '</div>');
+  } else {
+    tracks.forEach(function (tr, i) {
+      out.push('<div class="pd-track-wrap">');
+      out.push('<div class="pd-track-name">' + esc(tr.name || '') + '</div>');
+      out.push('<div class="pd-track-meta">' +
+        tr.seq_len + ' bp · ' + tr.tracks.length + ' ' + esc(t('prd.pairsUnit', '对')) +
+        '</div>');
+      out.push('<div data-pdtrack="' + i + '"></div>');
+      out.push('</div>');
+    });
+  }
+
+  // ---- 明细表 ----
+  out.push('<div class="pd-table-wrap"><table class="tbl">');
+  out.push('<thead><tr>' +
+    '<th>#</th>' +
+    '<th>' + esc(t('prd.thType', '类型')) + '</th>' +
+    '<th>' + esc(t('prd.thFwd', '正向引物 (5\'→3\')')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thFTm', 'F Tm')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thFGc', 'F GC%')) + '</th>' +
+    '<th>' + esc(t('prd.thRev', '反向引物 (5\'→3\')')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thRTm', 'R Tm')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thRGc', 'R GC%')) + '</th>' +
+    '<th>' + esc(t('prd.thProbe', '探针 (5\'→3\')')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thProbeTm', 'P Tm')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thPos', '位置')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thProduct', '产物 bp')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thScore', '评分')) + '</th>' +
+    '<th>' + esc(t('prd.thGrade', '评价')) + '</th>' +
+    '</tr></thead><tbody>');
+  let any = false;
+  (d.records || []).forEach(function (rec, i) {
+    (rec.pairs || []).forEach(function (p) {
+      any = true;
+      const th = p.thermo || {};
+      const bd = th.score_breakdown || {};
+      const tip = bd.detail && bd.detail.length
+        ? esc(t('prd.deduct', '扣分') + ': ' + bd.detail.join('; '))
+        : esc(t('prd.noDeduct', '无扣分'));
+      out.push('<tr id="pd-row-' + i + '-' + p.idx + '" data-seq="' + i +
+        '" data-pair="' + p.idx + '" style="cursor:pointer" title="' +
+        esc(t('prd.rowClick', '点击后覆盖图会定位并高亮这对引物')) + '">' +
+        '<td>' + p.idx + '</td>' +
+        '<td>' + esc(p.type) + '</td>' +
+        '<td class="seq" title="' + esc(p.f_seq) + '">' + esc(p.f_seq) + '</td>' +
+        '<td class="num">' + p.f_tm.toFixed(1) + '</td>' +
+        '<td class="num">' + p.f_gc.toFixed(1) + '</td>' +
+        '<td class="seq" title="' + esc(p.r_seq) + '">' + esc(p.r_seq) + '</td>' +
+        '<td class="num">' + p.r_tm.toFixed(1) + '</td>' +
+        '<td class="num">' + p.r_gc.toFixed(1) + '</td>' +
+        '<td class="seq" title="' + esc(p.probe_seq || '') + '">' +
+          (p.probe_seq ? esc(p.probe_seq) : '<span style="color:var(--ink-300)">—</span>') + '</td>' +
+        '<td class="num">' + (p.probe_seq ? p.probe_tm.toFixed(1) : '—') + '</td>' +
+        '<td class="num">' + p.f_start + '–' + p.amp_end + '</td>' +
+        '<td class="num">' + p.product + '</td>' +
+        '<td class="num" title="' + tip + '"><b>' + p.score.toFixed(1) + '</b></td>' +
+        '<td>' + pdBadge(p.score, p.recommendation) + '</td>' +
+        '</tr>');
+    });
+  });
+  if (!any) {
+    out.push('<tr><td colspan="14" style="text-align:center;color:var(--ink-400)">' +
+      esc(t('prd.noPairs', '未设计出符合参数的引物对')) + '</td></tr>');
+  }
+  out.push('</tbody></table></div>');
+
+  // ---- explain ----
+  if (d.explain) {
+    out.push('<div class="pd-explain">primer3: ' + esc(d.explain) + '</div>');
+  }
+  $('pd_out').innerHTML = out.join('');
+
+  // 实例化交互式覆盖图（须在入 DOM 后，才能拿到容器宽度）
+  PD_WIDGETS.length = 0;
+  document.querySelectorAll('[data-pdtrack]').forEach(function (holder) {
+    const i = +holder.getAttribute('data-pdtrack');
+    if (!tracks[i]) return;
+    const w = pdTrackWidget(tracks[i], i);
+    holder.appendChild(w.root);
+    pdTrackDraw(w);
+  });
+  // 表格行点击 → 覆盖图定位高亮
+  const tbody = $('pd_out').querySelector('.pd-table-wrap tbody');
+  if (tbody) tbody.addEventListener('click', function (e) {
+    const tr = e.target.closest('tr[data-seq]');
+    if (!tr) return;
+    pdFlashLane(+tr.getAttribute('data-seq'), +tr.getAttribute('data-pair'));
+  });
+}
+
+/* ============================================================
+   交互式覆盖图：滚轮缩放 / 拖动平移 / 自适应坐标轴 /
+   高倍显示碱基层（正向 + 互补链，结合区着色）/ 点击跳表
+   ============================================================ */
+const PD_WIDGETS = [];
+const PD_COMPLEMENT = { A: 'T', T: 'A', G: 'C', C: 'G' };
+
+function pdFmt(n) { return Number(n).toLocaleString('en-US'); }
+
+// 旧 payload 兼容：无 bp 坐标字段时按百分比近似还原（旧后端无 seq，碱基层自动隐藏）
+function pdNormTk(tk, seqLen) {
+  if (tk && tk.f_start != null) return tk;
+  const s = Math.max(1, seqLen || 1);
+  const bp = function (pct) { return Math.round((pct || 0) / 100 * s); };
+  return Object.assign({}, tk, {
+    f_start: bp(tk.f_left) + 1, f_len: 20,
+    r_start: bp(tk.r_left) + 1, r_len: 20,
+    p_start: bp(tk.p_left) + 1, p_len: Math.max(1, bp(tk.p_width)),
+    amp_start: bp(tk.amp_left) + 1,
+    amp_end: Math.max(bp(tk.amp_left) + 2, bp((tk.amp_left || 0) + (tk.amp_width || 0)))
+  });
+}
+
+function pdNiceStep(ppb) {
+  const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000,
+    10000, 20000, 50000, 100000, 200000, 500000, 1000000];
+  for (let k = 0; k < steps.length; k++) {
+    if (steps[k] * ppb >= 64) return steps[k];
+  }
+  return steps[steps.length - 1];
+}
+
+function pdBodyWidth(w) {
+  return Math.max(160, w.elBody.clientWidth || 900);
+}
+
+function pdZoom(w, factor, anchorBp) {
+  const seqLen = Math.max(1, w.seqLen);
+  let span = (w.v1 - w.v0) * factor;
+  span = Math.max(Math.min(20, seqLen), Math.min(seqLen, span));
+  let v0 = anchorBp - (anchorBp - w.v0) / Math.max(1e-9, w.v1 - w.v0) * span;
+  v0 = Math.max(0, Math.min(seqLen - span, v0));
+  w.v0 = v0;
+  w.v1 = v0 + span;
+  pdTrackDraw(w);
+}
+
+function pdFit(w) {
+  w.v0 = 0;
+  w.v1 = Math.max(1, w.seqLen);
+  pdTrackDraw(w);
+}
+
+function pdTrackWidget(tr, seqIdx) {
+  const w = {
+    tr: tr, seqIdx: seqIdx,
+    seq: String(tr.seq || '').toUpperCase(),
+    seqLen: tr.seq_len || 0,
+    v0: 0, v1: Math.max(1, tr.seq_len || 1),
+    _suppressClick: false
+  };
+  const el = document.createElement('div');
+  el.className = 'pdz';
+  el.innerHTML =
+    '<div class="pdz-bar">' +
+      '<button class="btn small" data-act="in">＋</button>' +
+      '<button class="btn small" data-act="out">−</button>' +
+      '<button class="btn small" data-act="fit">' + esc(t('prd.fit', '适应全序列')) + '</button>' +
+      '<span class="pdz-range"></span>' +
+    '</div>' +
+    '<div class="pdz-body">' +
+      '<div class="pdz-ruler"></div>' +
+      '<div class="pdz-lanes"></div>' +
+      '<div class="pdz-bases" style="display:none"></div>' +
+    '</div>';
+  w.root = el;
+  w.elBody = el.querySelector('.pdz-body');
+  w.elRuler = el.querySelector('.pdz-ruler');
+  w.elLanes = el.querySelector('.pdz-lanes');
+  w.elBases = el.querySelector('.pdz-bases');
+  w.elRange = el.querySelector('.pdz-range');
+
+  el.addEventListener('click', function (e) {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.getAttribute('data-act');
+    const mid = (w.v0 + w.v1) / 2;
+    if (act === 'in') pdZoom(w, 1 / 1.6, mid);
+    else if (act === 'out') pdZoom(w, 1.6, mid);
+    else pdFit(w);
+  });
+
+  // 滚轮缩放（以光标为锚点）
+  w.elBody.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    const rect = w.elBody.getBoundingClientRect();
+    const f = e.deltaY < 0 ? 1 / 1.25 : 1.25;
+    pdZoom(w, f, w.v0 + (e.clientX - rect.left) / rect.width * (w.v1 - w.v0));
+  }, { passive: false });
+  // 双击放大
+  w.elBody.addEventListener('dblclick', function (e) {
+    const rect = w.elBody.getBoundingClientRect();
+    pdZoom(w, 1 / 2, w.v0 + (e.clientX - rect.left) / rect.width * (w.v1 - w.v0));
+  });
+
+  // 拖动平移（不用 setPointerCapture：捕获会把 click 一并重定向到容器，
+  // 产物条/引物的 click 永远收不到；改用移动阈值判定是否算拖动）
+  let drag = null;
+  w.elBody.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, v0: w.v0, v1: w.v1, moved: false };
+  });
+  w.elBody.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    if (!(e.buttons & 1)) {           // 按键已松开（如拖出容器后释放）
+      drag = null;
+      w.elBody.classList.remove('dragging');
+      return;
+    }
+    const dx = e.clientX - drag.x;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 3) return;   // 未过阈值：仍视为点击
+      drag.moved = true;
+      w.elBody.classList.add('dragging');
+    }
+    const span = drag.v1 - drag.v0;
+    const nv0 = drag.v0 - dx / pdBodyWidth(w) * span;
+    const hi = Math.max(0, w.seqLen - span);
+    w.v0 = Math.max(0, Math.min(hi, nv0));
+    w.v1 = w.v0 + span;
+    pdTrackDraw(w);
+  });
+  const endDrag = function () {
+    if (drag && drag.moved) {
+      // 拖动结束后的 click 不当作点击产物/引物
+      w._suppressClick = true;
+      setTimeout(function () { w._suppressClick = false; }, 0);
+    }
+    drag = null;
+    w.elBody.classList.remove('dragging');
+  };
+  w.elBody.addEventListener('pointerup', endDrag);
+  w.elBody.addEventListener('pointercancel', endDrag);
+  return w;
+}
+
+function pdTrackDraw(w) {
+  const width = pdBodyWidth(w);
+  const span = Math.max(1e-9, w.v1 - w.v0);
+  const ppb = width / span;
+  const px = function (bp) { return (bp - w.v0) * ppb; };
+
+  // 坐标轴（步长随缩放自适应：1/2/5×10^k）
+  let h = '';
+  const step = pdNiceStep(ppb);
+  for (let p = Math.max(step, Math.ceil(w.v0 / step) * step);
+       p <= Math.min(w.seqLen, w.v1); p += step) {
+    h += '<div class="pdz-tick" style="left:' + px(p).toFixed(1) + 'px"><i>' +
+      pdFmt(p) + '</i></div>';
+  }
+  w.elRuler.innerHTML = h;
+
+  // 引物对轨道（bp → 像素实时投影）
+  const lanes = (w.tr.tracks || []);
+  h = '';
+  lanes.forEach(function (tk0, li) {
+    const tk = pdNormTk(tk0, w.seqLen);
+    const tip = 'F: ' + tk.f_seq + ' / R: ' + tk.r_seq +
+      (tk.probe_seq ? ' / P: ' + tk.probe_seq : '') +
+      '  ' + tk.product + ' bp · ' + t('prd.thScore', '评分') + ' ' +
+      (+tk.score).toFixed(1);
+    h += '<div class="pdz-lane" id="pdz-lane-' + w.seqIdx + '-' + tk.idx +
+      '" style="top:' + (li * 16) + 'px">';
+    h += '<div class="pdz-amp" data-jump="' + tk.idx + '" style="left:' +
+      px(tk.amp_start).toFixed(1) + 'px;width:' +
+      Math.max(2, (tk.amp_end - tk.amp_start + 1) * ppb).toFixed(1) +
+      'px" title="' + esc(tip) + '"></div>';
+    h += '<div class="pdz-mk fwd" data-jump="' + tk.idx + '" style="left:' +
+      px(tk.f_start).toFixed(1) + 'px;width:' +
+      Math.max(3, tk.f_len * ppb).toFixed(1) + 'px" title="F: ' +
+      esc(tk.f_seq) + '"></div>';
+    // R 引物结合区为 [r_start, r_start+r_len-1]，3' 端在左
+    h += '<div class="pdz-mk rev" data-jump="' + tk.idx + '" style="left:' +
+      px(tk.r_start).toFixed(1) + 'px;width:' +
+      Math.max(3, tk.r_len * ppb).toFixed(1) + 'px" title="R: ' +
+      esc(tk.r_seq) + '"></div>';
+    if (tk.has_probe) {
+      h += '<div class="pdz-probe" data-jump="' + tk.idx + '" style="left:' +
+        px(tk.p_start).toFixed(1) + 'px;width:' +
+        Math.max(2, tk.p_len * ppb).toFixed(1) + 'px" title="P: ' +
+        esc(tk.probe_seq) + '"></div>';
+    }
+    h += '</div>';
+  });
+  w.elLanes.innerHTML = h;
+  w.elLanes.style.height = (lanes.length * 16 + 2) + 'px';
+  w.elLanes.querySelectorAll('[data-jump]').forEach(function (elm) {
+    elm.addEventListener('click', function (e) {
+      if (w._suppressClick) return;
+      e.stopPropagation();
+      pdJumpToRow(w.seqIdx, +elm.getAttribute('data-jump'));
+    });
+  });
+
+  // 碱基层：放大到 ≥8 px/bp 时显示（正向 5'→3' + 互补 3'→5'）
+  if (ppb >= 8 && w.seq) {
+    w.elBases.style.display = '';
+    w.elBases.innerHTML = pdBasesHtml(w, ppb);
+  } else {
+    w.elBases.style.display = 'none';
+    w.elBases.innerHTML = '';
+  }
+
+  // 视窗范围标签
+  const i0 = Math.max(1, Math.floor(w.v0) + 1);
+  const i1 = Math.min(w.seqLen, Math.ceil(w.v1));
+  w.elRange.textContent = pdFmt(i0) + '–' + pdFmt(i1) + ' / ' +
+    pdFmt(w.seqLen) + ' bp';
+}
+
+function pdBasesHtml(w, ppb) {
+  const i0 = Math.max(0, Math.floor(w.v0));
+  const i1 = Math.min(w.seqLen, Math.ceil(w.v1));
+  // 结合区（F 绿 / R 蓝 / P 紫）
+  const regions = [];
+  (w.tr.tracks || []).forEach(function (tk0) {
+    const tk = pdNormTk(tk0, w.seqLen);
+    regions.push([tk.f_start, tk.f_start + tk.f_len - 1, 'F']);
+    regions.push([tk.r_start, tk.r_start + tk.r_len - 1, 'R']);
+    if (tk.has_probe) regions.push([tk.p_start, tk.p_start + tk.p_len - 1, 'P']);
+  });
+  const regionOf = function (bp1) {
+    for (let k = 0; k < regions.length; k++) {
+      if (bp1 >= regions[k][0] && bp1 <= regions[k][1]) return regions[k][2];
+    }
+    return '';
+  };
+  let head = '<div class="pdz-basecap">' + esc(t('prd.baseCaption',
+    '碱基层：上行 = 5′→3′ 正向链，下行 = 3′→5′ 互补链；底色 = 结合区（绿 F · 蓝 R · 紫 探针）')) +
+    '</div>';
+  let fwd = '<div class="pdz-brow">';
+  let rev = '<div class="pdz-brow">';
+  for (let i = i0; i < i1; i++) {
+    const x = (i - w.v0) * ppb;
+    const b = w.seq[i] || 'N';
+    const cb = PD_COMPLEMENT[b] || b;
+    const rg = regionOf(i + 1);
+    const left = 'left:' + (x - 4.5).toFixed(1) + 'px';
+    fwd += '<span class="pdz-b ' + (PD_COMPLEMENT[b] ? b : 'other') +
+      (rg ? ' rg-' + rg : '') + '" style="' + left + '">' + b + '</span>';
+    rev += '<span class="pdz-b ' + (PD_COMPLEMENT[cb] ? cb : 'other') +
+      (rg ? ' rg-' + rg : '') + '" style="' + left + '">' + cb + '</span>';
+  }
+  return head + fwd + '</div>' + rev + '</div>';
+}
+
+function pdJumpToRow(seqIdx, pairIdx) {
+  const row = document.getElementById('pd-row-' + seqIdx + '-' + pairIdx);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.remove('pd-row-flash');
+  void row.offsetWidth;
+  row.classList.add('pd-row-flash');
+}
+
+function pdFlashLane(seqIdx, pairIdx) {
+  const lane = document.getElementById('pdz-lane-' + seqIdx + '-' + pairIdx);
+  if (!lane) return;
+  lane.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  lane.classList.remove('flash');
+  void lane.offsetWidth;
+  lane.classList.add('flash');
+}
+
+// 窗口尺寸变化时重投影
+let _pdResizeT = null;
+window.addEventListener('resize', function () {
+  clearTimeout(_pdResizeT);
+  _pdResizeT = setTimeout(function () { PD_WIDGETS.forEach(pdTrackDraw); }, 150);
+});
+
+// 初始化
+(function () {
+  pdOnTypeChange();
+  const adv = $('pd_fold_adv');
+  if (adv) adv.classList.remove('open');
+})();
 </script>
 </body>
 </html>

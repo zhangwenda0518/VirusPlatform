@@ -7,9 +7,18 @@
 import os
 import sys
 import random
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from vp.utils import iter_fasta  # noqa: E402
+from Virus_Platform_Core.utils import iter_fasta  # noqa: E402
 
 fa = os.path.join('examples', 'example_viral_contigs.fasta')
 seqs = [(h.split()[0], s.upper()) for h, s in iter_fasta(fa)]
@@ -18,7 +27,7 @@ seqs.append(('random', ''.join(random.choice('ACGT') for _ in range(2000))))
 
 import primer3  # noqa: E402
 
-# 合并前的管线参数表（vp/primer.P3_GLOBAL，已随合并移除）。
+# 合并前的管线参数表（Virus_Platform_Core/primer.P3_GLOBAL，已随合并移除）。
 # 这里内联保留，作为"换引擎不改变产物"的对照基线。
 LEGACY_P3_GLOBAL = {
     'PRIMER_OPT_SIZE': 20, 'PRIMER_MIN_SIZE': 18, 'PRIMER_MAX_SIZE': 24,
@@ -58,8 +67,8 @@ def old_way(name, seq, num_return=3):
 
 
 def new_way(name, seq, num_return=3):
-    """合并后的真实入口：vp.primer.design_primers_for_seq（内部走 primer_design）。"""
-    from vp.primer import design_primers_for_seq
+    """合并后的真实入口：Virus_Platform_Core.primer.design_primers_for_seq（内部走 primer_design）。"""
+    from Virus_Platform_Core.primer import design_primers_for_seq
     out = []
     for p in design_primers_for_seq(name, seq, num_return=num_return):
         out.append((p['F_seq'], p['R_seq'], p['product'], round(p['F_tm'], 1),

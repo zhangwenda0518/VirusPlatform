@@ -69,6 +69,9 @@
       <span class="tab" data-f="cancelled" data-i18n="tk.f.cancelled">已停止</span>
     </div>
     <span style="flex:1"></span>
+    <label class="label-chk" id="curOnlyWrap" style="display:none">
+      <input type="checkbox" id="curOnlyChk">
+      <span data-i18n="gx.onlyCur">只看当前样品</span><span id="curOnlySample"></span></label>
     <label class="label-chk"><input type="checkbox" id="autoChk" checked>
       <span data-i18n="tk.auto">自动刷新</span></label>
     <button class="btn small" onclick="clearFinished()" data-i18n="tk.clear">🧹 清空已完成</button>
@@ -96,6 +99,7 @@
    - archived：tasks/*.json 归档（重启前历史，仅日志/删除）      */
 
 let FILTER = 'all';
+let CUR_ONLY = false;     // 只看全局当前样品（顶部导航的 VP_CTX.sample）
 let TASKS = [];          // active 快照
 let ARCH = [];           // archived 快照
 let ARCH_TOTAL = 0;      // 磁盘归档总数（可能大于 ARCH.length，超 limit 截断）
@@ -167,6 +171,11 @@ function cardHtml(task, archived) {
   if (dur) meta.push(`${t('tk.dur', '耗时')} ${dur}`);
   if (task.eta != null && task.status === 'running') meta.push(`${t('tk.eta', '预计剩余')} ${fmtDur(task.eta)}`);
   const logId = `log-${task.id}`;
+  // 输出目录：分析任务创建时由后端登记（out_dir），随卡片明示结果写在哪
+  const outdirRow = task.out_dir
+    ? `<p class="tk-meta" style="margin-top:4px">📁 ${t('tk.outdir', '输出目录')} <span style="user-select:all">${esc(task.out_dir)}</span>
+       <button class="btn small" style="padding:1px 8px;margin-left:6px" data-d="${esc(task.out_dir)}" onclick="openOutDir(this.dataset.d)" title="${t('c.openDir', '在资源管理器中打开')}">📂 ${t('c.openDir', '打开')}</button></p>`
+    : '';
   const details = `
     <details class="tk-log-wrap" ${LOG_OPEN.has(task.id) ? 'open' : ''} ontoggle="onLogToggle(this,'${task.id}',${archived})">
       <summary>${t('tk.log', '日志')}</summary>
@@ -181,6 +190,7 @@ function cardHtml(task, archived) {
     ${task.msg ? `<p class="tk-msg">${esc(task.msg)}</p>` : ''}
     ${pct != null ? `<div class="tk-bar"><i style="width:${pct}%"></i></div>` : ''}
     <p class="tk-meta">${meta.join(' · ')}${task.stage ? ' · ' + esc(task.stage) : ''}</p>
+    ${outdirRow}
     ${task.error ? `<div class="tk-err">${esc(task.error)}</div>` : ''}
     ${details}
   </div>`;
@@ -188,9 +198,17 @@ function cardHtml(task, archived) {
 
 function render() {
   const list = document.getElementById('taskList');
-  const shown = TASKS.filter(t => FILTER === 'all' ? true : t.status === FILTER);
+  const byStatus = TASKS.filter(t => FILTER === 'all' ? true : t.status === FILTER);
+  const shown = byStatus.filter(t => !CUR_ONLY || sampleMatches(t.name));
   if (!shown.length) {
-    list.innerHTML = `<div class="tk-empty">${t('tk.empty', '当前过滤条件下暂无任务')}</div>`;
+    // 「只看当前样品」把项目级/无样品归属的任务（下载批次、存储扫描、
+    // .sqn/校验/导出等）滤掉了 —— 必须说清楚是"被过滤"而不是"什么都没有"，
+    // 否则用户会以为刚点的下载凭空消失。
+    const hidden = byStatus.length - shown.length;
+    list.innerHTML = `<div class="tk-empty">${CUR_ONLY && hidden > 0
+      ? t('tk.emptyFiltered', '已按当前样品过滤，另有 {n} 个任务被隐藏；'
+          + '取消勾选「只看当前样品」即可看到').replace('{n}', hidden)
+      : t('tk.empty', '当前过滤条件下暂无任务')}</div>`;
   } else {
     const keep = new Set();
     shown.forEach(tk => {
@@ -384,6 +402,47 @@ async function clearFinished() {
   await refreshAll(true);
 }
 
+/* ── 只看当前样品 ──
+   任务名里带样品名的三种写法与后端 samples._task_matches_sample 保持一致
+   （多了第四条第 4 项的「排队·」镜像卡，见下），用锚定正则而不是
+   indexOf，避免样品 NX-1 误配到 NX-10 的任务。 */
+function sampleMatches(name) {
+  const s = (window.VP_CTX && window.VP_CTX.sample) || '';
+  if (!s) return true;
+  const n = String(name || '');
+  const q = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return n.indexOf(s + ' · ') === 0
+    || new RegExp('^(?:队列|Queue)·' + q + '$').test(n)
+    || new RegExp('^(?:样品分析|Sample analysis)\\s+' + q + '(?:\\b|$)').test(n)
+    // 第 4 条：排队中的样品在任务中心挂的是**镜像卡**「排队·<样品>」
+    // （真任务「队列·<样品>」要等开跑才出现）。它同样属于这个样品，
+    // 若不认它，用户一勾「只看当前样品」刚入队的样品就凭空消失。
+    // 后端 _task_matches_sample 故意不加这条：镜像卡不占任何资源，
+    // 不该让「样品忙」判定为真而挡住删除。
+    || new RegExp('^(?:排队|Queued)·' + q + '$').test(n);
+}
+
+function syncCurOnly() {
+  const wrap = document.getElementById('curOnlyWrap');
+  const chk = document.getElementById('curOnlyChk');
+  const lbl = document.getElementById('curOnlySample');
+  if (!wrap || !chk) return;
+  const s = (window.VP_CTX && window.VP_CTX.sample) || '';
+  wrap.style.display = s ? '' : 'none';
+  wrap.title = t('gx.onlyCurTip', '');
+  if (!s) {
+    CUR_ONLY = false;
+    chk.checked = false;
+    if (lbl) lbl.textContent = '';
+    return;
+  }
+  // 样品名写进独立 span：静态文案那格带 data-i18n，会被 applyI18n 重写
+  if (lbl) lbl.textContent = '（' + s + '）';
+}
+
+/* 顶部导航切换全局样品时，本页筛选标签与列表同步 */
+document.addEventListener('vp-ctx', () => { syncCurOnly(); render(); });
+
 /* ── 初始化 ── */
 document.querySelectorAll('#tabs .tab').forEach(el => {
   el.onclick = () => {
@@ -393,6 +452,11 @@ document.querySelectorAll('#tabs .tab').forEach(el => {
     render();
   };
 });
+document.getElementById('curOnlyChk').onchange = (e) => {
+  CUR_ONLY = e.target.checked;
+  render();
+};
+syncCurOnly();
 document.getElementById('autoChk').onchange = () => {
   clearTimeout(pollTimer);
   if (document.getElementById('autoChk').checked) schedule();

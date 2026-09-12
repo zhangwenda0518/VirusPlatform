@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """路由清单基线：app.py 拆分（单体化治理）前后的行为等价性守卫。
 
-背景：app.py 有 180 个路由。拆成 vp/web/ 下的多个 Blueprint 后，
+背景：app.py 有 180 个路由。拆成 Virus_Platform_Core/web/ 下的多个 Blueprint 后，
 最大的风险是「漏注册某个 blueprint」「某条路由的方法变了」
 「某条路由被静默改名」。tests/_it_platform.py 只覆盖 21 个页面 +
 少数 API，不足以守住全部路由，本脚本补齐这一层。
@@ -20,6 +20,15 @@
 import json
 import os
 import sys
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

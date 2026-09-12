@@ -21,17 +21,16 @@
 
   <div class="settings-grid">
     <!-- 通用设置 -->
-    <section class="card" style="margin-bottom:18px">
+    <section class="card">
       <h2 data-i18n="se.outRoot">📁 输出目录</h2>
       <p class="hint" data-i18n="se.outRootHint">所有分析产物写入此目录，并按推荐结构自动创建子目录：
          results（样品结果）/ tool_runs（工具运行）/ downloads（数据下载）/
          meta_search（公共数据检索）/ logan（溯源）/ submissions（提交准备）/ logs（日志）。
          留空 = 使用平台目录。修改立即生效；历史样品保留在原位置，改回即可查看。</p>
-      <div class="set-row">
+      <div class="set-row stack">
         <div class="s-label" data-i18n="se.outRootLabel">自定义输出根目录</div>
-        <div class="s-ctrl" style="display:flex;gap:8px;width:100%">
-          <input id="outRoot" style="flex:1" placeholder=""
-                 data-i18n-ph="se.outRootPh">
+        <div class="s-ctrl">
+          <input id="outRoot" data-i18n-ph="se.outRootPh">
           <button class="btn small" onclick="browseDir('outRoot')">📁 <span data-i18n="se.pick">浏览</span></button>
           <button class="btn small primary" onclick="applyOutputRoot($('outRoot').value.trim())" data-i18n="se.outRootApply">应用</button>
           <button class="btn small" onclick="applyOutputRoot('')" data-i18n="se.outRootReset">恢复默认</button>
@@ -40,13 +39,13 @@
       <div id="outRootMsg" class="hint" style="margin-top:6px"></div>
   </section>
 
-  <section class="card" style="margin-bottom:18px">
+  <section class="card">
       <h2 data-i18n="se.inRoot">📥 输入目录</h2>
       <p class="hint" data-i18n="se.inRootHint">测序数据与上传文件的位置，自动创建子目录：fastq（测序数据）/ uploads（拖拽上传）。留空 = 使用平台目录。文件选择对话框默认从这里打开。</p>
-      <div class="set-row">
+      <div class="set-row stack">
         <div class="s-label" data-i18n="se.inRootLabel">自定义输入根目录</div>
-        <div class="s-ctrl" style="display:flex;gap:8px;width:100%">
-          <input id="inRoot" style="flex:1">
+        <div class="s-ctrl">
+          <input id="inRoot">
           <button class="btn small" onclick="browseDir('inRoot')">📁 <span data-i18n="se.pick">浏览</span></button>
           <button class="btn small primary" onclick="applyRoot('input_root', $('inRoot').value.trim(), 'inRootMsg')" data-i18n="se.outRootApply">应用</button>
           <button class="btn small" onclick="applyRoot('input_root', '', 'inRootMsg')" data-i18n="se.outRootReset">恢复默认</button>
@@ -55,13 +54,13 @@
       <div id="inRootMsg" class="hint" style="margin-top:6px"></div>
   </section>
 
-  <section class="card" style="margin-bottom:18px">
+  <section class="card">
       <h2 data-i18n="se.dbRoot">🗄 数据库目录</h2>
-      <p class="hint" data-i18n="se.dbRootHint">kunpeng 库、taxonomy、palmdb 等大数据目录与建库源数据（host-db / virus-db）的位置，自动创建子目录：databases / host-db / virus-db。留空 = 使用平台目录。⚠ 切换后需把原 databases、host-db、virus-db 内容复制到新位置（或在「数据库构建」页重建），否则工具②④不可用。</p>
-      <div class="set-row">
+      <p class="hint" data-i18n="se.dbRootHint">kunpeng 库、taxonomy、palmdb 等大数据目录与建库源数据（host-db，以及 databases/virusref_db 病毒参考）的位置，自动创建子目录：databases / host-db。留空 = 使用平台目录。⚠ 切换后需把原 databases、host-db 内容复制到新位置（或在「数据库构建」页重建），否则工具②④不可用。</p>
+      <div class="set-row stack">
         <div class="s-label" data-i18n="se.dbRootLabel">自定义数据库根目录</div>
-        <div class="s-ctrl" style="display:flex;gap:8px;width:100%">
-          <input id="dbRoot" style="flex:1">
+        <div class="s-ctrl">
+          <input id="dbRoot">
           <button class="btn small" onclick="browseDir('dbRoot')">📁 <span data-i18n="se.pick">浏览</span></button>
           <button class="btn small primary" onclick="applyRoot('database_root', $('dbRoot').value.trim(), 'dbRootMsg')" data-i18n="se.outRootApply">应用</button>
           <button class="btn small" onclick="applyRoot('database_root', '', 'dbRootMsg')" data-i18n="se.outRootReset">恢复默认</button>
@@ -70,27 +69,19 @@
       <div id="dbRootMsg" class="hint" style="margin-top:6px"></div>
   </section>
 
-  <section class="card" style="margin-bottom:18px">
+  <section class="card">
       <h2 data-i18n="se.exRoot">📦 示例数据目录</h2>
       <p class="hint" data-i18n="se.exRootHint">内置示例（各工具「✨ 示例」按钮、结果中心「示例结果」页）所在目录。留空 = 自动探测：程序根目录下的 examples/，或与程序同级的 VirusPlatform-Examples/examples（程序 / 数据库 / 示例 三分离打包时用）。</p>
-      <div class="set-row">
+      <div class="set-row stack">
         <div class="s-label" data-i18n="se.exRootLabel">示例数据根目录</div>
-        <div class="s-ctrl" style="display:flex;gap:8px;width:100%">
-          <input id="exRoot" style="flex:1">
+        <div class="s-ctrl">
+          <input id="exRoot">
           <button class="btn small" onclick="browseDir('exRoot')">📁 <span data-i18n="se.pick">浏览</span></button>
           <button class="btn small primary" onclick="applyRoot('examples_root', $('exRoot').value.trim(), 'exRootMsg')" data-i18n="se.outRootApply">应用</button>
           <button class="btn small" onclick="applyRoot('examples_root', '', 'exRootMsg')" data-i18n="se.outRootReset">恢复默认</button>
         </div>
       </div>
       <div id="exRootMsg" class="hint" style="margin-top:6px"></div>
-  </section>
-
-  <section class="card" style="margin-bottom:18px">
-      <h2 data-i18n="se.storage">💾 存储与磁盘</h2>
-      <p class="hint" data-i18n="se.storageHint">磁盘剩余空间与各目录占用。
-         目录占用为后台统计（数据库较大时约需几十秒），结果缓存 10 分钟。
-         平台所在盘剩余低于 20GB 时，页面顶部会出现黄色水位横幅。</p>
-      <div id="storagePanel" style="margin-top:10px"></div>
   </section>
 
   <section class="card">
@@ -129,6 +120,15 @@
     </section>
   </div>
 
+  <!-- 存储与磁盘（目录占用表格较长，通栏放置避免网格内卡片高度失衡） -->
+  <section class="card" style="margin-top:18px">
+      <h2 data-i18n="se.storage">💾 存储与磁盘</h2>
+      <p class="hint" data-i18n="se.storageHint">磁盘剩余空间与各目录占用。
+         目录占用为后台统计（数据库较大时约需几十秒），结果缓存 10 分钟。
+         平台所在盘剩余低于 20GB 时，页面顶部会出现黄色水位横幅。</p>
+      <div id="storagePanel" style="margin-top:10px"></div>
+  </section>
+
   <!-- 分析默认参数 -->
   <section class="card" style="margin-top:18px">
     <h2 data-i18n="se.defaults">分析默认参数</h2>
@@ -151,11 +151,30 @@
     <div id="toolList" class="tools"></div>
   </section>
 
+  <!-- 环境自检（模块 / 数据库 / 磁盘；工具明细见上方「工具探测」）。
+       结果来自 /api/selfcheck（进程内缓存 5 分钟），按钮强制重跑。 -->
+  <section class="card" style="margin-top:18px">
+    <h2 data-i18n="se.selfcheck">🩺 环境自检</h2>
+    <p class="hint" data-i18n="se.selfcheckHint">四项一键体检：模块导入 / 外部工具 / 数据库 / 磁盘空间。
+       首次运行需数秒（递归导入全部模块），结果缓存 5 分钟；与 CLI
+       `main.py selfcheck` 同一套检查。</p>
+    <div id="selfcheckBox" class="tools">
+      <span class="hint" data-i18n="se.selfcheckIdle">尚未运行</span>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn" onclick="runSelfcheck(true)">
+        ▶ <span data-i18n="se.selfcheckRun">运行自检</span>
+      </button>
+    </div>
+  </section>
+
   <div class="savebar">
     <span class="hint" id="saveHint"></span>
     <button class="btn primary" onclick="saveSettings()" data-i18n="se.save">💾 保存设置</button>
   </div>
 </div>
+
+{% include "_browse_dlg.html" %}
 
 <script src="/static/i18n.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
@@ -315,8 +334,66 @@ async function saveSettings() {
 document.querySelectorAll('#langSeg button').forEach(b =>
   b.addEventListener('click', () => setLang(b.dataset.lang)));
 
+/* ---- 环境自检卡片 ----------------------------------------------
+ * 进页先展示缓存结果（不 force）；按钮强制重跑。失败明细最多列 8 条，
+ * 防止某个依赖缺失把 80+ 模块的失败全刷出来。 */
+const SELFCHECK_MAX_ROWS = 8;
+
+function renderSelfcheck(d) {
+  const box = $('selfcheckBox');
+  if (!d || !Array.isArray(d.sections) || !d.sections.length) {
+    box.innerHTML = `<span style="color:var(--red-700)">✘ ${esc(d && d.error
+      ? d.error : t('se.selfcheckFail', '自检请求失败'))}</span>`;
+    return;
+  }
+  let html = '';
+  for (const s of d.sections) {
+    const mark = s.warn ? '△' : (s.ok ? '✔' : '✘');
+    const extra = s.missing && s.missing.length
+      ? `（缺: ${esc(s.missing.join(', '))}）` : '';
+    const sec = s.seconds != null ? ` · ${s.seconds}s` : '';
+    html += `<div class="trow ${s.ok ? 'ok' : 'no'}">` +
+            `<span>${mark} ${esc(s.title)}</span>` +
+            `<span>${esc(s.summary || '')}${extra}${sec}</span></div>`;
+    // 子明细：数据库身份、磁盘余量要展示；失败模块只展示前 N 条
+    const rows = (s.id === 'modules')
+      ? (s.items || []).slice(0, SELFCHECK_MAX_ROWS)
+      : (s.items || []);
+    for (const it of rows) {
+      if (s.id === 'modules' && it.ok !== false) continue;
+      const c = it.ok === false ? 'no' : '';
+      html += `<div class="trow ${c}" style="padding-left:18px">` +
+              `<span style="flex:1">· ${esc(it.name)}${it.detail ? ' — '
+                + esc(it.detail) : ''}</span></div>`;
+    }
+    const nf = (s.items || []).filter(i => i.ok === false).length;
+    if (s.id === 'modules' && nf > SELFCHECK_MAX_ROWS)
+      html += `<div class="trow no" style="padding-left:18px">` +
+              `<span>… ${t('se.selfcheckMore', '还有')}${nf - SELFCHECK_MAX_ROWS}${t('se.selfcheckMoreTail', '条失败未列出')}</span></div>`;
+  }
+  const meta = d.cached ? t('se.selfcheckCached', '缓存结果（点按钮强制重跑）')
+                        : t('se.selfcheckFresh', '本次实测');
+  html += `<div class="hint" style="margin-top:6px">⏱ ${esc(meta)}</div>`;
+  box.innerHTML = html;
+}
+
+async function runSelfcheck(force) {
+  const box = $('selfcheckBox');
+  box.innerHTML = `<span class="hint">${t('se.selfcheckRunning',
+    '检查中…（首次需数秒，请稍候）')}</span>`;
+  try {
+    const d = await (await fetch('/api/selfcheck'
+      + (force ? '?force=1' : ''))).json();
+    renderSelfcheck(d);
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--red-700)">✘ ${
+      t('se.selfcheckFail', '自检请求失败')}</span>`;
+  }
+}
+
 loadSettings();
 loadTools();
+runSelfcheck(false);   // 进页展示缓存结果；强制重跑点按钮
 </script>
 </body>
 </html>

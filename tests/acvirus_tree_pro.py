@@ -222,7 +222,7 @@ def _root_at_midpoint(tree, far1=None, far2=None):
         if far1.name != far2.name:
             tree.root_with_outgroup(far2)
         return tree
-    except Exception as e:
+    except Exception:
         return tree
 
 def draw_tree_synteny_figure(tree_file, pos_df, sim_df, taxa_meta, out_prefix,
@@ -267,7 +267,6 @@ def draw_tree_synteny_figure(tree_file, pos_df, sim_df, taxa_meta, out_prefix,
     cmap_bg=plt.get_cmap('Pastel1')
     gen_colors={g:cmap_bg(i%9) for i,(g,_,_) in enumerate(blocks)}
     # 分色: 我们的样本标红色斜体, 参考按属色块
-    sample_colors=gen_colors
     for g,sy,ey in blocks:
         rect=patches.Rectangle((0,sy-0.4),max_depth*1.05,(ey-sy)+0.8,
                  facecolor=gen_colors.get(g,'#eeeeee'),alpha=0.35,lw=0,zorder=0)

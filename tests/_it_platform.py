@@ -3,11 +3,21 @@
 + 既有样品报告与结果中心数据。只读，不启动分析任务。"""
 import json
 import os
+import shutil
 import sys
+# 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
+# print 抛 UnicodeEncodeError（2026-09-11 实测多处踩过）。只改错误处理为
+# replace（编码不动，中文照常可读），编不出的字符降级为 '?'。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors='replace')
+    except (AttributeError, OSError):
+        pass
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vp.config import PLATFORM_ROOT  # noqa: E402
+from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 
@@ -45,23 +55,25 @@ def main():
                           ('alignEditToggle()', '比对查看器·编辑模式'),
                           ('alignSave(this)', '比对查看器·保存副本'),
                           ("fillExample('al_fa', EXAMPLE_SET_FASTA)", '比对卡示例'),
+                          ('id="alSample"', '比对查看器·样品/集合直选'),
+                          ('id="alGroup"', '比对查看器·分组直选'),
+                          ('tbSendToAlign()', '建树卡·跳转看建树比对'),
                           ('fillExample(\'qt_fa\', EXAMPLE_SET_FASTA)', 'FASTA 建树'),
                           ('fillExample(\'tv_file\', EXAMPLE_TREE_NWK)', '树查看'),
-                          ('fillExample(\'ms_fa\', EXAMPLE_SET_FASTA)', 'MSA 查看'),
                           ('fillExample(\'sd_fa\', EXAMPLE_SET_FASTA)', 'SDT 卡'),
-                          ('fillExample(\'s_files\', EXAMPLE_SYNTENY_GBS)', '导入示例 .gb')]:
+                          ('fillExample(\'s_files\', EXAMPLE_GB_TRIO)', '导入示例 .gb')]:
         check(marker in html, f'tools 页渲染含 {where}')
-    # 比较组四模块结构：参考序列获取 / 进化树构建 / SDT / 共线性
+    # 比较组三模块结构：参考序列获取 / 进化树构建 / SDT
     for gone in ('id="t-contigs-struct"', 'id="t-ncbi"', 'id="t-synteny-gb"',
-                 'id="t-msa"', 'id="t-tree"', 'id="s_style"', 'id="s_lovis4u"'):
+                 'id="t-msa"', 'id="t-tree"', 'id="s_style"', 'id="s_lovis4u"',
+                 'id="ms_fa"', 'id="msBox"'):
         check(gone not in html, f'旧结构已移除: {gone}')
-    for present in ('id="t-seqprep"', 'id="t-treebuild"', 'id="t-sdt"',
-                    'id="t-synteny"'):
+    for present in ('id="t-seqprep"', 'id="t-treebuild"', 'id="t-sdt"'):
         check(present in html, f'新模块存在: {present}')
     js = open(os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
               encoding='utf-8').read()
     for fn in ('ictvCascadeRefetch', 'ictvPreview', 'ictvDownload', 'loadTbColls',
-               'tbBuild', 'tbBuildFor', 'alignRun', 'alignLoad', 'alignRender',
+               'tbBuild', 'gbBuildTree', 'alignRun', 'alignLoad', 'alignRender',
                'alignEditToggle', 'alignSave', 'alignSend', 'tbSourceChanged',
                'alSourceChanged', 'alFillFromSource', 'loadAlColls'):
         check(f'function {fn}' in js or f'async function {fn}' in js,
@@ -70,9 +82,27 @@ def main():
     r = c.get('/api/samples')
     names = [x['name'] for x in r.get_json()]
     check(all(not n.startswith('_') for n in names), '样品列表无下划线项')
-    r = c.get('/api/samples/archived')
-    check(r.status_code == 200 and len(r.get_json()) > 0,
-          f'归档样品列表可用（{len(r.get_json())} 个）')
+    # 归档样品接口：数据来自 results/_archive/ 下的历史项目。
+    # 原先断言"列表必须非空"，等于把测试绑在开发机的残留数据上——清理 run/
+    # 之后必然 FAIL（实测）。改为自造一个临时归档样品 → 断言接口如实反映
+    # → finally 删除，测试自带 fixture、不依赖环境残留。
+    from Virus_Platform_Core.config import DIRS
+    arch = os.path.join(DIRS['results'], '_archive')
+    probe = os.path.join(arch, '_it_platform_arch')
+    os.makedirs(os.path.join(probe, '07_report'), exist_ok=True)
+    with open(os.path.join(probe, '07_report', 'report.html'), 'w',
+              encoding='utf-8') as f:
+        f.write('<html>probe</html>')
+    try:
+        r = c.get('/api/samples/archived')
+        items = r.get_json() if r.status_code == 200 else []
+        names = [x['name'] for x in items]
+        check(r.status_code == 200 and '_it_platform_arch' in names,
+              f'归档样品列表可用（{len(items)} 个，含自造 fixture）')
+        hit = next((x for x in items if x['name'] == '_it_platform_arch'), {})
+        check(hit.get('has_report') is True, '归档项正确标识含报告')
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
     r = c.get('/api/gb/collections')
     check(all(not x['name'].startswith('_') for x in r.get_json()),
           '集合列表无下划线项')
@@ -93,7 +123,7 @@ def main():
     js = open(os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
               encoding='utf-8').read()
     for const in ('EXAMPLE_FASTA', 'EXAMPLE_SET_FASTA', 'EXAMPLE_TREE_NWK',
-                  'EXAMPLE_GENBANK_GB', 'EXAMPLE_SYNTENY_GBS',
+                  'EXAMPLE_GENBANK_GB', 'EXAMPLE_GB_TRIO',
                   'EXAMPLE_CONSERVED_FASTA'):
         check(const in js, f'app.js 定义 {const}')
 
@@ -195,7 +225,7 @@ def main():
     # 对应的 id 不是 main 的直接子元素（例如被嵌在别的卡片里），点它就是
     # 空白页——2026-09-09 的 t-kvchain 正是如此（曾是 t-kvsuite 内的 div）。
     from html.parser import HTMLParser as _HP
-    from vp.web.pages import NAV_GROUPS as _NAV
+    from Virus_Platform_Core.web.pages import NAV_GROUPS as _NAV
 
     class _MainKids(_HP):
         def __init__(self):
@@ -227,6 +257,40 @@ def main():
     check(not _missing,
           f'导航项均有 <main> 直接子卡片（缺失: {_missing or "无"}）')
 
+    # ---------- 3c-2. ⚡一键分析（全流程）：自有输入 + 参数 + 输出区 ----------
+    # 2026-09-11 用户实测：该卡只有「运行 / 最近汇总」两个按钮——参数读的是
+    # t-kvsuite 卡的 kv_* 字段（在别的模块页，看不到也改不了），也没有 .toolrun
+    # 输出容器，日志与产物无处落，整页看起来「没有输入、没有输出、没有参数」。
+    _kvchain = hv.split('id="t-kvchain"', 1)[-1].split('</section>', 1)[0]
+    for _id, _what in (('kvc_samples', '样品输入'),
+                       ('kvc_reads_r1', '直填测序数据 R1'),
+                       ('kvc_reads_r2', '直填测序数据 R2'),
+                       ('kvc_min_cov', '过滤阈值参数'), ('kvc_variant_qual', '变异阈值参数'),
+                       ('kvc_evo', '扩展变异开关'), ('kvc_threads', '线程数'),
+                       ('toolrun-kvchain', '输出区'),
+                       ('kvcIdentifyTable', '鉴定结果表'),
+                       ('kvcFilteredTable', '过滤结果表')):
+        check(f'id="{_id}"' in _kvchain, f'一键全流程卡含{_what}（{_id}）')
+    check('runKvchain(this)' in _kvchain and 'kvchainPullKvsuite()' in _kvchain,
+          '一键全流程卡含运行按钮与「取该卡参数」按钮')
+    # 参数必须来自本卡 kvc_* 表单：runKvchain 不得再读 kvsuite 卡的 kv_samples
+    _runjs = hv.split('async function runKvchain(btn)', 1)[-1].split(
+        '/* 一键全流程卡', 1)[0]
+    check("val('kvc_samples')" in _runjs and "val('kv_samples')" not in _runjs,
+          'runKvchain 读本卡 kvc_* 参数（不再借用 t-kvsuite 的字段）')
+    # 两卡渲染互不覆盖：kvsuite 结果用 kv* 容器，一键全流程用 kvc* 容器
+    check("const KV_IDS = {" in hv and "const KVC_IDS = {" in hv
+          and "renderKvsuite(d, KVC_IDS)" in hv,
+          '一键全流程内联复用 kvsuite 渲染（KVC_IDS 独立容器）')
+    # 实时日志进卡片：app.js 的任务标签表要有这两张卡的键（缺了输出区永远为空）
+    _appjs = open(_os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'app.js'),
+                  encoding='utf-8').read()
+    _tl = _appjs.split('const TOOL_LABELS = {', 1)[-1].split('};', 1)[0]
+    for _k, _lbl in (('kvchain', '病毒定量与共识·一键'),
+                     ('kvsuite', '已知病毒识别与定量')):
+        check(f'{_k}:' in _tl and _lbl in _tl,
+              f'TOOL_LABELS 登记 {_k}（卡片输出区可收实时日志）')
+
     # ---------- 3d. 基因组图谱：gbdraw 两子命令参数差异 ----------
     # gbdraw 0.14 的 circular / linear 参数集与取值集都不同，而前端 gb_opts
     # 是面向圈图语义的一套键（labels / track_type / species / label_placement…），
@@ -234,7 +298,7 @@ def main():
     # （退出码 2）→ 预览 / 出图 500。2026-09-09 用户实测踩到。
     try:
         import tempfile as _tf
-        from vp.gbdraw_plot import _run_gbdraw as _rg
+        from Virus_Platform_Core.gbdraw_plot import _run_gbdraw as _rg
         _gopts = {'labels': 'out', 'track_type': 'tuckin', 'species': 'T',
                   'strain': 'S', 'feature_width': 20,
                   'multi_record_canvas': True, 'gc_content_width': 300,
@@ -262,7 +326,7 @@ def main():
     check('examples.js' in hv, '/tools 接入 examples.js')
     for _fn in ('example_R1.fastq.gz', 'example_R2.fastq.gz'):
         check(_os.path.isfile(_os.path.join(EX, _fn)), f'示例测序数据存在: {_fn}')
-    from vp.utils import iter_fasta as _if
+    from Virus_Platform_Core.utils import iter_fasta as _if
     _n_cmv = len(list(_if(_os.path.join(EX, 'example_cmv.fasta'))))
     _n_mix = len(list(_if(_os.path.join(EX, 'example_mix.fasta'))))
     check(_n_cmv == 3, f'CMV 示例含三分体（实际 {_n_cmv} 段）')
@@ -293,11 +357,6 @@ def main():
     check(any(f['path'].endswith('.html') and f['kind'] == 'html'
               for f in _lgan),
           f'LOGAN 示例报告可按 html 内联预览（{len(_lgan)} 个产物）')
-    _r = c.get('/api/examples/synteny')
-    _syn = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
-    check(any(f['path'].endswith('.png') for f in _syn) and
-          any(f['path'].endswith('.html') for f in _syn),
-          f'共线性比较示例含图与报告（{len(_syn)} 个产物）')
     _r = c.get('/api/examples/sdt')
     _sdt = (_r.get_json() or {}).get('files', []) if _r.status_code == 200 else []
     check(any(f['path'].endswith('.pdf') and f['kind'] == 'pdf' for f in _sdt)
@@ -309,10 +368,11 @@ def main():
     _missing = [m for m in _man
                 if not _os.path.isdir(_os.path.join(EX, 'results', m))]
     check(not _missing, f'示例结果清单与目录一致（{len(_man)} 个模块）')
-    check(len(_man) >= 26, f'示例结果覆盖 ≥26 个模块（实际 {len(_man)}）')
+    # synteny 模块已随 2026-09 重构移除，示例结果同步下线
+    check(len(_man) >= 25, f'示例结果覆盖 ≥25 个模块（实际 {len(_man)}）')
 
     # ---------- 3f. 本地比对引擎（离线：blastn / DIAMOND / mmseqs2） ----------
-    from vp.local_search import engine_status as _eng_status
+    from Virus_Platform_Core.local_search import engine_status as _eng_status
     _st = _eng_status()
     check(bool(_st.get('ok')), '本地 blastn 就绪（病毒参考核酸库 + BLAST+）')
     check(bool(_st.get('ok_blastx')), '本地 DIAMOND blastx 就绪（viral_prot.dmnd）')
