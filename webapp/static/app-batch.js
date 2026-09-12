@@ -1,56 +1,11 @@
-// ---------------- 管道卡片 / 批量导入 + 批处理队列 ----------------
+// ---------------- 管道卡片 / 批处理队列 ----------------
 // 2026-09-13 自 app.js 拆出。普通 script 共享全局作用域：本文件在
 // app.js 之后加载，可直接使用 $/esc/t/toast/jfetch 等核心工具；页面
 // 内联脚本与其它 app-*.js 里的同名调用按全局解析（加载顺序见模板）。
 // 注意：本块内引用的其它 app-*.js 函数均为调用期解析（事件/回调触发），
 // 不存在加载期交叉依赖。
-// ---------------- 批量导入 + 批处理队列 ----------------
-async function batchCreate(btn) {
-  return withBtn(btn, async () => {
-    const errBox = $('bErr');
-    errBox.textContent = '';
-    const project = ($('batchProject')?.value || '').trim();
-    const lines = ($('batchText')?.value || '').split(/\r?\n/)
-      .map(l => l.trim()).filter(l => l && !l.startsWith('#'));
-    if (!lines.length) { errBox.textContent = t('pp.needRows', '请至少粘贴一行样品信息'); return; }
-    const created = [];
-    const adjusted = [];
-    for (const line of lines) {
-      const parts = line.split(/\t| {2,}|,/).map(s => s.trim());
-      const [sample, r1, r2] = parts;
-      if (!sample || !r1) { errBox.textContent = `${t('pp.badRow', '格式错误（需要 样品名+R1）')}: ${line}`; return; }
-      const res = await apiCreateSample({ sample, r1, r2: r2 || null, project });
-      if (!res.ok) {
-        if (res.conn) setConnBanner(true);
-        errBox.textContent = `${sample}: ${res.error}`; return;
-      }
-      // 用后端返回的**实际**目录名入队/展示，不用 TSV 里的原始写法
-      created.push(res.data.sample);
-      if (res.data.note) adjusted.push(sample + ' → ' + res.data.sample);
-    }
-    $('batchText').value = '';
-    toast(t('pp.batchCreate'), `${created.length} ${t('dl.samples')}`, {ttl: 4000});
-    if (adjusted.length) {
-      errBox.textContent = t('pp.nameAdjustedN', '')
-        .replace('{n}', adjusted.length) + '：' + adjusted.join('，');
-    }
-    loadSamples();
-    if ($('batchEnq')?.checked && created.length) {
-      try {
-        const r = await fetch('/api/queue/add', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ samples: created, project })});
-        if (!r.ok) {
-          const d = await r.json().catch(() => ({}));
-          toast(t('pp.qAddFail', '加入队列失败'), d.error || (r.status + ''), {kind: 'failed', ttl: 12000});
-        }
-      } catch (e) {
-        toast(t('pp.qAddFail', '加入队列失败'), String(e), {kind: 'failed', ttl: 12000});
-      }
-      loadQueue();
-    }
-  }, '⏳ 批量创建中…');
-}
+// （原「批量导入（TSV）」入口已于同日移除：与「从文件夹批量导入」重复，
+//  其独有能力——分散路径/自定义命名/创建后入队——已并入文件夹扫描流程。）
 
 const Q_ST = { queued: '排队中', running: '运行中', done: '已完成',
                failed: '失败', cancelled: '已取消' };
