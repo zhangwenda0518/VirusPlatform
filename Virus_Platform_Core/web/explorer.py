@@ -209,20 +209,43 @@ def _vp_link(families, viruses) -> dict:
     return {'href': href, 'label': label}
 
 
+# 本站自有路由前缀：命中这些就**不改写**（面板里的 genome_annotations 下载走这里，
+# 改到线上反而拿不到平台已同步的那份）。
+_LOCAL_PREFIXES = ('/virus/files/', '/static/', '/api/', '/explorer', '/reference/')
+
+
 def _retarget_links(html: str) -> str:
-    """把跨站链接指到线上整站；`/virus/files/` 是本站路由，保持不动。"""
+    """把面板里的**根相对链接**指到线上整站。
+
+    引擎生成的跨站链接有 `/vector/`、`/primers/search?q=`、`/species/<ICTV 名>`
+    （见 engine.py 的 dmc.Anchor 与 `embed_url = f"/species/{quote(ictv_name)}"`）。
+    这些在平台里没有对应路由，不改写就会点出本站 404。
+
+    ⚠️ 判据必须是「**本站**前缀白名单」，不能是「线上路由白名单」：服务器整站的路由
+    会变（服务端 app.py 里还挂着 /knowledge/ /literature/ /metabuli/ /photos/ /te/
+    等等），逐个枚举必然漏 —— `/species/` 就是这么漏掉的（引物面板的
+    「View Full Primer Details →」点了落到 127.0.0.1:8765/species/... 404）。
+    """
     if not PUBLIC_BASE:
-        # 没有线上地址 → 去掉跨站链接（保留文字），避免点出 404
-        html = re.sub(r'<a\b[^>]*href="/(?:virus|vector|primers)/[^"]*"[^>]*>',
-                      '<span class="vx-deadlink">', html)
-        html = html.replace('</a>', '</span>')
-        return html
+        # 没有线上地址 → 把跨站链接降级成纯文字（保留标签文字，去掉可点性），
+        # 避免点出 404。**必须连 `</a>` 一起吃掉**：只替换开标签再全局把
+        # `</a>` 换成 `</span>` 会顺手改掉绝对链接（pubmed）的闭合标签，
+        # 产出 `<a href="https://...">x</span>` 这种畸形结构。
+        def _dead(m):
+            if m.group('href').startswith(_LOCAL_PREFIXES):
+                return m.group(0)                  # 本站路由保留
+            return f'<span class="vx-deadlink">{m.group("text")}</span>'
+        return re.sub(
+            r'<a\b[^>]*href="(?P<href>/(?!/)[^"]*)"[^>]*>(?P<text>.*?)</a>',
+            _dead, html, flags=re.S)
+
     def _sub(m):
         prefix, path = m.group(1), m.group(2)
-        if path.startswith('/virus/files/'):
-            return m.group(0)                      # 本站下载路由
+        if path.startswith(_LOCAL_PREFIXES):
+            return m.group(0)                      # 本站路由，保持不动
         return f'{prefix}href="{PUBLIC_BASE}{path}"'
-    return re.sub(r'(\s)href="(/(?:virus|vector|primers)[^"]*)"', _sub, html)
+    # (?!/) 排除协议相对链接 //host/path；只认真正的根相对路径
+    return re.sub(r'(\s)href="(/(?!/)[^"]*)"', _sub, html)
 
 
 def _panel(node) -> Response:

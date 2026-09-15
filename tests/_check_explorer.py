@@ -10,19 +10,36 @@
   5. 宿主范围 / 引物数据库：面板出现真实表格
   6. 媒介传播：Sankey 真渲染（用 Potyviridae 家族取到媒介记录）
   7. 病毒档案：选物种后出现注释图与下载链接
-  8. 导出 CSV / FASTA 带正确 Content-Disposition
-  9. 全程无 console error / pageerror
+  8. 深链指向与跳转：面板里的跨站链接必须指向线上整站（PUBLIC_BASE）而不是裸的
+     根相对路径（否则点出本站 404）；真点一次确认弹出新页并能打开；本站
+     `/virus/files/` 下载链接未被改写且真能下到文件
+  9. 导出 CSV / FASTA 带正确 Content-Disposition
+  10. 全程无 console error / pageerror
 
-用法：python tests/_check_explorer.py       （需 8765 端口在跑）
+用法：python tests/_check_explorer.py [--port 8765]
+      端口已在跑就直接用；没在跑则自起一个临时实例（跑完自动关）。
+      [13] 深链跳转需要外网；断网或 VP_SKIP_ONLINE=1 时该段自动 SKIP 而不判失败。
+      未安装 playwright 时整体 SKIP 并返回 0。
 """
+import argparse
+import atexit
+import io
 import json
+import os
 import re
+import socket
+import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:                                  # 开发依赖未装
+    sync_playwright = None
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -30,9 +47,70 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, OSError):
         pass
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORIGIN = 'http://127.0.0.1:8765'
 BASE = ORIGIN + '/explorer'
+# 面板里的跨站深链指向的线上整站（后端 PUBLIC_BASE / VP_EXPLORER_PUBLIC）
+PUBLIC_BASE = 'http://39.106.101.94'
 TABS = ('trends', 'mutation', 'table', 'primers', 'host', 'vector', 'profile')
+
+
+def _kill_proc(proc):
+    """收尾关掉自起的临时实例（正常返回、断言失败、异常退出都要关）。"""
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except Exception:                                # noqa: BLE001
+        pass
+
+
+def _port_open(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('127.0.0.1', port)) == 0
+
+
+def _free_port(start=8791):
+    for p in range(start, start + 40):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', p))
+                return p
+            except OSError:
+                continue
+    raise RuntimeError('没有可用端口')
+
+
+def _start_server(port):
+    """起临时平台实例（服务日志落文件：PIPE 写满会让服务阻塞）。
+
+    照抄 tests/_check_kvchain_ui.py 的写法，连同那条坑：项目自带绿色版 Python
+    目录下有 `python312._pth`，该文件存在时 Python 进入 isolated 模式，`-c` 的
+    sys.path **不含当前工作目录**，于是 `import app` 直接 ModuleNotFoundError、
+    服务永远起不来（用脚本文件跑时 sys.path[0] 是脚本目录，所以只有这种
+    `-c` 起子进程的写法会中招）。故必须在 `-c` 里显式注入 sys.path。
+    """
+    logpath = os.path.join(tempfile.gettempdir(), f'vp_explorer_{port}.log')
+    logf = io.open(logpath, 'w', encoding='utf-8', errors='replace')
+    proc = subprocess.Popen(
+        [sys.executable, '-c',
+         'import sys\n'
+         f'sys.path.insert(0, {ROOT!r})\n'
+         'from werkzeug.serving import make_server\n'
+         'import app\n'
+         f"s = make_server('127.0.0.1', {port}, app.app, threaded=True)\n"
+         "print('ready', flush=True)\n"
+         's.serve_forever()'],
+        cwd=ROOT, env=dict(os.environ, VP_NO_RECOVER='1'),
+        stdout=logf, stderr=subprocess.STDOUT)
+    for _ in range(120):
+        if _port_open(port):
+            return proc, logpath
+        if proc.poll() is not None:
+            break
+        time.sleep(0.3)
+    proc.kill()
+    print('服务启动失败，日志:', logpath)
+    return None, logpath
 
 
 def _json(path, data=None):
@@ -49,6 +127,26 @@ def _head(path, data=None):
                                  headers={'Content-Type': 'application/json'})
     with urllib.request.urlopen(req, timeout=600) as r:
         return r.status, dict(r.headers), r.read()
+
+
+def _text(path, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(ORIGIN + path, data=body,
+                                 headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=900) as r:
+        return r.read().decode('utf-8', errors='replace')
+
+
+def _stray(hrefs):
+    """挑出会落到本站 404 的裸根相对链接。
+
+    面板里的链接只允许两种：指向线上整站（PUBLIC_BASE + '/...'）或本站自有下载
+    路由 `/virus/files/...`。裸的 `/species/xxx`、`/vector/` 这类点下去会命中
+    127.0.0.1:8765 的 404 —— 后端 `_retarget_links` 漏改就是这个症状。
+    """
+    return sorted({h for h in hrefs
+                   if h.startswith('/') and not h.startswith('//')
+                   and not h.startswith('/virus/files/')})
 
 
 def _plot_stat(pg, sel):
@@ -85,12 +183,72 @@ def _plot_stat(pg, sel):
 
 
 def main() -> int:
+    global ORIGIN, BASE
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--port', type=int, default=8765,
+                    help='平台端口；没在跑就自起一个临时实例（默认 8765）')
+    args = ap.parse_args()
+
+    if sync_playwright is None:
+        print('[SKIP] 未安装 playwright，跳过真浏览器验证')
+        print('       安装: python -m pip install -r requirements-dev.txt')
+        return 0
+
+    # 套件不保证外部已有服务在跑 —— 没有就自己起一个，跑完（含异常退出）自动关。
+    # 已有实例则直接复用，不动它。
+    proc = None
+    if _port_open(args.port):
+        print(f'复用已在运行的平台实例 127.0.0.1:{args.port}\n')
+    else:
+        proc, logpath = _start_server(args.port)
+        if proc is None:
+            print(f'[FAIL] 无法在 127.0.0.1:{args.port} 起服务')
+            return 1
+        atexit.register(_kill_proc, proc)
+        print(f'自起临时实例 127.0.0.1:{args.port}（日志 {logpath}）\n')
+    ORIGIN = f'http://127.0.0.1:{args.port}'
+    BASE = ORIGIN + '/explorer'
+    # ⚠️ 数据是**惰性加载**的：`/status` 只报状态、不触发加载（新实例的
+    # n_records 就是 None）。必须先打一次 `/init` 把全量数据（457MB FASTA，
+    # 有 pickle 缓存时约 1s）拉起来，再轮询 status.loaded 才算就绪。
+    for _ in range(4):
+        try:
+            _json('/api/explorer/init')
+            break
+        except Exception:                            # noqa: BLE001
+            time.sleep(0.5)
+    for _ in range(240):
+        try:
+            if _json('/api/explorer/status').get('loaded'):
+                break
+        except Exception:                            # noqa: BLE001
+            pass
+        time.sleep(0.5)
+
     fails = []
+    skips = []
 
     def ck(cond, msg, extra=''):
         print(('  ok   ' if cond else '  FAIL ') + msg + (('  ' + extra) if extra else ''))
         if not cond:
             fails.append(msg)
+
+    def sk(msg, why=''):
+        """需要外网才能判定的项：拿不到外网记 SKIP，不当作失败。
+
+        本脚本在 `_run_all.py --quick` 里跑，断网环境不该因探测线上站而变红；
+        但真的返回了就照常断言。
+        """
+        print('  SKIP ' + msg + (('  ' + why) if why else ''))
+        skips.append(msg)
+
+    def is_offline(e):
+        return isinstance(e, (urllib.error.URLError, TimeoutError, OSError))
+
+    # 项目约定：联网段可用 VP_SKIP_ONLINE=1 显式跳过（见 tests/_run_all.py
+    # 的 _ONLINE_HINT）。[13] 要探线上整站，属于这一类。
+    no_net = bool(os.environ.get('VP_SKIP_ONLINE'))
 
     print('[1] 数据状态')
     st = _json('/api/explorer/status')
@@ -271,9 +429,141 @@ def main() -> int:
         real = [e for e in errs
                 if 'favicon' not in e.lower() and 'net::ERR' not in e]
         ck(not real, '无 console error / pageerror', '; '.join(real[:3]))
+
+        print('[13] 深链指向与跳转')
+        anchors = pg.evaluate("""() => {
+            const out = [];
+            for (const sel of ['#exVector', '#exPrimers', '#exProfile',
+                               '#exHostPanel']) {
+              for (const a of document.querySelectorAll(sel + ' a[href]')) {
+                out.push({href: a.getAttribute('href'),
+                          text: (a.textContent || '').trim().slice(0, 40)});
+              }
+            }
+            return out;
+        }""")
+        ck(len(anchors) > 0, '面板里有可跳转的深链', f'{len(anchors)} 条')
+        hrefs = {a['href'] for a in anchors}
+
+        # 只允许两种 href：指向线上整站（PUBLIC_BASE）或本站自有下载路由。
+        # 出现裸的根相对链接（如 /species/xxx）说明 _retarget_links 漏改了 ——
+        # 点下去会落到 127.0.0.1:8765/species/xxx 的 404。
+        ck(not _stray(hrefs), '无会落到本站 404 的裸相对链接',
+           '; '.join(_stray(hrefs)[:4]))
+
+        # 接口层再扫一遍：页签懒加载时某些面板不带 virus= 就不产生跨站链接
+        # （如引物库），只查当前 DOM 会漏掉那些模式。这里用**确定入参**覆盖全部模式。
+        _sp = json.loads(_text('/api/explorer/profile_species'))['species']
+        panel_html = {
+            '宿主范围': _text('/api/explorer/host?virus=Potato%20virus%20Y'),
+            '引物库': _text('/api/explorer/primers?virus=Potato%20virus%20Y'),
+            '病毒档案': _text('/api/explorer/profile?name='
+                          + urllib.parse.quote(_sp[0])),
+            '媒介传播': _text('/api/explorer/vector',
+                          {'virus': ['Potato virus Y']}),
+        }
+        all_hrefs = set()
+        for panel, html in panel_html.items():
+            hs = re.findall(r'href="([^"]+)"', html)
+            all_hrefs.update(hs)
+            ck(not _stray(hs), f'{panel}接口无裸相对链接',
+               '; '.join(_stray(hs)[:3]))
+        for pat, label in (('/virus/', '媒介→物种页'), ('/vector/', '媒介站'),
+                           ('/species/', '引物→物种页'),
+                           ('/primers/search', '引物检索')):
+            got = sorted(h for h in all_hrefs
+                         if pat in h and h.startswith(PUBLIC_BASE))
+            ck(bool(got), f'{label} 深链已指向线上整站', f'{len(got)} 条')
+            # 指向对了不代表能打开：名字格式不对（如 ICTV 名 vs NCBI 名）照样线上
+            # 404。每种模式真发一次请求 —— 这才是「跳转正常」的判据。
+            if not got:
+                continue
+            if no_net:
+                sk(f'{label} 线上可打开', 'VP_SKIP_ONLINE=1')
+                continue
+            u = got[0]
+            try:
+                with urllib.request.urlopen(
+                        urllib.request.Request(
+                            u, headers={'User-Agent': 'vp-linkcheck'}),
+                        timeout=30) as r:
+                    code, n = r.status, len(r.read(20000))
+                ck(code == 200 and n > 0, f'{label} 线上可打开',
+                   f'HTTP {code} / {n}B')
+            except Exception as e:                       # noqa: BLE001
+                if is_offline(e):
+                    sk(f'{label} 线上可打开', '外网不可达')
+                else:
+                    ck(False, f'{label} 线上可打开', f'{type(e).__name__}: {e}')
+        ck(bool([h for h in all_hrefs if h.startswith('/virus/files/')]),
+           '档案面板保留本站下载链接（未被改写）',
+           f'{len([h for h in all_hrefs if h.startswith("/virus/files/")])} 条')
+
+        # 真点一次线上的深链，确认弹出新页且能打开（不是死链）
+        pg.click('.ex-tab[data-tab="vector"]')
+        victim = pg.locator(
+            '#exVector a[href^="%s/virus/"]' % PUBLIC_BASE).first
+        victim.wait_for(state='visible', timeout=30000)
+        target = victim.get_attribute('href')
+        ck(victim.get_attribute('target') == '_blank',
+           '深链 target=_blank（新标签打开）', str(victim.get_attribute('target')))
+        with pg.context.expect_page() as pop:
+            victim.click()
+        p2 = pop.value
+        if no_net:
+            sk('线上深链可跳转', 'VP_SKIP_ONLINE=1')
+            try:
+                p2.close()
+            except Exception:                        # noqa: BLE001
+                pass
+        else:
+            try:
+                p2.wait_for_load_state('domcontentloaded', timeout=60000)
+                loaded = True
+                why = ''
+            except Exception as e:                   # noqa: BLE001
+                loaded, why = False, f'{type(e).__name__}: {e}'
+            if not loaded and is_offline(e):
+                sk('线上深链可跳转', '外网不可达：' + why)
+            else:
+                ck(p2.url.startswith(PUBLIC_BASE), '点击后打开的是线上站页面',
+                   p2.url[:80])
+                try:
+                    with urllib.request.urlopen(
+                            urllib.request.Request(
+                                p2.url, headers={'User-Agent': 'vp-linkcheck'}),
+                            timeout=30) as r:
+                        code, n = r.status, len(r.read(20000))
+                    ck(code == 200 and n > 0, '线上深链可打开且有内容',
+                       f'HTTP {code} / {n}B  {target[:60]}')
+                except Exception as e2:              # noqa: BLE001
+                    if is_offline(e2):
+                        sk('线上深链可打开且有内容', '外网不可达')
+                    else:
+                        ck(False, '线上深链可打开且有内容',
+                           f'{type(e2).__name__}: {e2}  {target[:60]}')
+            p2.close()
+
+        # 本站下载路由真能下到文件
+        local = sorted(h for h in all_hrefs if h.startswith('/virus/files/'))
+        if local:
+            try:
+                with urllib.request.urlopen(
+                        urllib.request.Request(
+                            ORIGIN + urllib.parse.quote(local[0]),
+                            headers={'User-Agent': 'vp-linkcheck'}),
+                        timeout=60) as r:
+                    code, n, cd = r.status, len(r.read()), r.headers.get(
+                        'Content-Disposition', '')
+                ck(code == 200 and n > 100 and 'attachment' in cd,
+                   '本站下载链接可下载到文件',
+                   f'HTTP {code} / {n}B  {cd[:40]}')
+            except Exception as e:                       # noqa: BLE001
+                ck(False, '本站下载链接可下载到文件',
+                   f'{type(e).__name__}: {e}')
         b.close()
 
-    print('[13] 导出接口')
+    print('[14] 导出接口')
     for path, ctype, name in (
             ('/api/explorer/export/csv', 'text/csv', 'plantvirus_alignment_metadata.csv'),
             ('/api/explorer/export/fasta', 'text/plain', 'plantvirus_sequences.fasta')):
@@ -291,6 +581,8 @@ def main() -> int:
         for f in fails:
             print('  -', f)
         return 1
+    if skips:
+        print(f'SKIPPED {len(skips)} 项（需外网）: {", ".join(skips)}')
     print('ALL EXPLORER CHECKS PASSED')
     return 0
 

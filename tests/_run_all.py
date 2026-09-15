@@ -186,9 +186,10 @@ TESTS = [
     # 病毒浏览器 Explorer（服务器版 7 页签：时序趋势 / 全基因组变异 / 数据浏览 /
     # 引物库 / 宿主范围 / 媒介传播 / 病毒档案）真浏览器验证：断言 Plotly 实例真的
     # 渲染出数据点（读 _fullData，兼容 bdata 二进制数组与 Sankey 的 node/link 嵌套）、
-    # 下拉初始化、表格排序分页、导出 Content-Disposition、全程无 console error。
-    # 覆盖 198,819 条 / 6,168 物种真实数据，约 3 分钟。自起临时实例。
-    # 无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
+    # 下拉初始化、表格排序分页、深链指向与真点击跳转、导出 Content-Disposition、
+    # 全程无 console error。覆盖 198,819 条 / 6,168 物种真实数据，约 3 分钟。
+    # 自起临时实例。无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
+    # 其中 [13] 深链跳转需要外网；断网时该段自动 SKIP，不判失败。
     ('tests/_check_explorer.py',   900,  False),
     # 真跑 HMM + CDD 全链路 + 在线 NCBI，实测 400s~900s（网络波动大）
     ('tests/_it_annotate.py',      1500,  True),
@@ -196,6 +197,7 @@ TESTS = [
 DEFAULT_TIMEOUT = 300
 _ONLINE_HINT = {
     'tests/_it_annotate.py': '含在线 NCBI 请求，可设 VP_SKIP_ONLINE=1 跳过该段',
+    'tests/_check_explorer.py': '深链跳转段会探线上站，可设 VP_SKIP_ONLINE=1 跳过该段',
 }
 
 
