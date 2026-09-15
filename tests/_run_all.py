@@ -183,11 +183,13 @@ TESTS = [
     # 输出区齐全、示例与参数互取落到本卡、内联结果链路（桩 API）不串卡（~30s）。
     # 无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
     ('tests/_check_kvchain_ui.py',  300,  False),
-    # Explorer 四面板（概览 / 宿主范围 / 媒介传播 / 全基因组变异）真浏览器验证：
-    # 断言 Plotly 实例真的有数据（不是"元素存在"）、下钻与筛选联动、Sankey 层标题，
-    # 并**实跑一次 MAFFT** 验证选序列走的是全长簇（约 40s）。自起临时实例。
+    # 病毒浏览器 Explorer（服务器版 7 页签：时序趋势 / 全基因组变异 / 数据浏览 /
+    # 引物库 / 宿主范围 / 媒介传播 / 病毒档案）真浏览器验证：断言 Plotly 实例真的
+    # 渲染出数据点（读 _fullData，兼容 bdata 二进制数组与 Sankey 的 node/link 嵌套）、
+    # 下拉初始化、表格排序分页、导出 Content-Disposition、全程无 console error。
+    # 覆盖 198,819 条 / 6,168 物种真实数据，约 3 分钟。自起临时实例。
     # 无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
-    ('tests/_check_vexplorer.py',   600,  False),
+    ('tests/_check_explorer.py',   900,  False),
     # 真跑 HMM + CDD 全链路 + 在线 NCBI，实测 400s~900s（网络波动大）
     ('tests/_it_annotate.py',      1500,  True),
 ]

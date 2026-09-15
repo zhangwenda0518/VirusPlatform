@@ -618,10 +618,22 @@
       <button class="btn small" onclick="browse('kvc_reads_r2')" title="选择 R2 文件">📁</button>
     </div>
 
-    <!-- 参考库与引擎已唯一化（默认鉴定库 kv_index + salmon）：
-         缺省参考/注释/索引由后端 kv_stage.default_reference() 统一解析，不再暴露选择项 -->
-
+    <!-- 鉴定库与定量引擎：库自包含参考/注释/索引（resolve_kv_lib 整体解析）；
+         引擎二选一——salmon（EM 定量，默认）/ minibwa（真比对，可出 Avg_Read_ANI） -->
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+      <div class="gp-item">
+        <label data-i18n="tk.kvLibLbl">鉴定库</label>
+        <select id="kvc_lib" style="width:auto;min-width:170px">
+          <option value="">默认鉴定库 kv_index</option>
+        </select>
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvEngineLbl">定量引擎</label>
+        <select id="kvc_engine" style="width:auto">
+          <option value="salmon" data-i18n="tk.kvEngineSalmon">salmon（EM 定量，默认）</option>
+          <option value="minibwa" data-i18n="tk.kvEngineMinibwa">minibwa（真比对计数）</option>
+        </select>
+      </div>
       <div class="gp-item">
         <label data-i18n="tk.kvMinCovLbl">覆盖率下限 %</label>
         <input id="kvc_min_cov" type="number" min="0" max="100" step="1" value="10" style="width:80px">
@@ -768,7 +780,9 @@
        <b>识别/定量</b>（比对 + 覆盖度 + 泊松打假）→ <b>过滤</b>（双轨阈值复核）。<br>
        共识序列、深度绘图、变异注释是<b>后续模块</b>的事（「共识序列分析」「病毒变异分析」），
        或整条走「⚡ 一键分析（全流程）」——本卡不碰，也不提供这些段的开关。<br>
-       引擎分工固定：<b>定量 = salmon</b>（比对定量 + 映射 BAM）；共识段内部固定 minibwa。<br>
+       定量引擎二选一（与鉴定库正交，库里缺对应索引时运行目录现建）：
+       <b>salmon</b>=EM 定量（多映射分摊，更敏感，默认）；<b>minibwa</b>=真比对计数。
+       共识段内部固定 minibwa，与本选择无关。<br>
        产物：<b>identify/all_viruses.summary.tsv</b>、<b>filter/filtered.tsv</b>、比对 <b>BAM</b>。</p>
 
     <label data-i18n="tk.kvSamplesLbl">样品（从「样品创建 / 批量导入」中选；可多选）</label>
@@ -787,8 +801,24 @@
       <button class="btn small" onclick="browse('kv_reads_r2')" title="选择 R2 文件">📁</button>
     </div>
 
-    <!-- 参考库与引擎已唯一化（默认鉴定库 kv_index + salmon）：
-         缺省参考/注释/索引由后端 kv_stage.default_reference() 统一解析，不再暴露选择项 -->
+    <!-- 参考库选择 + 定量引擎（库与引擎正交）：鉴定库下拉列出建好的库
+         （含外部登记），选中后参考/注释/索引三件套一起定死，避免错配；
+         引擎只决定定量方式，库里缺对应索引时引擎在运行目录现建。 -->
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+      <div class="gp-item">
+        <label data-i18n="tk.kvLibLbl">鉴定库</label>
+        <select id="kv_lib" style="width:auto;min-width:170px">
+          <option value="">默认鉴定库 kv_index</option>
+        </select>
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.kvEngineLbl">定量引擎</label>
+        <select id="kv_engine" style="width:auto">
+          <option value="salmon" data-i18n="tk.kvEngineSalmon">salmon（EM 定量，默认）</option>
+          <option value="minibwa" data-i18n="tk.kvEngineMinibwa">minibwa（真比对计数）</option>
+        </select>
+      </div>
+    </div>
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
       <div class="gp-item">
@@ -1694,6 +1724,184 @@
   
     <div class="rh" id="rh-sdt"></div>
   </section>
+
+
+  <!-- 🧭 进化动力学分析（重组 · 时间 · 地理 三页签；对标远端 /rdp/ + /phylogeography/） -->
+  <section class="card" id="t-rdp">
+    <h2 data-i18n="tk.rdpH2">🔁 重组检测</h2>
+    <p class="hint" data-i18n="tk.rdpDesc">MaxChi / Chimaera / Bootscan 三序列法（置换校正 p）。输入须为比对好的 FASTA。</p>
+<label data-i18n="tk.rdpInputLbl">比对 FASTA（必选）</label>
+    <div class="filerow">
+      <input id="rdp_input" type="text" placeholder="选择比对好的 .fasta（MAFFT 产物）" data-i18n-ph="tk.rdpInputPh">
+      <button class="btn small" onclick="browse('rdp_input')">📁</button>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn primary" onclick="runRdp(this)" data-i18n="tk.rdpRun">▶ 运行重组分析</button>
+      <span class="hint" style="margin-left:8px" data-i18n="tk.rdpRunHint">事件 p 为置换校正后的经验 p；坐标为比对列位（1-based）</span>
+    </div>
+    <div class="tool-out">
+      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+      <div class="toolrun" id="toolrun-rdp"></div>
+    </div>
+    <div id="rdpResult" class="card" style="margin-top:12px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b id="rdpTitle">重组分析结果</b>
+        <span style="flex:1"></span>
+        <button class="btn small" id="rdpMaskBtn" onclick="rdpMaskExport()" data-i18n="tk.rdpMask">⬇ 导出掩蔽重组区干净比对</button>
+        <button class="btn small" onclick="$('rdpResult').style.display='none'">✕</button>
+      </div>
+      <div id="rdpSummary" style="margin-top:8px"></div>
+      <div class="scroll-md" id="rdpEvents" style="margin-top:10px"></div>
+    </div>
+</section>
+
+
+  <section class="card" id="t-rtt">
+    <h2 data-i18n="tk.rttH2">⏱ 时间信号与定年</h2>
+    <p class="hint" data-i18n="tk.rttDesc">根到尾回归：R² 高=时间信号强，斜率=每位点每年替换数。需比对 FASTA + 日期元数据。</p>
+
+      <label data-i18n="tk.rttInputLbl">比对 FASTA（必选）</label>
+      <div class="filerow">
+        <input id="rtt_input" type="text" placeholder="选择比对好的 .fasta" data-i18n-ph="tk.rdpInputPh">
+        <button class="btn small" onclick="browse('rtt_input')">📁</button>
+      </div>
+      <label data-i18n="tk.rttMetaLbl">元数据 CSV / TSV（必选：seq_id + 日期列）</label>
+      <div class="filerow">
+        <input id="rtt_meta" type="text" placeholder="选择元数据 .csv（第一列序列标识）" data-i18n-ph="tk.pgMetaPh">
+        <button class="btn small" onclick="browse('rtt_meta')">📁</button>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+        <div class="gp-item">
+          <label data-i18n="tk.rttTraitLbl">日期列名</label>
+          <input id="rtt_trait" type="text" value="year" style="width:120px">
+        </div>
+        <div class="gp-item">
+          <label data-i18n="tk.pgMethodLbl">建树方法</label>
+          <select id="rtt_method" style="width:auto">
+            <option value="nj" data-i18n="tk.pgOptNj">NJ（快）</option>
+            <option value="fasttree" data-i18n="tk.pgOptFasttree">FastTree（大批量）</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn primary" onclick="runRtt(this)" data-i18n="tk.rttRun">▶ 运行时间信号检验</button>
+        <span class="hint" style="margin-left:8px" data-i18n="tk.rttHint">R² ≥ 0.5 通常认为时间信号可用；斜率 = 每位点每年替换数</span>
+      </div>
+      <div class="tool-out">
+        <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+        <div class="toolrun" id="toolrun-rtt"></div>
+      </div>
+      <div id="rttResult" class="card" style="margin-top:12px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <b id="rttTitle">时间信号结果</b>
+          <button class="btn small" onclick="$('rttResult').style.display='none'">✕</button>
+        </div>
+        <div id="rttSummary" style="margin-top:8px"></div>
+        <div id="rttPlot" style="width:100%;height:340px;margin-top:10px"></div>
+      </div>
+</section>
+
+
+  <section class="card" id="t-phylogeo">
+    <h2 data-i18n="tk.phylogeoH2">🌍 系统地理分析</h2>
+    <p class="hint" data-i18n="tk.phylogeoDesc">Fitch 迁移重构：区划间转移矩阵 + 标注树。需比对 FASTA + 地理元数据。</p>
+<label data-i18n="tk.pgInputLbl">比对 FASTA（必选）</label>
+    <div class="filerow">
+      <input id="pg_input" type="text" placeholder="选择比对好的 .fasta" data-i18n-ph="tk.rdpInputPh">
+      <button class="btn small" onclick="browse('pg_input')">📁</button>
+    </div>
+    <label data-i18n="tk.pgMetaLbl">元数据 CSV / TSV（可选：seq_id + region 等列；不填则解析 FASTA 头）</label>
+    <div class="filerow">
+      <input id="pg_meta" type="text" placeholder="选择元数据 .csv / .tsv（第一列序列标识）" data-i18n-ph="tk.pgMetaPh">
+      <button class="btn small" onclick="browse('pg_meta')">📁</button>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+      <div class="gp-item">
+        <label data-i18n="tk.pgTraitLbl">区划列名</label>
+        <input id="pg_trait" type="text" value="region" style="width:120px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.pgMethodLbl">建树方法</label>
+        <select id="pg_method" style="width:auto">
+          <option value="nj" data-i18n="tk.pgOptNj">NJ（快）</option>
+          <option value="fasttree" data-i18n="tk.pgOptFasttree">FastTree（大批量）</option>
+        </select>
+      </div>
+      <div class="gp-item">
+        <label data-i18n="c.threads">线程数</label>
+        <input id="pg_threads" type="number" min="1" placeholder="自动" style="width:80px" data-i18n-ph="c.phAuto">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn primary" onclick="runPhylogeo(this)" data-i18n="tk.pgRun">▶ 运行系统地理分析</button>
+    </div>
+    <div class="tool-out">
+      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+      <div class="toolrun" id="toolrun-phylogeo"></div>
+    </div>
+    <div id="pgResult" class="card" style="margin-top:12px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b id="pgTitle">系统地理结果</b>
+        <button class="btn small" onclick="$('pgResult').style.display='none'">✕</button>
+      </div>
+      <div id="pgSummary" style="margin-top:8px"></div>
+      <div class="scroll-md" id="pgMatrix" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+
+  <!-- dsRNA 设计（本地 dsRNAmax_det，确定性 RNAi 臂序列优化） -->
+  <section class="card" id="t-dsrna">
+    <h2 data-i18n="tk.dsH2">🧬 dsRNA 设计（RNAi 臂序列优化）</h2>
+    <p class="hint" data-i18n="tk.dsHint">dsRNAmax 确定性算法：对目标病毒序列优化 dsRNA 臂序列——
+       <b>21nt 命中数</b>（目标覆盖率）、对脱靶库的 <b>SIMSmith 相似度</b>（脱靶风险）、Kmer GC、
+       5' 端碱基偏好。脱靶库默认使用<b>植物病毒全库 pv_full</b>（199,068 条）。固定 seed 结果可复现。</p>
+    <label data-i18n="tk.dsTargetLbl">目标 FASTA（必选，病毒基因组 / 片段）</label>
+    <div class="filerow">
+      <input id="ds_input" type="text" placeholder="选择目标 .fasta（如 CMV 三条 RNA）" data-i18n-ph="tk.dsTargetPh">
+      <button class="btn small" onclick="browse('ds_input')">📁</button>
+    </div>
+    <label data-i18n="tk.dsOffLbl">脱靶排除 FASTA（可选；留空=不做脱靶筛选。注意：目标自身通常在全库中，勿直接用全库）</label>
+    <div class="filerow">
+      <input id="ds_off" type="text" placeholder="如宿主基因组 / 非目标病毒子集（留空=不启用）" data-i18n-ph="tk.dsOffPh">
+      <button class="btn small" onclick="browse('ds_off')">📁</button>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:10px">
+      <div class="gp-item">
+        <label data-i18n="tk.dsArmLbl">臂长</label>
+        <input id="ds_len" type="number" value="300" min="50" style="width:90px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.dsKmerLbl">Kmer 长度</label>
+        <input id="ds_kmer" type="number" value="21" min="12" style="width:80px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.dsIterLbl">迭代次数</label>
+        <input id="ds_iter" type="number" value="1000" min="10" style="width:100px">
+      </div>
+      <div class="gp-item">
+        <label data-i18n="tk.dsSeedLbl">随机种子（可复现）</label>
+        <input id="ds_seed" type="number" value="42" style="width:100px">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn primary" onclick="runDsrna(this)" data-i18n="tk.dsRun">▶ 运行 dsRNA 设计</button>
+    </div>
+    <div class="tool-out">
+      <div class="tool-out-head" data-i18n="c.outHead">📤 输出</div>
+      <div class="toolrun" id="toolrun-dsrna"></div>
+    </div>
+    <div id="dsResult" class="card" style="margin-top:12px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b id="dsTitle">dsRNA 设计结果</b>
+        <button class="btn small" onclick="$('dsResult').style.display='none'">✕</button>
+      </div>
+      <div id="dsSummary" style="margin-top:8px"></div>
+      <div class="scroll-md" id="dsTable" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+
 
     </main>
   </div>
@@ -3191,6 +3399,243 @@ async function runVirchain(btn) {
    字段，而那张卡在别的模块页里，用户看不到也改不了（2026-09-11 实测
    「没有输入、没有输出、没有参数」）。需要沿用那张卡的参数时走
    kvchainPullKvsuite() 显式搬一次，避免两套表单静默漂移。 */
+/* ── dsRNA 设计（dsRNAmax 本地卡）── */
+
+(function () {
+  const pf = takePrefill('phylodyn');
+  if (pf && pf.fa) {
+    const pre = () => {
+      for (const id of ['rdp_input', 'rtt_input', 'pg_input']) {
+        const el = $(id);
+        if (el) el.value = pf.fa;
+      }
+      if (typeof toast === 'function') {
+        toast(t('tk.pdH2', '进化动力学分析'),
+          (pf.n ? t('tk.selectedN', '已选 {n} 条').replace('{n}', pf.n) + ' · ' : '')
+          + pf.fa, { ttl: 6000 });
+      }
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', pre);
+    } else { pre(); }
+  }
+})();
+
+/* pdTab() 已随 t-phylodyn 三页签拆分（→ t-rdp / t-rtt / t-phylogeo）一并移除：
+   它依赖的 pd_rec / pd_rtt / pd_geo / pd_tab_* 元素已不存在，留着是死代码。 */
+
+async function runRtt(btn) {
+  if (!val('rtt_input')) { alert('请选择比对好的 FASTA'); return; }
+  if (!val('rtt_meta')) { alert('请选择元数据 CSV（含日期列）'); return; }
+  const params = {
+    input: val('rtt_input'), meta: val('rtt_meta'),
+    date_trait: val('rtt_trait') || 'year',
+    method: val('rtt_method') || 'nj',
+  };
+  return _submitTool('rtt', params, null, btn,
+    '⏳ 建树与根到尾回归中…', loadRttResult);
+}
+
+async function loadRttResult(run) {
+  if (!run) return;
+  let d;
+  try {
+    d = await (await fetch('/tool_runs/' + encodeURIComponent(run)
+      + '/rtt/summary.json')).json();
+  } catch (e) { return; }
+  $('rttResult').style.display = '';
+  $('rttTitle').textContent = '时间信号结果 · ' + run;
+  const strong = d.strong_signal;
+  $('rttSummary').innerHTML =
+    '<span class="hint">样本 ' + d.n + ' · 建树 ' + esc(d.method) +
+    ' · R² = <b>' + d.r2 + '</b>' +
+    (strong ? '（时间信号较强）' : '（时间信号弱：建议检查采样年份跨度）') +
+    ' · 斜率 = ' + d.slope + ' 替换/位点/年' + '</span>';
+  const pts = d.points || [];
+  if (typeof Plotly !== 'undefined' && pts.length) {
+    Plotly.newPlot('rttPlot', [{
+      x: pts.map(p => p.year), y: pts.map(p => p.dist),
+      mode: 'markers', type: 'scatter',
+      marker: { size: 8, color: '#2e86c1' },
+      text: pts.map(p => p.name),
+      hovertemplate: '%{text}<br>%{x}年 · 距根 %{y}<extra></extra>',
+    }, {
+      x: [pts[0].year, pts[pts.length - 1].year],
+      y: [d.slope * pts[0].year + d.intercept,
+          d.slope * pts[pts.length - 1].year + d.intercept],
+      mode: 'lines', type: 'scatter',
+      line: { color: '#e74c3c', dash: 'dash' },
+      hoverinfo: 'skip',
+    }], {
+      margin: { l: 60, r: 20, t: 10, b: 40 },
+      xaxis: { title: '采样年份' },
+      yaxis: { title: '距根遗传距离' },
+      showlegend: false,
+    }, { displayModeBar: false, responsive: true });
+  }
+}
+
+async function runDsrna(btn) {
+  if (!val('ds_input')) { alert('请选择目标 FASTA'); return; }
+  const params = {
+    input: val('ds_input'),
+    off_targets: val('ds_off') || undefined,
+    construct_len: +val('ds_len') || 300,
+    kmer_len: +val('ds_kmer') || 21,
+    iterations: +val('ds_iter') || 1000,
+    seed: +val('ds_seed') || 42,
+  };
+  return _submitTool('dsrna', params, null, btn,
+    '⏳ dsRNA 优化中…', loadDsrnaResult);
+}
+
+async function loadDsrnaResult(run) {
+  if (!run) return;
+  let sum;
+  try {
+    sum = await (await fetch('/tool_runs/' + encodeURIComponent(run)
+      + '/dsrnamax/summary.json')).json();
+  } catch (e) { return; }
+  let csvRows = [];
+  try {
+    const r = await fetch('/tool_runs/' + encodeURIComponent(run)
+      + '/dsrnamax/result.csv');
+    const txt = await r.text();
+    csvRows = txt.trim().split(String.fromCharCode(10)).map(l => l.split(',').map(c => c.trim()))
+  } catch (e) {}
+  $('dsResult').style.display = '';
+  $('dsTitle').textContent = 'dsRNA 设计结果 · ' + run;
+  $('dsSummary').innerHTML =
+    '<span class="hint">目标序列 ' + (sum.n_targets || '?') +
+    ' · 臂长 ' + sum.construct_len + ' · kmer ' + sum.kmer_len +
+    ' · 迭代 ' + sum.iterations + ' · seed ' + sum.seed +
+    '<br>脱靶库：' + esc(sum.off_targets || '(无)') + '</span>';
+  if (csvRows.length > 1) {
+    const head = csvRows[0].map(x => '<th>' + esc(x) + '</th>').join('');
+    const body = csvRows.slice(1, 200).map(r =>
+      '<tr>' + r.map(x => '<td class="mono">' + esc(x) + '</td>').join('') +
+      '</tr>').join('');
+    $('dsTable').innerHTML =
+      '<table class="tbl" style="margin:0"><thead><tr>' + head +
+      '</tr></thead><tbody>' + body + '</tbody></table>' +
+      (csvRows.length > 200
+        ? '<p class="hint">（仅预览前 200 行，完整结果见 result.csv）</p>' : '');
+  } else {
+    $('dsTable').innerHTML = '<p class="hint">（无结果行）</p>';
+  }
+}
+
+/* ── RDP 重组分析 + 系统地理分析（compare 组新卡）── */
+
+async function _submitTool(tool, params, threads, btn, busyText, onDone) {
+  try {
+    const r = await fetch('/api/tool/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool, threads, params })});
+    if (!r.ok) { alert('启动失败: ' + ((await r.json()).error || '')); return; }
+    const d = await r.json();
+    taskLogOpen.add(d.task);
+    startPolling();
+    watchTaskBtn(d.task, btn, busyText, () => onDone(d.run));
+  } catch (e) { alert('无法连接平台服务: ' + e); }
+}
+
+async function runRdp(btn) {
+  if (!val('rdp_input')) { alert('请选择比对好的 FASTA'); return; }
+  return _submitTool('rdp', { input: val('rdp_input') }, null, btn,
+    '⏳ RDP5 检测中…', loadRdpResult);
+}
+
+async function rdpMaskExport() {
+  const run = ($('rdpMaskBtn') || {}).dataset && $('rdpMaskBtn').dataset.run;
+  if (!run) { alert('请先完成一次重组分析'); return; }
+  const r = await fetch('/api/tool/rdp_masked?run=' + encodeURIComponent(run));
+  if (!r.ok) { alert((await r.json()).error || '掩蔽导出失败'); return; }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = run + '_masked.fa';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function loadRdpResult(run) {
+  if (!run) return;
+  let d;
+  try {
+    const r = await fetch('/tool_runs/' + encodeURIComponent(run)
+      + '/rdp/events.json');
+    if (!r.ok) return;
+    d = await r.json();
+  } catch (e) { return; }
+  $('rdpResult').style.display = '';
+  $('rdpTitle').textContent = '重组分析结果 · ' + run;
+  const maskBtn = $('rdpMaskBtn');
+  if (maskBtn) maskBtn.dataset.run = run;
+  const evs = d.events || [];
+  $('rdpSummary').innerHTML =
+    '<span class="hint">序列 ' + d.n_seqs + ' · 比对长度 ' + d.aln_len +
+    ' · 可变位点 ' + d.variable + ' · 重组事件 <b>' + evs.length + '</b>' +
+    (d.note ? ' · ' + esc(d.note) : '') + '</span>';
+  const head = [['rdpThR', '候选重组体'], ['rdpThMaj', '主亲本'],
+    ['rdpThMin', '次亲本'], ['rdpThStart', '断点起'], ['rdpThEnd', '断点止'],
+    ['rdpThMethods', '方法'], ['rdpThP', 'p 值'], ['rdpThSup', '支持度']]
+    .map(x => '<th>' + t('tk.' + x[0], x[1]) + '</th>').join('');
+  const body = evs.map(e =>
+    '<tr><td class="mono">' + esc(e.recombinant) + '</td>' +
+    '<td class="mono">' + esc(e.major) + '</td>' +
+    '<td class="mono">' + esc(e.minor) + '</td>' +
+    '<td>' + e.start + '</td><td>' + e.end + '</td>' +
+    '<td>' + esc((e.methods || []).join(', ')) + '</td>' +
+    '<td>' + e.pvalue + '</td>' +
+    '<td>' + (e.support != null ? e.support : '—') + '</td></tr>').join('');
+  $('rdpEvents').innerHTML =
+    '<table class="tbl" style="margin:0"><thead><tr>' + head +
+    '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+async function runPhylogeo(btn) {
+  if (!val('pg_input')) { alert('请选择比对好的 FASTA'); return; }
+  const params = {
+    input: val('pg_input'),
+    meta: val('pg_meta') || undefined,
+    trait: val('pg_trait') || 'region',
+    method: val('pg_method') || 'nj',
+  };
+  return _submitTool('phylogeo', params, +val('pg_threads') || null, btn,
+    '⏳ 建树与迁移重构中…', loadPhylogeoResult);
+}
+
+async function loadPhylogeoResult(run) {
+  if (!run) return;
+  let d;
+  try {
+    const r = await fetch('/tool_runs/' + encodeURIComponent(run)
+      + '/phylogeo/summary.json');
+    if (!r.ok) return;
+    d = await r.json();
+  } catch (e) { return; }
+  $('pgResult').style.display = '';
+  $('pgTitle').textContent = '系统地理结果 · ' + run;
+  const regHtml = Object.entries(d.regions || {})
+    .map(x => esc(x[0]) + ' ' + x[1]).join(' · ');
+  const rows = (d.matrix || []).map(x =>
+    '<tr><td>' + esc(x.from) + '</td><td>' + esc(x.to) + '</td><td>' +
+    x.count + '</td></tr>').join('');
+  $('pgSummary').innerHTML =
+    '<span class="hint">序列 ' + d.n_seqs + ' · 区划性状 ' + esc(d.trait) +
+    ' · 建树 ' + esc(d.method) + ' · 迁移事件 <b>' + d.n_transitions +
+    '</b> · 未匹配元数据 ' + (d.unresolved || 0) +
+    (regHtml ? '<br>' + regHtml : '') + '</span>' +
+    '<p class="hint" style="margin:6px 0 0">带区划标注的树：' +
+    '<span class="mono">tool_runs/' + esc(run) + '/phylogeo/tree_annotated.nwk</span>' +
+    '（可到「结果中心 → 进化树」打开交互查看）</p>';
+  $('pgMatrix').innerHTML = rows ? (
+    '<table class="tbl" style="margin:0"><thead><tr>' +
+    '<th>来源</th><th>去向</th><th>次数</th></tr></thead><tbody>' + rows +
+    '</tbody></table>') : '';
+}
+
 async function runKvchain(btn) {
   const samples = val('kvc_samples');
   const reads = [val('kvc_reads_r1'), val('kvc_reads_r2')].filter(Boolean).join(',');
@@ -3200,7 +3645,9 @@ async function runKvchain(btn) {
   const params = {
     samples: samples || undefined,
     reads: reads || undefined,
-    // 参考库/引擎已唯一化（默认鉴定库 kv_index + salmon），缺省全交后端解析
+    // 鉴定库（留空 = 默认 kv_index）与定量引擎（salmon 默认 / minibwa 出 ANI）
+    kv_lib: val('kvc_lib') || undefined,
+    engine: val('kvc_engine') || undefined,
     min_cov: +val('kvc_min_cov'),
     min_depth: +val('kvc_min_depth'),
     min_reads: +val('kvc_min_reads'),
@@ -3233,6 +3680,7 @@ async function runKvchain(btn) {
 const KVCHAIN_FIELD_MAP = [
   ['kv_samples', 'kvc_samples'],
   ['kv_reads_r1', 'kvc_reads_r1'], ['kv_reads_r2', 'kvc_reads_r2'],
+  ['kv_lib', 'kvc_lib'], ['kv_engine', 'kvc_engine'],
   ['kv_min_cov', 'kvc_min_cov'],
   ['kv_min_depth', 'kvc_min_depth'], ['kv_min_reads', 'kvc_min_reads'],
   ['kv_min_poisson', 'kvc_min_poisson'], ['kv_variant_qual', 'kvc_variant_qual'],
@@ -3367,14 +3815,40 @@ function kvchainOpenKvsuite(run) {
   loadKvsuiteResult(run);
 }
 
-async function runKvsuite(btn) {
-  const samples = val('kv_samples');
+/* 鉴定库下拉：列出已建库（平台内 + 外部登记），默认项 = kv_index。
+   平台内库传库名、外部库传绝对路径，后端 resolve_kv_lib 统一解析。 */
+async function loadKvLibOptions() {
+  const sels = ['kv_lib', 'kvc_lib'].map($).filter(Boolean);
+  if (!sels.length) return;
+  let opts = '';
+  try {
+    const d = await (await fetch('/api/kv_index_list')).json();
+    opts = (d.libs || []).filter(l => l.name !== 'kv_index')
+      .map(l => `<option value="${esc(l.external ? l.path : l.name)}">` +
+        `${esc(l.name)}${l.external ? t('tk.kvLibExternal', '（外部）') : ''}` +
+        `${l.salmon ? '' : ' · salmon✘'}${l.minibwa ? ' · minibwa✔' : ''}</option>`)
+      .join('');
+  } catch (e) { /* 拉不到列表就只留默认项 */ }
+  sels.forEach(sel => {
+    const cur = sel.value;
+    sel.options.length = 0;
+    sel.add(new Option(t('tk.kvLibDefault', '默认鉴定库 kv_index'), ''));
+    sel.insertAdjacentHTML('beforeend', opts);
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+  });
+}
+loadKvLibOptions();
+
+async function runKvsuite(btn) {  const samples = val('kv_samples');
   const reads = [val('kv_reads_r1'), val('kv_reads_r2')].filter(Boolean).join(',');
   if (!samples && !reads) { alert('请选择样品，或填入测序数据 R1（双端再填 R2）'); return; }
   const params = {
     samples: samples || undefined,
     reads: reads || undefined,
-    // 参考库/引擎已唯一化（默认鉴定库 kv_index + salmon），缺省全交后端解析
+    // 鉴定库（留空 = 默认 kv_index；选中库后参考/注释/索引由后端整体解析）
+    kv_lib: val('kv_lib') || undefined,
+    // 定量引擎二选一（salmon 默认 / minibwa 真比对）
+    engine: val('kv_engine') || undefined,
     // 本卡固定两段：识别/定量 + 过滤（后端 KV_DEFAULT_STAGE）；
     // 共识/绘图/变异不在这里，也不提供开关 —— 走「一键分析（全流程）」卡。
     stage: 'identify+filter',

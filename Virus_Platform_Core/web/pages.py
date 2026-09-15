@@ -64,7 +64,7 @@ def _inject_asset_v():
 NAV_GROUPS = [
     {'id': 'resource', 'label': '数据资源', 'path': '数据资源', 'items': [
         {'href': '/meta', 'title': '公共数据检索', 'desc': '检索公共样本 / 元数据'},
-        {'href': '/vexplorer', 'title': '病毒浏览器 Explorer', 'desc': '全库 199k 序列多维筛选（分类/宿主/地理/年份）→ 导出 FASTA 送比对 / 建树 / RDP'},
+        {'href': '/explorer', 'title': '病毒浏览器 Explorer', 'desc': '服务器版 7 页签：时空趋势 / 全基因组变异 / 数据浏览 / 引物库 / 宿主范围 / 媒介传播 / 病毒档案（全库 199k 序列）'},
         {'href': '/virome', 'title': 'Open-Virome', 'desc': '公共病毒组浏览 / 导出'},
         {'href': '/build', 'title': '数据库构建', 'desc': 'Taxonomy / 宿主库 / 病毒库'},
     ]},
@@ -118,7 +118,7 @@ NAV_GROUPS = [
     ]},
     {'id': 'phylodyn', 'label': '进化动力学分析', 'path': '进化动力学分析', 'items': [
         {'id': 't-rdp', 'title': '🔁 重组检测',
-         'desc': 'MaxChi/Chimaera/Bootscan 三序列法（置换校正 p），比对 FASTA → 重组事件表'},
+         'desc': 'RDP5 九方法（RDP/GENECONV/Bootscan/MaxChi/Chimaera/SiScan 等），比对 FASTA → 重组事件表'},
         {'id': 't-rtt', 'title': '⏱ 时间信号与定年',
          'desc': '根到尾回归：R² 高=时间信号强，斜率=每位点每年替换数'},
         {'id': 't-phylogeo', 'title': '🌍 系统地理',
@@ -136,7 +136,7 @@ NAV_GROUPS = [
 
 
 _PATH_TO_GROUP = {'/meta': 'resource', '/virome': 'resource',
-                  '/vexplorer': 'resource',
+                  '/explorer': 'resource',
                   '/download': 'sample', '/build': 'resource',
                   '/hostremoval': 'sample', '/samples': 'sample',
                   '/hostpredict': 'virus', '/orf': 'annotate',

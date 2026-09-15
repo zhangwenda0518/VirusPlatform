@@ -21,11 +21,26 @@
   "/api/dl/batches": "download.api_dl_batches",
   "/api/dl/create": "download.api_dl_create",
   "/api/dl/to_pipeline": "download.api_dl_to_pipeline",
+  "/api/dropped_paths": "io_api.api_dropped_paths_post",
+  "/api/dropped_paths/last": "io_api.api_dropped_paths_last",
   "/api/example_input/<path:name>": "examples.api_example_input",
   "/api/example_paths": "examples.api_example_paths",
   "/api/examples": "examples.api_examples",
   "/api/examples/<module>": "examples.api_example",
   "/api/examples/<module>/<path:filename>": "examples.api_example_file",
+  "/api/explorer/charts": "explorer.api_charts",
+  "/api/explorer/export/csv": "explorer.api_export_csv",
+  "/api/explorer/export/fasta": "explorer.api_export_fasta",
+  "/api/explorer/host": "explorer.api_host",
+  "/api/explorer/init": "explorer.api_init",
+  "/api/explorer/primers": "explorer.api_primers",
+  "/api/explorer/profile": "explorer.api_profile",
+  "/api/explorer/profile_species": "explorer.api_profile_species",
+  "/api/explorer/query": "explorer.api_query",
+  "/api/explorer/status": "explorer.api_status",
+  "/api/explorer/variation": "explorer.api_variation",
+  "/api/explorer/vector": "explorer.api_vector",
+  "/api/explorer/virus_options": "explorer.api_virus_options",
   "/api/gb/collections": "refs.api_gb_collections",
   "/api/gb/download": "refs.api_gb_download",
   "/api/gb/extract": "refs.api_gb_extract",
@@ -151,6 +166,7 @@
   "/api/tool/open": "tools.api_tool_open",
   "/api/tool/primer_design": "tool_results.api_tool_primer_design",
   "/api/tool/quicktree_data": "tool_results.api_tool_quicktree_data",
+  "/api/tool/rdp_masked": "tools.api_rdp_masked_post",
   "/api/tool/report": "tool_results.api_tool_report",
   "/api/tool/report_data": "tool_results.api_tool_report_data",
   "/api/tool/run": "tools.api_tool_run",
@@ -168,6 +184,7 @@
   "/cds-export": "pages.page_cds_export",
   "/download": "download.page_download",
   "/downloads/<bid>/<path:filename>": "download.page_dl_file",
+  "/explorer": "explorer.page",
   "/genome": "pages.page_genome",
   "/help": "pages.page_help",
   "/hostpredict": "pages.page_hostpredict",
@@ -180,6 +197,7 @@
   "/orf": "pages.page_orf",
   "/pipeline": "pages.page_pipeline",
   "/primer": "pages.page_primer",
+  "/reference/i18n.js": "explorer.i18n_runtime",
   "/report/<sample>/": "pages.page_report",
   "/report/<sample>/<path:filename>": "pages.page_report_file",
   "/results": "pages.page_results",
@@ -192,7 +210,8 @@
   "/tools": "tools.page_tools",
   "/virome": "virome.page_virome",
   "/virome/": "virome.page_virome_app",
-  "/virome/<path:filename>": "virome.virome_asset"
+  "/virome/<path:filename>": "virome.virome_asset",
+  "/virus/files/<path:relpath>": "explorer.virus_file"
  },
  "rules": {
   "/": [
@@ -258,6 +277,12 @@
   "/api/dl/to_pipeline": [
    "POST"
   ],
+  "/api/dropped_paths": [
+   "POST"
+  ],
+  "/api/dropped_paths/last": [
+   "GET"
+  ],
   "/api/example_input/<path:name>": [
    "GET"
   ],
@@ -271,6 +296,51 @@
    "GET"
   ],
   "/api/examples/<module>/<path:filename>": [
+   "GET"
+  ],
+  "/api/explorer/charts": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/export/csv": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/export/fasta": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/host": [
+   "GET"
+  ],
+  "/api/explorer/init": [
+   "GET"
+  ],
+  "/api/explorer/primers": [
+   "GET"
+  ],
+  "/api/explorer/profile": [
+   "GET"
+  ],
+  "/api/explorer/profile_species": [
+   "GET"
+  ],
+  "/api/explorer/query": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/status": [
+   "GET"
+  ],
+  "/api/explorer/variation": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/vector": [
+   "GET",
+   "POST"
+  ],
+  "/api/explorer/virus_options": [
    "GET"
   ],
   "/api/gb/collections": [
@@ -649,6 +719,10 @@
   "/api/tool/quicktree_data": [
    "GET"
   ],
+  "/api/tool/rdp_masked": [
+   "GET",
+   "POST"
+  ],
   "/api/tool/report": [
    "GET"
   ],
@@ -700,6 +774,9 @@
   "/downloads/<bid>/<path:filename>": [
    "GET"
   ],
+  "/explorer": [
+   "GET"
+  ],
   "/genome": [
    "GET"
   ],
@@ -734,6 +811,9 @@
    "GET"
   ],
   "/primer": [
+   "GET"
+  ],
+  "/reference/i18n.js": [
    "GET"
   ],
   "/report/<sample>/": [
@@ -773,6 +853,9 @@
    "GET"
   ],
   "/virome/<path:filename>": [
+   "GET"
+  ],
+  "/virus/files/<path:relpath>": [
    "GET"
   ]
  }

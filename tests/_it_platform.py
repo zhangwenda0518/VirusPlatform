@@ -419,20 +419,28 @@ def main():
     check(r.status_code == 200, 'app-compare.js 静态资源 200')
     r = c.get('/static/i18n.js')
     check(r.status_code == 200, 'i18n.js 静态资源 200')
-    # Explorer 四面板（2026-09-15 从模板内联脚本抽出）：漏了这个文件
-    # 页面会静默丢掉宿主范围 / 媒介传播 / 全基因组变异三个面板的全部行为
-    r = c.get('/static/app-vexplorer.js')
-    check(r.status_code == 200, 'app-vexplorer.js 静态资源 200')
+    # Explorer（服务器版 7 页签移植，2026-09-15）：前端脚本必须可达
+    r = c.get('/static/app-explorer.js')
+    check(r.status_code == 200, 'app-explorer.js 静态资源 200')
 
-    # ---------- 5. Explorer 扩展面板路由 ----------
-    # 只断言「路由存在且返回 JSON」，不在此处实跑比对：
-    # /variation 需要 species 参数，缺参会返回 400（这是正确行为，不是故障），
-    # 而带参数跑一次要起 MAFFT 约 7 秒 —— 真跑留给 _check_vexplorer.py。
-    for rule in ('/api/vexplorer/host/levels', '/api/vexplorer/vector/facets',
-                 '/api/vexplorer/vector/graph', '/api/vexplorer/vector/table',
-                 '/api/vexplorer/variation'):
+    # ---------- 5. Explorer 路由 ----------
+    # 只断言「路由存在且不是 404」，不在此处跑重活：
+    # /variation 缺 virus 参数返回 400（正确行为），带参数要跑两两比对；
+    # /profile 缺 name 返回空串；/vector 会重跑主过滤管道。真跑留给
+    # _check_explorer.py（Playwright 真浏览器）。
+    for rule in ('/api/explorer/status', '/api/explorer/init',
+                 '/api/explorer/virus_options', '/api/explorer/primers',
+                 '/api/explorer/host', '/api/explorer/profile',
+                 '/api/explorer/profile_species', '/reference/i18n.js'):
         r = c.get(rule)
         check(r.status_code != 404, f'{rule} 路由已注册（HTTP {r.status_code}）')
+    for rule in ('/api/explorer/query', '/api/explorer/charts',
+                 '/api/explorer/vector', '/api/explorer/export/csv'):
+        r = c.post(rule, json={})
+        check(r.status_code != 404, f'{rule} 路由已注册（HTTP {r.status_code}）')
+    r = c.get('/explorer')
+    check(r.status_code == 200, '/explorer 页面 200')
+    check(b'app-explorer.js' in r.data, '/explorer 引用了 app-explorer.js')
 
     print('PLATFORM CHECKS PASSED', flush=True)
 
