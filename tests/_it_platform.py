@@ -419,6 +419,20 @@ def main():
     check(r.status_code == 200, 'app-compare.js 静态资源 200')
     r = c.get('/static/i18n.js')
     check(r.status_code == 200, 'i18n.js 静态资源 200')
+    # Explorer 四面板（2026-09-15 从模板内联脚本抽出）：漏了这个文件
+    # 页面会静默丢掉宿主范围 / 媒介传播 / 全基因组变异三个面板的全部行为
+    r = c.get('/static/app-vexplorer.js')
+    check(r.status_code == 200, 'app-vexplorer.js 静态资源 200')
+
+    # ---------- 5. Explorer 扩展面板路由 ----------
+    # 只断言「路由存在且返回 JSON」，不在此处实跑比对：
+    # /variation 需要 species 参数，缺参会返回 400（这是正确行为，不是故障），
+    # 而带参数跑一次要起 MAFFT 约 7 秒 —— 真跑留给 _check_vexplorer.py。
+    for rule in ('/api/vexplorer/host/levels', '/api/vexplorer/vector/facets',
+                 '/api/vexplorer/vector/graph', '/api/vexplorer/vector/table',
+                 '/api/vexplorer/variation'):
+        r = c.get(rule)
+        check(r.status_code != 404, f'{rule} 路由已注册（HTTP {r.status_code}）')
 
     print('PLATFORM CHECKS PASSED', flush=True)
 

@@ -28,13 +28,27 @@ def _inject_lang():
 
 
 def _asset_version():
-    """静态资源版本号（app.js / i18n.js / app.css 的 mtime 最大值），模板引用带 ?v= 破缓存。
+    """静态资源版本号（static/ 下全部 .js/.css 的 mtime 最大值），模板引用带
+    ?v= 破缓存。
 
-    每次请求都重算（3 次 getmtime，微秒级）：若缓存，运行中改了前端资源后
-    浏览器仍拿旧 ?v= 而命中自身缓存，必须重启服务才能生效。
+    每次请求都重算（一次 listdir + 每文件一次 getmtime，微秒级）：若缓存，
+    运行中改了前端资源后浏览器仍拿旧 ?v= 而命中自身缓存，必须重启服务才能生效。
+
+    为什么是**全目录扫描**而不是列举文件名：此前写死
+    ('app.js','i18n.js','app.css','examples.js')，于是 app-batch.js /
+    app-browse.js / app-compare.js / app-jobs.js / app-runhistory.js /
+    app-storage.js / app-vexplorer.js 这 7 个按页拆分的脚本全部漏网 ——
+    改了它们，?v= 不变，浏览器继续用旧缓存，只能靠硬刷新才能看到新代码。
+    按目录扫则新增脚本自动纳入，不会再漏。
     """
     mt = 0.0
-    for _f in ('app.js', 'i18n.js', 'app.css', 'examples.js'):
+    try:
+        names = os.listdir(os.path.join(_WWW, 'static'))
+    except OSError:
+        return '1'
+    for _f in names:
+        if not _f.endswith(('.js', '.css')):
+            continue
         try:
             mt = max(mt, os.path.getmtime(os.path.join(_WWW, 'static', _f)))
         except OSError:
@@ -50,6 +64,7 @@ def _inject_asset_v():
 NAV_GROUPS = [
     {'id': 'resource', 'label': '数据资源', 'path': '数据资源', 'items': [
         {'href': '/meta', 'title': '公共数据检索', 'desc': '检索公共样本 / 元数据'},
+        {'href': '/vexplorer', 'title': '病毒浏览器 Explorer', 'desc': '全库 199k 序列多维筛选（分类/宿主/地理/年份）→ 导出 FASTA 送比对 / 建树 / RDP'},
         {'href': '/virome', 'title': 'Open-Virome', 'desc': '公共病毒组浏览 / 导出'},
         {'href': '/build', 'title': '数据库构建', 'desc': 'Taxonomy / 宿主库 / 病毒库'},
     ]},
@@ -91,6 +106,7 @@ NAV_GROUPS = [
          'desc': 'gbdraw / DFV 圈图 + 线图（独立模块）'},
         {'href': '/primer', 'title': '引物设计',
          'desc': 'primer3 全长分窗 / 保守区设计（独立模块）'},
+        {'id': 't-dsrna', 'title': 'dsRNA 设计', 'desc': 'dsRNAmax 确定性臂序列优化：21nt 命中 / SWG 相似度 / GC / 5端偏好，脱靶库默认全库'},
     ]},
     {'id': 'compare', 'label': '比较基因组分析', 'path': '比较基因组分析', 'items': [
         {'id': 't-seqprep', 'title': '参考序列获取', 'desc': 'ICTV 科/属选择 或 accession / 检索式 → 下载整科整属序列（GenBank 集合 + FASTA 参考集）'},
@@ -99,6 +115,14 @@ NAV_GROUPS = [
         {'id': 't-align', 'title': '序列比对（MAFFT + trimAl）', 'desc': 'MAFFT 比对 + trimAl 清剪；彩色比对查看器支持查看与编辑，结果直接送建树 / SDT'},
         {'id': 't-treebuild', 'title': '进化树构建（科/属级）', 'desc': 'GenBank 集合（全基因组 / CDS / PEP）或 FASTA → MAFFT 比对 + NJ / FastTree / IQ-TREE 建树；页内树查看'},
         {'id': 't-sdt', 'title': 'SDT 同一性分析（属级）', 'desc': '逐对 MAFFT 精确比对 → identity 矩阵 / 热图 / 分布图；NT+AA 模式同一性表 + 复合热图'},
+    ]},
+    {'id': 'phylodyn', 'label': '进化动力学分析', 'path': '进化动力学分析', 'items': [
+        {'id': 't-rdp', 'title': '🔁 重组检测',
+         'desc': 'MaxChi/Chimaera/Bootscan 三序列法（置换校正 p），比对 FASTA → 重组事件表'},
+        {'id': 't-rtt', 'title': '⏱ 时间信号与定年',
+         'desc': '根到尾回归：R² 高=时间信号强，斜率=每位点每年替换数'},
+        {'id': 't-phylogeo', 'title': '🌍 系统地理',
+         'desc': 'Fitch 迁移重构：区划间转移矩阵 + 标注树'},
     ]},
     {'id': 'result', 'label': '结果中心', 'path': '结果中心', 'items': [
         {'href': '/results', 'title': '样品结果 / 专项结果',
@@ -112,6 +136,7 @@ NAV_GROUPS = [
 
 
 _PATH_TO_GROUP = {'/meta': 'resource', '/virome': 'resource',
+                  '/vexplorer': 'resource',
                   '/download': 'sample', '/build': 'resource',
                   '/hostremoval': 'sample', '/samples': 'sample',
                   '/hostpredict': 'virus', '/orf': 'annotate',

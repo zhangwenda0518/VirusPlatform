@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>病毒浏览器 Explorer - 植物病毒分析平台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="vp-lang" content="{{ lang }}">
+<script>try{if(localStorage.getItem("vp_theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+<link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
+<style>
+#vxFilters{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+#vxFilters label{font-size:11.5px;margin:0 0 2px}
+#vxFilters input,#vxFilters select{width:100%;font-size:12px}
+#vxTable{width:100%;border-collapse:collapse;font-size:12px}
+#vxTable th,#vxTable td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+#vxTable td.mono{font-family:var(--mono);font-size:11px}
+.vx-bar{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
+.vx-fasta{font-family:var(--mono);font-size:11px;white-space:pre-wrap;word-break:break-all;background:var(--bg-card,#fff);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:300px;overflow:auto}
+/* 页签：与平台其余工作台保持同一视觉语言 */
+.vx-tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin:6px 0 12px;flex-wrap:wrap}
+.vx-tab{padding:7px 14px;font-size:12.5px;border:1px solid transparent;border-bottom:none;
+        border-radius:8px 8px 0 0;background:transparent;color:var(--fg-dim);cursor:pointer}
+.vx-tab:hover{background:var(--bg-hover,rgba(127,127,127,.08))}
+.vx-tab.active{background:var(--bg-card,#fff);border-color:var(--line);color:var(--fg);
+               font-weight:600;margin-bottom:-1px}
+.vx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.vx-pane{animation:vxFade .18s ease-out}
+@keyframes vxFade{from{opacity:.35}to{opacity:1}}
+.vx-note{font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+
+<div class="page">
+  <div class="tools-layout group-layout">
+    {% include "_group_nav.html" %}
+    <main class="group-main">
+  <div class="card">
+    <h1 data-i18n="vx.title">🔬 病毒浏览器 Explorer</h1>
+
+    <div class="vx-tabs">
+      <button class="vx-tab active" data-tab="overview" onclick="vxTab('overview')"
+              data-i18n="vx.tabOverview">📊 概览与导出</button>
+      <button class="vx-tab" data-tab="host" onclick="vxTab('host')"
+              data-i18n="vx.tabHost">🌿 宿主范围</button>
+      <button class="vx-tab" data-tab="vec" onclick="vxTab('vec')"
+              data-i18n="vx.tabVec">🦟 媒介传播网络</button>
+      <button class="vx-tab" data-tab="var" onclick="vxTab('var')"
+              data-i18n="vx.tabVar">🧬 全基因组变异</button>
+    </div>
+
+    <!-- ============================ ① 概览与导出 ============================ -->
+    <div class="vx-pane" id="vxPane-overview">
+      <div id="vxKpi" style="display:flex;gap:14px;margin:10px 0 4px;flex-wrap:wrap">
+        <div class="card" style="flex:1;min-width:130px;margin:0;padding:10px 14px;text-align:center">
+          <b style="font-size:20px" id="kpiTotal">—</b><br>
+          <span class="hint" data-i18n="vx.kpiSeq">序列总数</span></div>
+        <div class="card" style="flex:1;min-width:130px;margin:0;padding:10px 14px;text-align:center">
+          <b style="font-size:20px" id="kpiSpecies">—</b><br>
+          <span class="hint" data-i18n="vx.kpiSp">病毒物种</span></div>
+        <div class="card" style="flex:1;min-width:130px;margin:0;padding:10px 14px;text-align:center">
+          <b style="font-size:20px" id="kpiFam">—</b><br>
+          <span class="hint" data-i18n="vx.kpiFam">病毒科</span></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">
+        <div style="flex:1;min-width:320px;height:260px" id="chartYear"></div>
+        <div style="flex:1;min-width:320px;height:260px" id="chartGeo"></div>
+      </div>
+
+      <p class="hint" data-i18n="vx.hint">本地全库（Plant_Virus_Full，199,068 条）多维筛选：
+         分类（科 / 物种）、宿主、地理、分子类型、序列类型、长度、年份 →
+         勾选后<b>导出 FASTA</b>，可直接送「序列比对」「进化树构建」。
+         注意：<b>重组检测 / 时间信号 / 系统地理</b>三张卡要求输入「已比对」的 FASTA，
+         导出的是未比对序列，需先跑一次「序列比对」。</p>
+
+      <div id="vxFilters" style="margin-top:8px">
+        <div><label data-i18n="vx.family">科</label><select id="f_Family"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.mol">分子类型</label><select id="f_Molecule_type"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.seqtype">序列类型</label><select id="f_Sequence_Type"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.segLbl">分段</label><select id="f_Segment"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.completeness">完整度</label><select id="f_Nuc_Completeness"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.species">物种（包含）</label><input id="f_species" type="text" placeholder="如 Tobamovirus"></div>
+        <div><label data-i18n="vx.host">宿主（包含）</label><input id="f_host" type="text" placeholder="如 Nicotiana"></div>
+        <div><label data-i18n="vx.geo">地理（包含）</label><input id="f_geo" type="text" placeholder="如 China"></div>
+        <div><label data-i18n="vx.q">标题关键词</label><input id="f_q" type="text" placeholder="GenBank 标题包含…"></div>
+        <div><label data-i18n="vx.lenRange">长度区间</label>
+          <div style="display:flex;gap:4px">
+            <input id="f_len_min" type="number" placeholder="最小" style="width:50%">
+            <input id="f_len_max" type="number" placeholder="最大" style="width:50%">
+          </div>
+        </div>
+        <div><label data-i18n="vx.yearRange">采样年份区间</label>
+          <div style="display:flex;gap:4px">
+            <input id="f_date_from" type="number" placeholder="从" style="width:50%">
+            <input id="f_date_to" type="number" placeholder="到" style="width:50%">
+          </div>
+        </div>
+      </div>
+      <div class="vx-bar">
+        <button class="btn small primary" onclick="vxQuery(1)" data-i18n="vx.search">🔍 查询</button>
+        <button class="btn small" onclick="vxReset()" data-i18n="vx.reset">重置筛选</button>
+        <span id="vxInfo" class="hint" style="margin:0"></span>
+      </div>
+
+      <div class="vx-grid">
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chYearT">时间分布</b><button class="btn small" onclick="vxDownloadChart('vxChartYear','时间分布')" title="导出 PNG">⬇</button></div><div id="vxChartYear" style="height:260px"></div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chGeoT">地理分布</b><button class="btn small" onclick="vxDownloadChart('vxChartGeo','地理分布')" title="导出 PNG">⬇</button></div><div id="vxChartGeo" style="height:260px"></div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chFamT">科分布</b><button class="btn small" onclick="vxDownloadChart('vxChartFamily','科分布')" title="导出 PNG">⬇</button></div><div id="vxChartFamily" style="height:260px"></div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chHostT">宿主分布</b><button class="btn small" onclick="vxDownloadChart('vxChartHost','宿主分布')" title="导出 PNG">⬇</button></div><div id="vxChartHost" style="height:260px"></div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chMolT">分子类型</b><button class="btn small" onclick="vxDownloadChart('vxChartMol','分子类型')" title="导出 PNG">⬇</button></div><div id="vxChartMol" style="height:260px"></div></div>
+        <div><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px" data-i18n="vx.chMapT">全球分布</b></div><div id="vxChartMap" style="height:260px"></div></div>
+      </div>
+
+      <div class="vx-bar">
+        <button class="btn small" onclick="vxAll(true)" data-i18n="lg.selectAll">全选（本页）</button>
+        <button class="btn small" onclick="vxAll(false)" data-i18n="lg.clearAll">清空</button>
+        <span id="vxSel" class="hint" style="margin:0"></span>
+        <label class="hint" style="margin:0" data-i18n="vx.balance" data-i18n-title="vx.balanceT" title="系统地理分析防采样偏差：每个地理区域最多抽 N 条">均衡抽样/区域 ≤</label>
+        <input id="vxBalance" type="number" min="1" placeholder="不限" style="width:70px">
+        <span style="flex:1"></span>
+        <button class="btn small" onclick="vxSendPhylodyn(this)" data-i18n="vx.sendPhylodyn">🧭 导出并送入进化动力学分析</button>
+        <button class="btn small primary" onclick="vxExport(this)" data-i18n="vx.export">⬇ 导出勾选 FASTA</button>
+        <button class="btn small" onclick="vxTableCsv()" data-i18n="vx.tableCsv">⬇ 导出筛选表 CSV</button>
+      </div>
+      <div class="scroll-md" id="vxWrap"><p class="hint" data-i18n="c.loading">加载中…</p></div>
+      <div class="vx-bar">
+        <button class="btn small" onclick="vxPage(-1)" data-i18n="vx.prev">◀ 上一页</button>
+        <span id="vxPage" class="hint" style="margin:0"></span>
+        <button class="btn small" onclick="vxPage(1)" data-i18n="vx.next">下一页 ▶</button>
+      </div>
+      <div id="vxFasta" class="vx-fasta" style="display:none"></div>
+    </div>
+
+    <!-- ============================ ② 宿主范围 ============================ -->
+    <div class="vx-pane" id="vxPane-host" style="display:none">
+      <p class="hint vx-note" data-i18n="vx.hostHint">宿主归属按 GenBank 学名拆解：首词为<b>属</b>，全名为<b>种</b>。
+         点击柱条或「下钻」可查看该属下的宿主种。宿主口径跟随「概览」页的科 / 物种筛选，
+         两个面板始终同源。</p>
+      <div class="vx-bar">
+        <span id="vxHostCrumb" style="font-size:12.5px"></span>
+        <span style="flex:1"></span>
+        <button class="btn small" onclick="vxHostLoad('genus','')" data-i18n="vx.hostBackGenus">↺ 回到属级</button>
+        <button class="btn small primary" onclick="vxHostLoad()" data-i18n="vx.hostRefresh">🔄 刷新</button>
+      </div>
+      <div id="vxHostInfo" class="hint" style="margin:6px 0"></div>
+      <div id="vxHostChart" style="height:440px"></div>
+      <div class="scroll-md" id="vxHostTable" style="margin-top:10px"></div>
+    </div>
+
+    <!-- ============================ ③ 媒介传播网络 ============================ -->
+    <div class="vx-pane" id="vxPane-vec" style="display:none">
+      <p class="hint vx-note" data-i18n="vx.vecHint">病毒—媒介—宿主关系的多层流向图（数据源：viral-vector-host 三元组，1,375 条）。
+         层序默认 6 层：病毒科 → 属 → 种 → 媒介目 → 科 → 属；可在右侧加深到传播方式与宿主。
+         链路宽度 = 关系记录数。</p>
+      <div id="vxFilters" style="margin-top:8px">
+        <div><label data-i18n="vx.vecFamily">病毒科</label><select id="vf_family"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.vecGenus">病毒属</label><select id="vf_genus"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.vecOrder">媒介目</label><select id="vf_order"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.vecMode">传播方式</label><select id="vf_mode"><option value="">全部</option></select></div>
+        <div><label data-i18n="vx.vecDepth">层深</label><select id="vf_depth"></select></div>
+      </div>
+      <div class="vx-bar">
+        <button class="btn small primary" onclick="vxVecRender()" data-i18n="vx.vecApply">🔍 应用筛选</button>
+        <button class="btn small" onclick="vxDownloadChart('vxVecSankey','媒介传播网络')" data-i18n="vx.vecPng">⬇ 导出 PNG</button>
+        <span id="vxVecInfo" class="hint" style="margin:0"></span>
+      </div>
+      <div id="vxVecSankey" style="height:560px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px">
+        <b style="font-size:12px" data-i18n="vx.vecTableT">关系明细</b>
+        <span id="vxVecPage" class="hint" style="margin:0"></span>
+      </div>
+      <div class="scroll-md" id="vxVecTable"></div>
+      <div class="vx-bar">
+        <button class="btn small" onclick="vxVecPage(-1)" data-i18n="vx.prev">◀ 上一页</button>
+        <button class="btn small" onclick="vxVecPage(1)" data-i18n="vx.next">下一页 ▶</button>
+      </div>
+    </div>
+
+    <!-- ============================ ④ 全基因组变异 ============================ -->
+    <div class="vx-pane" id="vxPane-var" style="display:none">
+      <p class="hint vx-note" data-i18n="vx.varHint">选一个病毒种 → 取全库中<b>长度可比的全长序列</b> → MAFFT 多序列比对 →
+         逐位点变异谱。分段病毒（如黄瓜花叶病毒 CMV 的 RNA1/2/3）会<b>按片段分别比对</b>，
+         因为不同片段是彼此不可比的分子，混在一起算出的「位点变异率」没有生物学含义。</p>
+      <div id="vxFilters" style="margin-top:8px">
+        <div style="grid-column:span 2">
+          <label data-i18n="vx.varSpecies">病毒物种（学名，可用下拉候选）</label>
+          <input id="vxVarSpecies" type="text" list="vxVarSpeciesList" placeholder="如 Potyvirus yituberosi">
+          <datalist id="vxVarSpeciesList"></datalist>
+        </div>
+        <div><label data-i18n="vx.varSegSel">基因组片段</label><select id="vxVarSegment"><option value="">自动（最大片段）</option></select></div>
+        <div><label data-i18n="vx.varMaxSeqs">参与比对序列数（≤40）</label><input id="vxVarMaxSeqs" type="number" min="3" max="40" placeholder="40"></div>
+      </div>
+      <div class="vx-bar">
+        <button class="btn small primary" onclick="vxVarRun(this)" data-i18n="vx.varRun">🧬 比对并分析</button>
+        <label class="hint" style="margin:0"><input id="vxVarRefresh" type="checkbox" style="width:auto"> <span data-i18n="vx.varForce">强制重算（忽略缓存）</span></label>
+        <span id="vxVarInfo" class="hint" style="margin:0"></span>
+      </div>
+      <div class="vx-grid">
+        <div id="vxVarCons" style="height:250px"></div>
+        <div id="vxVarWin" style="height:250px"></div>
+      </div>
+      <div id="vxVarHeat" style="height:420px;margin-top:12px"></div>
+      <div style="margin:12px 0 4px"><b style="font-size:12px" data-i18n="vx.varHotT">变异热点 Top10</b></div>
+      <div id="vxVarHot"></div>
+    </div>
+
+  </div>
+    </main>
+  </div>
+</div>
+
+<script src="/static/i18n.js?v={{ asset_v }}"></script>
+<script src="/static/app.js?v={{ asset_v }}"></script>
+<script src="/static/plotly.min.js?v={{ asset_v }}"></script>
+<script src="/static/examples.js?v={{ asset_v }}"></script>
+<script src="/static/app-vexplorer.js?v={{ asset_v }}"></script>
+</body>
+</html>

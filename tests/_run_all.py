@@ -164,9 +164,30 @@ TESTS = [
     # 「浏览」按钮回归：调用 browse()/browseDir() 的页面必须带上共享对话框片段
     # （缺 #dlgMask 会抛 TypeError，按钮点了毫无反应；纯静态，秒级）
     ('tests/_check_browse_dlg.py',  120,  False),
+    # 示例结果清单 ↔ 实际文件：列表页计数与详情页列表必须一致（秒级，只读）
+    ('tests/_check_examples_manifest.py', 60, False),
+    # 库/目录类 API 返回的路径必须是绝对路径（分发版下相对路径会解析错库；
+    # 秒级，只读）
+    ('tests/_check_db_paths.py',     60,  False),
+    # spec 里 webapp 的 datas 展开：既不漏前端文件、也不带 .mimosa 等工具残留
+    # （AST 抽出 spec 里的 _tree 单独执行；秒级，只读）
+    ('tests/_check_spec_datas.py',   60,  False),
+    # PYZ↔源码字节码比较器的灵敏度自检：确认它**不是恒真**
+    # （纯内存 compile 比较，不读产物、不需 PyInstaller；秒级）
+    ('tests/_selftest_pyz_cmp.py',   60,  False),
+    # 全页面真浏览器巡检：21 个页面逐个加载，收集 JS 报错 / 4xx 资源 /
+    # 关键全局函数存在性。**逐页独立进程**驱动（同进程连续访问会随机段错误），
+    # 约 2-4 分钟；无 playwright 时自动 SKIP 并返回 0。
+    ('tests/_check_pages_console.py', 900, False),
     # ⚡一键分析（全流程）卡：自起临时实例 + 真浏览器，验证本卡自有输入/参数/
-    # 输出区齐全、示例与参数互取落到本卡、内联结果链路（桩 API）不串卡（~30s）
+    # 输出区齐全、示例与参数互取落到本卡、内联结果链路（桩 API）不串卡（~30s）。
+    # 无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
     ('tests/_check_kvchain_ui.py',  300,  False),
+    # Explorer 四面板（概览 / 宿主范围 / 媒介传播 / 全基因组变异）真浏览器验证：
+    # 断言 Plotly 实例真的有数据（不是"元素存在"）、下钻与筛选联动、Sankey 层标题，
+    # 并**实跑一次 MAFFT** 验证选序列走的是全长簇（约 40s）。自起临时实例。
+    # 无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
+    ('tests/_check_vexplorer.py',   600,  False),
     # 真跑 HMM + CDD 全链路 + 在线 NCBI，实测 400s~900s（网络波动大）
     ('tests/_it_annotate.py',      1500,  True),
 ]
