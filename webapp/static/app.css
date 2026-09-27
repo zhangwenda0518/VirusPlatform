@@ -1177,3 +1177,148 @@ th.sortable:hover { filter: brightness(0.94); }
 .env-strip .env-bit.warn { color: var(--amber-700, #a3651d); }
 .env-strip .env-bit.bad { color: var(--red-700, #b03a2e); }
 .env-strip a { margin-left: auto; font-size: 12px; color: var(--blue-700, #1c5a99); }
+
+/* ── 时间与地理推断·本地全链：阶段流 ──
+   一排放 6 个阶段（A0…A5），每格显示编号 + 名称 + 状态点。
+   运行中按阶段状态换色：等待=灰、进行中=蓝、完成=绿、失败=红、跳过=虚线。 */
+.pd-flow {
+  display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap;
+  margin: 12px 0 14px;
+}
+.pd-flow .pds {
+  flex: 1 1 130px; min-width: 118px; padding: 8px 10px;
+  border: 1px solid var(--line-200); border-radius: 8px;
+  background: var(--surface); position: relative;
+}
+.pd-flow .pds b { display: block; font-size: 11px; letter-spacing: .5px;
+  color: var(--ink-500, #7f8c8d); font-weight: 700; }
+.pd-flow .pds span { display: block; font-size: 12.5px; color: var(--ink-700, #33475b);
+  margin-top: 2px; }
+.pd-flow .pds i { position: absolute; top: 8px; right: 9px; font-style: normal;
+  font-size: 11px; color: #b2bec3; }
+.pd-flow .pds.run { border-color: #2e86c1; background: #eef6fc; }
+.pd-flow .pds.run i { color: #2e86c1; }
+.pd-flow .pds.ok { border-color: #1d7a4f; background: #eef7f1; }
+.pd-flow .pds.ok i { color: #1d7a4f; }
+.pd-flow .pds.bad { border-color: #c0392b; background: #fdf0ee; }
+.pd-flow .pds.bad i { color: #c0392b; }
+.pd-flow .pds.skip { border-style: dashed; opacity: .62; }
+.pd-flow .pds.skip i { color: #95a5a6; }
+html[data-theme="dark"] .pd-flow .pds { background: #1b2630; border-color: #2a3a44; }
+html[data-theme="dark"] .pd-flow .pds.run { background: #16283a; border-color: #2e86c1; }
+html[data-theme="dark"] .pd-flow .pds.ok { background: #16281f; border-color: #1d7a4f; }
+html[data-theme="dark"] .pd-flow .pds.bad { background: #3a1d1a; border-color: #c0392b; }
+
+/* 结果面板里的口径提示条：ML / 近似区间 / 不是后验 —— 三档颜色区分可信度 */
+.pd-note {
+  padding: 7px 11px; border-radius: 6px; font-size: 12.5px; line-height: 1.55;
+  border-left: 3px solid #b2bec3; background: #f7f9fa; margin: 6px 0;
+}
+.pd-note.info { border-left-color: #2e86c1; background: #eef6fc; }
+.pd-note.warn { border-left-color: #d68910; background: #fdf6e8; }
+.pd-note.bad { border-left-color: #c0392b; background: #fdf0ee; }
+.pd-note.good { border-left-color: #1d7a4f; background: #eef7f1; }
+html[data-theme="dark"] .pd-note { background: #1b2630; }
+html[data-theme="dark"] .pd-note.info { background: #16283a; }
+html[data-theme="dark"] .pd-note.warn { background: #2e2614; }
+html[data-theme="dark"] .pd-note.bad { background: #3a1d1a; }
+html[data-theme="dark"] .pd-note.good { background: #16281f; }
+
+/* ===== miRNA 靶标预测（t-mirna）：PAmiRDB 结果面板样式移植 ===== */
+.mir-rtable { width: 100%; border-collapse: collapse; font-size: 11.5px;
+  background: #fff; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border, #e3e8ef); }
+.mir-rtable th { background: #f5f7fa; padding: 8px 10px; text-align: left;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+  color: #555; border-bottom: 2px solid var(--border, #e3e8ef); cursor: pointer; white-space: nowrap; }
+.mir-rtable th:hover { background: #eef0f4; }
+.mir-rtable th .mir-sort { color: #bbb; margin-left: 3px; }
+.mir-rtable td { padding: 7px 10px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+.mir-rtable tr:last-child td { border-bottom: none; }
+.mir-rtable tr:hover td { background: #f9fcff; }
+.mir-rtable tr.mir-active td { background: #e8f4ea; }
+.mir-badge { display: inline-block; padding: 2px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; white-space: nowrap; }
+.mir-c-none { background: #eee; color: #888; }
+.mir-c-low { background: #fff3cd; color: #856404; }
+.mir-c-medium { background: #d1ecf1; color: #0c5460; }
+.mir-c-high { background: #d4edda; color: #155724; }
+.mir-c-vhigh { background: #1a4a30; color: #fff; }
+.mir-seed-ok { color: #1d7a4f; font-weight: 700; }
+.mir-seed-no { color: #c0392b; }
+.mir-fsel { padding: 5px 8px; border: 1px solid var(--border, #e3e8ef); border-radius: 5px;
+  font-size: 11px; background: #fff; }
+.mir-finp { padding: 5px 8px; border: 1px solid var(--border, #e3e8ef); border-radius: 5px;
+  font-size: 11px; width: 90px; }
+.mir-detail-card { background: #fff; border-radius: 8px; padding: 16px;
+  border: 1px solid var(--border, #e3e8ef); margin-top: 12px; }
+.mir-score-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px; margin-bottom: 14px; }
+.mir-s-item { text-align: center; padding: 10px; border-radius: 8px;
+  background: #f8f9fa; border: 1px solid var(--border, #e3e8ef); }
+.mir-s-item .v { font-size: 17px; font-weight: 700; color: #1d7a4f; }
+.mir-s-item .l { font-size: 9px; color: #8892a6; margin-top: 2px; }
+.mir-s-item.mir-span-all { grid-column: 1 / -1; background: #eef7f1; border-color: #b8ddc4; }
+.mir-s-item.mir-span-all .v { font-size: 13px; }
+.mir-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border, #e3e8ef); margin-bottom: 12px; }
+.mir-tab-btn { padding: 7px 14px; font-size: 12px; cursor: pointer; border: none;
+  background: none; color: #8892a6; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; font-weight: 500; }
+.mir-tab-btn.on { color: #1d7a4f; font-weight: 700; border-bottom-color: #1d7a4f; }
+.mir-tab-pane { display: none; }
+.mir-tab-pane.on { display: block; }
+.mir-aln-wrap { background: #0d1117; color: #c9d1d9; font-family: Consolas, monospace;
+  font-size: 13px; line-height: 2; padding: 16px 20px; border-radius: 8px;
+  overflow-x: auto; white-space: pre; letter-spacing: 1.5px; }
+.mir-a-wc { color: #56d364; font-weight: 700; }
+.mir-a-wo { color: #e3b341; font-weight: 700; }
+.mir-a-mm { color: #f85149; font-weight: 700; }
+.mir-a-gp { color: #8b949e; }
+.mir-a-seed { text-decoration: underline; text-decoration-color: #f1c40f; text-underline-offset: 3px; }
+.mir-algo-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.mir-algo-tbl th { background: #f5f7fa; padding: 7px 10px; text-align: left;
+  border-bottom: 2px solid var(--border, #e3e8ef); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .3px; color: #555; }
+.mir-algo-tbl td { padding: 6px 10px; border-bottom: 1px solid #f0f2f5; }
+.mir-pass { color: #1d7a4f; font-weight: 700; }
+.mir-fail { color: #c0392b; font-weight: 700; }
+.mir-duplex-wrap { background: #0d1117; border-radius: 8px; padding: 14px 16px;
+  overflow-x: auto; margin-bottom: 10px; }
+.mir-duplex-wrap h4 { font-size: 10px; font-weight: 700; color: #8b949e;
+  letter-spacing: .5px; text-transform: uppercase; margin: 0 0 8px; }
+.mir-duplex-legend { display: flex; gap: 14px; margin-top: 8px; flex-wrap: wrap; }
+.mir-duplex-legend span { font-size: 9px; color: #8b949e; display: flex; align-items: center; gap: 4px; }
+.mir-posmap h4 { font-size: 11px; font-weight: 700; color: #555; margin: 0 0 6px; }
+/* 引擎勾选格（PAmiRDB algo-grid 同款：miRanda 必选锁死，其余默认勾前三） */
+.mir-algo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px; margin-top: 6px; }
+.mir-algo-chk { display: flex; align-items: center; gap: 6px; font-size: 12px;
+  padding: 7px 10px; background: #f8f9fa; border: 1px solid var(--border, #e3e8ef);
+  border-radius: 6px; cursor: pointer; }
+.mir-algo-chk:hover { border-color: #1d7a4f; }
+.mir-algo-chk input[type="checkbox"] { accent-color: #1d7a4f; }
+.mir-algo-chk input:disabled + * { opacity: .8; }
+.mir-algo-tag { font-size: 9px; font-weight: 700; padding: 1px 6px;
+  border-radius: 8px; margin-left: auto; white-space: nowrap; }
+.mir-tag-req { background: #fdecea; color: #c0392b; }
+.mir-tag-plant { background: #e8f5e9; color: #1d7a4f; }
+.mir-tag-energy { background: #e3f2fd; color: #1565c0; }
+.mir-tag-pat { background: #f3e5f5; color: #7b1fa2; }
+html[data-theme="dark"] .mir-algo-chk { background: #1b2630; border-color: #263241; }
+html[data-theme="dark"] .mir-tag-req { background: #3a1d1a; color: #f85149; }
+html[data-theme="dark"] .mir-tag-plant { background: #16301f; color: #56d364; }
+html[data-theme="dark"] .mir-tag-energy { background: #16283a; color: #58a6ff; }
+html[data-theme="dark"] .mir-tag-pat { background: #2a1f33; color: #d2a8ff; }
+html[data-theme="dark"] .mir-rtable { background: #141c24; border-color: #263241; }
+html[data-theme="dark"] .mir-rtable th { background: #1b2630; color: #aeb9c6; border-bottom-color: #263241; }
+html[data-theme="dark"] .mir-rtable td { border-bottom-color: #1f2a36; }
+html[data-theme="dark"] .mir-rtable tr:hover td { background: #1a2530; }
+html[data-theme="dark"] .mir-rtable tr.mir-active td { background: #16301f; }
+html[data-theme="dark"] .mir-detail-card { background: #141c24; border-color: #263241; }
+html[data-theme="dark"] .mir-s-item { background: #1b2630; border-color: #263241; }
+html[data-theme="dark"] .mir-s-item .v { color: #56d364; }
+html[data-theme="dark"] .mir-s-item.mir-span-all { background: #16301f; border-color: #2a5238; }
+html[data-theme="dark"] .mir-fsel, html[data-theme="dark"] .mir-finp { background: #141c24; color: #d7dee6; border-color: #263241; }
+html[data-theme="dark"] .mir-algo-tbl th { background: #1b2630; color: #aeb9c6; }
+html[data-theme="dark"] .mir-algo-tbl td { border-bottom-color: #1f2a36; }
+

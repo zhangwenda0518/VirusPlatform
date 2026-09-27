@@ -223,6 +223,10 @@ def run_blastx(fa, out_tsv, threads=None, logger=None):
              '-o', out_tsv, '-e', str(BLASTX_EVALUE),
              '--threads', str(threads or cfg.threads),
              '--max-target-seqs', '10',
+             # 内存限幅：--block-size 默认 2.0（20 亿字母）会一次性吃数 GB；
+             # 病毒蛋白库 229MB，0.4 分块 + 8 路索引足以在 ~1-2GB 内完成，
+             # 系统 内存/页面文件 紧张时避免 0xC0000005 访问冲突崩溃。
+             '--block-size', '0.4', '--index-chunks', '8',
              '--outfmt', '6', 'qseqid', 'sseqid', 'pident', 'length',
              'evalue', 'bitscore', 'stitle', 'qlen', 'slen'], logger=logger)
     by_q = {}
@@ -315,11 +319,14 @@ def run_cdd(fa, out_tsv, threads=None, logger=None):
     env = os.environ.copy()
     env['PATH'] = os.path.dirname(mmseqs) + os.pathsep + env.get('PATH', '')
     tmp = out_tsv + '.mmseqs_tmp'
-    run_cmd([mmseqs, 'easy-search', fa, db, out_tsv, tmp,
-             '--format-output', 'query,target,evalue,pident,qlen,qstart,qend,theader',
-             '-e', str(CDD_EVALUE_MAX), '--max-seqs', '5',
-             '--threads', str(threads or cfg.threads)],
-            logger=logger, env=env)
+    # CDD prefilter 索引要一次性 ~5GB；小内存机器整库必死 → 统一走
+    # cdd_search.easy_search_cdd（整库失败自动 8 分片重试，结果等价）。
+    from .cdd_search import easy_search_cdd
+    easy_search_cdd(mmseqs, fa, db, out_tsv, tmp,
+                    format_output='query,target,evalue,pident,qlen,qstart,'
+                                  'qend,theader',
+                    evalue=CDD_EVALUE_MAX, max_seqs=5,
+                    threads=threads or cfg.threads, env=env, logger=logger)
     tier = _load_cdd_tier()
     by_q = {}
     if not os.path.isfile(out_tsv):

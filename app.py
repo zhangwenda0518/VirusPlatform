@@ -23,7 +23,6 @@ import sys
 import threading
 import time
 import webbrowser
-
 # Windows 注册表把 .svg 关联成 MIME 类型 "image/svg"，而标准类型是
 # "image/svg+xml"；Python 的 mimetypes 会照搬注册表，Flask 便以 image/svg
 # 发出去，Chromium 直接拒绝解码（<img> 拿到 naturalWidth=0 的裂图）。
@@ -33,8 +32,62 @@ import mimetypes
 mimetypes.add_type('image/svg+xml', '.svg')
 
 from flask import Flask, abort, request
+from flask.json.provider import DefaultJSONProvider
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+# 冻结分发下 multiprocessing（SDT 精确矩阵的 ProcessPoolExecutor 等）子进程
+# 会重新启动 exe，必须在任何业务代码前调用 freeze_support 拦截子进程引导；
+# 非冻结环境是空操作
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
+
+# 冻结分发：primer3-py 的 pyd 在非 ASCII 安装路径下构造 ThermoAnalysis 会
+# 直接段错误（同 sitecustomize 的镜像机制口径：源码模式把包镜像到
+# %ALLUSERSPROFILE%\VirusPlatformPrimer3）。程序包自带 primer3_pkg/primer3
+# 副本，启动时镜像到纯 ASCII 的用户公共目录并插入 sys.path——必须在任何
+# 业务模块可能触发 primer3 导入之前完成。镜像失败仅影响引物热力学功能。
+# ⚠️ 位置必须在下方 --run-engine / --cli 派发之前：--run-engine 跑 dsRNA T7
+# 引物、--cli importprobe 子进程探测 primer3，两者都依赖镜像路径已入 sys.path。
+if getattr(sys, 'frozen', False):
+    try:
+        _p3_src = os.path.join(os.path.dirname(sys.executable),
+                               'primer3_pkg', 'primer3')
+        if os.path.isdir(_p3_src):
+            import shutil as _sh
+            _p3_base = os.path.join(os.environ.get('ALLUSERSPROFILE',
+                                                   r'C:\ProgramData'),
+                                    'VirusPlatformPrimer3App')
+            _p3_dst = os.path.join(_p3_base, 'primer3')
+            _ver_src = os.path.join(os.path.dirname(_p3_src), 'VERSION.txt')
+            _ver_dst = os.path.join(_p3_base, 'VERSION.txt')
+            _need = not os.path.isdir(_p3_dst)
+            # 旧版程序包漏带 primer3_config（热力学参数表）时镜像会完整但
+            # 段错误 —— 检测到配置目录缺失也强制重镜像（自愈升级路径）
+            if not _need and not os.path.isdir(
+                    os.path.join(_p3_dst, 'src', 'libprimer3',
+                                 'primer3_config')):
+                _need = True
+            try:
+                if os.path.isfile(_ver_src) and os.path.isfile(_ver_dst) and \
+                   open(_ver_src, 'rb').read() != open(_ver_dst, 'rb').read():
+                    _need = True
+            except OSError:
+                pass
+            if _need:
+                _sh.rmtree(_p3_dst, ignore_errors=True)
+                os.makedirs(_p3_base, exist_ok=True)
+                _sh.copytree(_p3_src, _p3_dst)
+                if os.path.isfile(_ver_src):
+                    _sh.copyfile(_ver_src, _ver_dst)
+            if _p3_base not in sys.path:
+                sys.path.insert(0, _p3_base)
+    except Exception:
+        pass  # 镜像失败仅引物热力学功能降级，平台其余功能不受影响
 
 # 冻结分发：`VirusPlatform.exe --run-engine <脚本名> [args...]` → 进程内执行引擎
 if getattr(sys, 'frozen', False) and len(sys.argv) > 2 and sys.argv[1] == '--run-engine':
@@ -50,16 +103,6 @@ if getattr(sys, 'frozen', False) and len(sys.argv) > 2 and sys.argv[1] == '--cli
     _cli.main()
     raise SystemExit(0)
 
-# 冻结分发下 multiprocessing（SDT 精确矩阵的 ProcessPoolExecutor 等）子进程
-# 会重新启动 exe，必须在任何业务代码前调用 freeze_support 拦截子进程引导；
-# 非冻结环境是空操作
-if __name__ == '__main__':
-    import multiprocessing
-    multiprocessing.freeze_support()
-
-if sys.platform == 'win32':
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-
 # webapp 目录 / 配置单例 / tool_runs 根统一由 Virus_Platform_Core/web/state.py 提供，
 # 各 blueprint 也从那里取，避免 app ↔ blueprint 循环导入。
 from Virus_Platform_Core.web.state import _WWW  # noqa: E402
@@ -70,6 +113,40 @@ app.config['JSON_AS_ASCII'] = False
 # 模板热重载：debug=False 下 Jinja2 默认缓存模板，改 .html 后需重启才生效；
 # 打开后每次请求按 mtime 检测，本地平台开销可忽略，改模板即刷新可见。
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+# NaN/±Inf 清洗的唯一实现（原随病毒浏览器归档，现收编进 utils.py）；
+# 非 JSON 出口（/tool_runs 原样发文件）的落盘清洗见 web/tool_jobs._dump_json。
+from Virus_Platform_Core.utils import nan_to_null as _nan_to_null  # noqa: E402
+
+
+class _CleanJSONProvider(DefaultJSONProvider):
+    """全局 JSON 出口：清洗 NaN/±Inf 后再序列化（平台 JSON 铁律）。
+
+    Flask 默认放行裸 `NaN`（`allow_nan=True`）——那是**非法 JSON**：
+    Python 端 json.loads 能容忍（本地自测假通过），浏览器 JSON.parse 直接
+    报错、整份响应被丢弃。来源多为空集合求均值/占比（pandas 聚合）。
+    这里统一把 NaN/±Inf 换成 null，并以 `allow_nan=False` 兜底：若还有
+    漏网之鱼会带类型报错，而不是静默产出非法 JSON。
+    """
+
+    ensure_ascii = False
+
+    def default(self, o):
+        try:
+            return super().default(o)
+        except TypeError:
+            if hasattr(o, 'tolist'):        # numpy 数组
+                return o.tolist()
+            if hasattr(o, 'item'):          # numpy 标量
+                return o.item()
+            raise
+
+    def dumps(self, obj, **kwargs):
+        kwargs.setdefault('allow_nan', False)
+        return super().dumps(_nan_to_null(obj), **kwargs)
+
+
+app.json = _CleanJSONProvider(app)
 
 
 # ------------------------------------------------------------------
@@ -123,7 +200,6 @@ from Virus_Platform_Core.web import (  # noqa: E402
     cds_export as _bp_cds_export,
     download as _bp_download,
     examples_api as _bp_examples,
-    explorer as _bp_explorer,
     io_api as _bp_io,
     logan as _bp_logan,
     meta as _bp_meta,
@@ -139,10 +215,19 @@ from Virus_Platform_Core.web import (  # noqa: E402
 )
 
 # 顺序与拆分前的 app.py 区块顺序一致（便于对照回溯）
+#
+# 2026-09-17：病毒浏览器（explorer）蓝图停止挂载 —— 平台不再提供 /explorer
+# 页面与 /api/explorer/* 接口。
+# 2026-09-27：**彻底归档** —— 引擎（Virus_Platform_Core/explorer/）、蓝图
+# （web/explorer.py）、页面（explorer.html / app-explorer.js）、专属测试与
+# 运行数据（run/explorer_exports、run/explorer_variation）全部移入
+# archive/_retire_20260927/explorer/，代码与数据在本仓不再保留活动副本。
+# 注意：app.py 的 JSON 清洗器原从 web/explorer.py 借 _nan_to_null（每个
+# JSON 响应都走它）——现已内联为本文件顶部的 _nan_to_null，无外部依赖。
 for _bp in (_bp_pages, _bp_tool_results, _bp_refs, _bp_logan, _bp_io,
             _bp_samples, _bp_download, _bp_submit, _bp_meta,
             _bp_settings, _bp_virome, _bp_tools, _bp_tasks, _bp_build,
-            _bp_examples, _bp_cds_export, _bp_explorer):
+            _bp_examples, _bp_cds_export):
     app.register_blueprint(_bp.bp)
 del _bp
 

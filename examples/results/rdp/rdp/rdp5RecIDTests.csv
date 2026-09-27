@@ -1,0 +1,4 @@
+Event#,Sequence,Designation, ConsensusConsensus,Parsimony O,Conflict,SubPhPr,TreeSubDist,OuCheck,TreeSubPhPr,TreePhPr,PhPr,TrpScore,dMax(VisRD),DistRank,O:E,SubDist,Parsimony I,SetDistT,SetDistP,O:E Dist,
+ 1,Sim_Gansu_REC|Gansu|2022,Recombinant, 19.0419161676647, 20, 10, 10, 10, 5, 8, 18, 8, 0, 8, 0, 0, 2, 0, 5, 0, 0,
+ 1,Sim_Beijing_1|Beijing|2023,MajorParent, 5.92814371257485, 0, 0, 0, 0, 5, 4, 14, 0, 0, 8, 7.5, 0, 1, 0, 2.5, 0, 0,
+ 1,Sim_Ningxia_1|Ningxia|2019,MinorParent, 5.02994011976048, 20, 0, 5, 5, 5, 0, 0, 4, 0, 4, 0, 4, 0, 0, 0, 0, 0,

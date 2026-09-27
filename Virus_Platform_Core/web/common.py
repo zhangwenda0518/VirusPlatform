@@ -1,5 +1,34 @@
 # -*- coding: utf-8 -*-
 """Web 层共用小工具（多 blueprint 共享，自 app.py 拆出）。"""
+import json
+import os
+
+# 「进化树 + 基因组叠加」数据约定：叠加 JSON 与树文件**同目录同名**
+# （tree.nwk → tree.overlay.json），内容见 archaeopteryx.js 的 genomeOverlay：
+# {tracks:[{name, acc?, genus?, length?, genes:[{id?, start, end, strand?,
+#  product?, cid?}]}], links:[{q, t, ident?}]}（ident 0-1 或 0-100 均可）。
+# 树查看器只认这一个位置，缺文件即"没有叠加"，树照常渲染。
+TREE_OVERLAY_EXT = '.overlay.json'
+_TREE_OVERLAY_MAX_BYTES = 16 * 1024 * 1024
+
+
+def tree_overlay_for(nwk_path):
+    """树文件 → 叠加数据 dict；缺失/损坏/过大一律返回 None（绝不让树打不开）。
+
+    叠加 JSON 是**可选**产物：读不动就当没有，界面上少一层轨道图，
+    而不是把整个树查看卡变成报错。
+    """
+    p = os.path.splitext(str(nwk_path))[0] + TREE_OVERLAY_EXT
+    try:
+        if not os.path.isfile(p) or os.path.getsize(p) > _TREE_OVERLAY_MAX_BYTES:
+            return None
+        with open(p, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not data.get('tracks'):
+        return None
+    return data
 
 
 def _safe_sample(sample, base=None):

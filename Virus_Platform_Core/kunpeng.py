@@ -20,6 +20,15 @@ from .utils import (check_path, safe_open, run_cmd,
 
 MANIFEST_NAME = 'host_db.json'
 
+# Windows 异常退出码 → 常见原因（含本机 MSYS2 缺 DLL 的实测值）。
+# 裸退出码对用户毫无意义，kv_consensus 早有同样的映射表，这里对齐口径。
+_WIN_EXIT_HINTS = {
+    3221225781: '0xC0000135 依赖 DLL 缺失（MSYS2 runtime/libgcc 未随工具拷贝）',
+    3221225785: '0xC0000139 入口点找不到（DLL 版本不匹配）',
+    3221225477: '0xC0000005 访问违例（被杀软拦截或二进制损坏）',
+    3221226505: '0xC0000409 栈缓冲溢出/内存分配失败',
+}
+
 
 def write_host_db_manifest(db_dir, taxid, genome_fasta, n_seq, n_frag,
                            logger=None):
@@ -628,6 +637,12 @@ def classify(db_dir, inputs, out_dir, paired=False, threads=None,
                     except RuntimeError as e:
                         if '3221226505' in str(e) or 'memory allocation' in str(e):
                             raise _MemFail(str(e)[:200])
+                        msg = str(e)
+                        for _rc, _why in _WIN_EXIT_HINTS.items():
+                            if str(_rc) in msg:
+                                raise RuntimeError(
+                                    f"kunpeng 异常退出（{_why}）。原始错误: "
+                                    + msg[:200])
                         raise
                     _chunk_actual += dir_size(chunk_j)
                     o1 = os.path.join(out, 'output_1.txt')

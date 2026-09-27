@@ -7,32 +7,110 @@
 // （原「批量导入（TSV）」入口已于同日移除：与「从文件夹批量导入」重复，
 //  其独有能力——分散路径/自定义命名/创建后入队——已并入文件夹扫描流程。）
 
-const Q_ST = { queued: '排队中', running: '运行中', done: '已完成',
-               failed: '失败', cancelled: '已取消' };
+// 入队后不会自动跑（2026-09-20 用户要求手动启动）：
+//   queued = 待启动（入队初始态，点「▶ 启动」才开跑）
+//   ready  = 排队中（已点启动，等前面的跑完 / 等恢复）
+//   running/done/failed/cancelled 同旧语义
+const Q_ST = { queued: '待启动', ready: '排队中', running: '运行中',
+               done: '已完成', failed: '失败', cancelled: '已取消' };
 async function loadQueue() {
   const box = $('queueBox');
   if (!box) return;
   try {
     const q = await (await fetch('/api/queue')).json();
+    syncQueuePauseUI(!!q.paused);
     if (!q.items || !q.items.length) {
       box.innerHTML = `<p class="hint">${t('pp.queueEmpty')}</p>`;
       return;
     }
+    const stLabel = it => {
+      // 暂停中的就绪条目明确标注「已暂停」，否则用户分不清是排队还是卡死
+      if (it.status === 'ready' && q.paused) return t('pp.qPausedItem', '已暂停');
+      return Q_ST[it.status] || it.status;
+    };
     box.innerHTML = '<table class="tbl dl-mini"><tr>' +
       `<th>${t('pp.qSample')}</th><th>${t('pp.qStatus')}</th><th>${t('pp.qOps')}</th></tr>` +
       q.items.map(it => {
-        const st = Q_ST[it.status] || it.status;
+        const st = stLabel(it);
         const statCls = it.status === 'done' ? 'done'
           : it.status === 'failed' ? 'failed'
           : it.status === 'running' ? 'running' : 'queued';
+        const ops = it.status === 'queued'
+          ? `<button class="btn small primary" onclick="queueStart('${esc(it.id)}')" title="${esc(t('pp.qStartTip', '开始运行该样品（入队后不会自动开跑）'))}">▶ ${esc(t('pp.qStart', '启动'))}</button> ` +
+            `<button class="btn small danger" onclick="queueRemove('${esc(it.id)}')">✖</button>`
+          : it.status === 'ready'
+            ? `<button class="btn small danger" onclick="queueRemove('${esc(it.id)}')" title="${esc(t('pp.qRemoveReadyTip', '移出排队（未开跑可移除）'))}">✖</button>`
+            : '';
         return `<tr><td><b>${esc(it.sample)}</b>` +
           (it.project ? ` <span class="hint" style="margin:0">🏷 ${esc(it.project)}</span>` : '') +
           `</td><td><span class="tstat ${statCls}">${st}</span>` +
           (it.error ? `<div class="hint" style="color:#b03a2e;margin:2px 0 0">${esc(it.error)}</div>` : '') +
-          `</td><td>${it.status === 'queued'
-            ? `<button class="btn small danger" onclick="queueRemove('${esc(it.id)}')">✖</button>` : ''}</td></tr>`;
+          `</td><td>${ops}</td></tr>`;
       }).join('') + '</table>';
   } catch (e) { /* 静默，下一次轮询重试 */ }
+}
+
+async function queueStart(id) {
+  try {
+    const r = await fetch(`/api/queue/${encodeURIComponent(id)}/start`, {method: 'POST'});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      toast(t('pp.qStartFail', '启动失败'), d.error || (r.status + ''), {kind: 'failed', ttl: 12000});
+      loadQueue();
+      return;
+    }
+    if (QUEUE_PAUSED) {
+      toast(t('pp.qReadyPaused', '已就绪'),
+            t('pp.qReadyPausedHint', '队列处于暂停状态，点「▶ 恢复队列」后才会开跑'), {ttl: 6000});
+    }
+  } catch (e) {
+    toast(t('pp.qStartFail', '启动失败'), String(e), {kind: 'failed', ttl: 12000});
+  }
+  loadQueue();
+}
+
+async function queueStartAll() {
+  try {
+    const r = await fetch('/api/queue/start_all', {method: 'POST'});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      toast(t('pp.qStartFail', '启动失败'), d.error || (r.status + ''), {kind: 'failed', ttl: 12000});
+      loadQueue();
+      return;
+    }
+    const d = await r.json();
+    if (d.started > 0) {
+      toast(t('pp.qStartedAll', '已全部启动'),
+            t('pp.qStartedN', '{n} 个样品进入队列开始依序运行').replace('{n}', d.started),
+            {ttl: 5000});
+    }
+  } catch (e) {
+    toast(t('pp.qStartFail', '启动失败'), String(e), {kind: 'failed', ttl: 12000});
+  }
+  loadQueue();
+}
+
+let QUEUE_PAUSED = false;   // 最近一次 /api/queue 快照的暂停态（切换按钮用）
+function syncQueuePauseUI(paused) {
+  QUEUE_PAUSED = !!paused;
+  const btn = $('queuePauseBtn');
+  if (!btn) return;
+  btn.textContent = paused ? t('pp.qResume', '▶ 恢复队列') : t('pp.qPause', '⏸ 暂停队列');
+  const hint = $('queuePauseHint');
+  if (hint) {
+    hint.textContent = paused
+      ? t('pp.qPausedHint', '已暂停：新入队样品不会自动开跑（正在运行的样品不受影响）')
+      : '';
+  }
+}
+
+async function queueTogglePause() {
+  try {
+    await fetch(QUEUE_PAUSED ? '/api/queue/resume' : '/api/queue/pause', {method: 'POST'});
+  } catch (e) {
+    toast(t('pp.qPauseFail', '操作失败'), String(e), {kind: 'failed', ttl: 12000});
+  }
+  loadQueue();
 }
 
 async function queueRemove(id) {
@@ -75,21 +153,27 @@ async function selectSample(name) {
 }
 
 /* 管道 DAG 视图：③组装后的下游分支互不依赖（依赖关系见 Virus_Platform_Core/pipeline.py STAGE_REGISTRY），
-   并排展示为紧凑节点，点击节点展开完整卡片（参数/产物/日志） */
-const PIPE_FANOUT = ['verify', 'consensus', 'hostana', 'orf', 'orfa', 'phylo', 'primer', 'gbdraw'];
+   并排展示为紧凑节点，点击节点展开完整卡片（参数/产物/日志）。
+   hostana 排在 verify 前：与「组装·kunpeng鉴定分类·宿主预测·再结构域鉴定」段口径一致
+   （2026-09-20 STAGE_ORDER 已同步调整）。 */
+const PIPE_FANOUT = ['hostana', 'verify', 'consensus', 'orf', 'orfa', 'phylo', 'primer', 'gbdraw'];
 
-/* 分析模板：一键按预设组合运行（stages=null 表示全部可用阶段；
-   exclude 表示「全部可用阶段里剔除这些」） */
+/* 分段一键：按业务段串联运行（stages 传给 runStages，段内顺序由后端
+   topo_sort 依 STAGE_ORDER 定）。段与段之间靠 .done 断点衔接，
+   某段失败只需重跑该段，不必从头再来。 */
 const PIPE_TEMPLATES = [
-  { id: 'fast', label: '⚡ 快速筛查',
-    tip: '质控 → 宿主去除 → 已知病毒识别与定量 → 报告（最快出结果）',
-    stages: ['fastp', 'host', 'kvsuite', 'report'] },
-  { id: 'std',  label: '🎯 标准分析',
-    tip: '质控 → 转换 → 宿主去除 → 已知病毒识别与定量 → 组装 → 验证 → ORF → 进化树 → 报告',
-    stages: ['fastp', 'fq2fa', 'host', 'kvsuite', 'assembly', 'verify', 'orf', 'phylo', 'report'] },
-  { id: 'full', label: '🔬 完整注释',
-    tip: '全部可用阶段（含宿主预测 / 功能注释 / 引物设计 / 基因组图），不含子采样',
-    stages: null, exclude: ['subsample'] },
+  { id: 'prep', label: '⚡ 前处理',
+    tip: '子采样(可选) → fastp 质控 → FASTQ→FASTA → 宿主去除',
+    stages: ['subsample', 'fastp', 'fq2fa', 'host'] },
+  { id: 'kv',   label: '⚡ 定量与共识',
+    tip: '已知病毒识别与定量 → 共识序列与变异',
+    stages: ['kvsuite', 'consensus'] },
+  { id: 'asm',  label: '⚡ 组装·kunpeng鉴定分类·宿主预测·再结构域鉴定',
+    tip: '③ 组装（kunpeng 鉴定分类·提取 viral_contigs）→ ④ ICTV 宿主预测 → ③b blastx/CDD 再结构域鉴定',
+    stages: ['assembly', 'hostana', 'verify'] },
+  { id: 'anno', label: '⚡ 注释三连',
+    tip: '⑥ ORF 预测 → ⑥b 功能注释 → ⑨ 基因组图谱；完成后可到「数据提交」页准备 NCBI 提交包',
+    stages: ['orf', 'orfa', 'gbdraw'] },
 ];
 
 function runTemplate(sample, id) {
@@ -98,8 +182,32 @@ function runTemplate(sample, id) {
   let usable = curStages.filter(s => s.status !== 'unavailable').map(s => s.stage);
   if (tpl.exclude) usable = usable.filter(k => !tpl.exclude.includes(k));
   const stages = tpl.stages ? tpl.stages.filter(k => usable.includes(k)) : usable;
-  if (!stages.length) { alert(t('pp.tplNone', '模板所需阶段当前不可用')); return; }
+  if (!stages.length) { alert(t('pp.tplNone', '该段所需阶段当前不可用')); return; }
   runStages(sample, stages);
+}
+
+/* 注释产物 → 提交项目一键衔接（/api/submit/adopt_sample）：
+   建/复用同名提交项目 + 导入 ③组装分类表 + 关联 orf 注释，
+   成功后跳提交页并自动展开该项目（?open=）。 */
+async function adoptSubmit(sample) {
+  try {
+    const r = await fetch('/api/submit/adopt_sample', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sample }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert((d.error || t('c.startFail', '操作失败'))); return; }
+    const parts = [];
+    if (d.imported) parts.push(t('pp.adoptImp', '导入 contig {n} 行').replace('{n}', d.imported.added));
+    if (d.linked) parts.push(t('pp.adoptLink', '关联 CDS {n} 条').replace('{n}', d.linked.n_cds));
+    if ((d.missing || []).length) parts.push(t('pp.adoptMiss', '缺：{m}').replace('{m}', d.missing.join('；')));
+    toast(t('pp.submitGo', '一键生成提交项目（NCBI）'),
+      (d.created ? t('pp.adoptNew', '已建档 ') : t('pp.adoptReuse', '已更新 '))
+        + d.name + '：' + parts.join('，'), { ttl: 8000 });
+    location.href = '/submit?open=' + encodeURIComponent(d.name);
+  } catch (e) {
+    setConnBanner(true);
+    alert(t('c.connFail', '无法连接平台服务') + ': ' + e);
+  }
 }
 
 let curBranch = '';   // 当前展开的分支节点（fan-out 详情卡）
@@ -117,7 +225,8 @@ function toggleBranch(stage) {
 function renderPipe(d) {
   const stMap = {done: t('pp.done'), ready: t('pp.ready'),
                  blocked: t('pp.blocked'), unavailable: t('pp.unavailable'),
-                 running: t('pp.running'), skipped: t('pp.skipped')};
+                 running: t('pp.running'), skipped: t('pp.skipped'),
+                 failed: t('pp.failed')};
   curStages = d.stages;
   cardIdx = 0;                     // 每次渲染重置序号
   const byKey = {}; d.stages.forEach(s => byKey[s.stage] = s);
@@ -128,8 +237,9 @@ function renderPipe(d) {
   const card = (s, hidden) => {
     const i = cardIdx++;
     const canRun = s.status === 'ready' || s.status === 'done'
-                || s.status === 'skipped';
-    const isFresh = s.status === 'ready' || s.status === 'skipped';
+                || s.status === 'skipped' || s.status === 'failed';
+    const isFresh = s.status === 'ready' || s.status === 'skipped'
+                 || s.status === 'failed';
     const btns = canRun ? `
       <button class="btn small ${isFresh ? 'primary' : ''}"
               data-sample="${esc(d.sample)}"
@@ -174,16 +284,26 @@ function renderPipe(d) {
       <div><b style="font-size:17px;color:var(--green-900)">🧪 ${esc(d.sample)}</b>
         <div class="hint" style="margin:4px 0 0">${t('pp.input')}${esc(d.r1 || t('pp.none'))}
           ${d.r2 ? ' ＋ ' + esc(d.r2) : ` ${t('pp.single')}`}</div></div>
-      <button class="btn primary" data-sample="${esc(d.sample)}"
+      <button class="btn" title="${t('pp.runAllTip', '依次运行全部剩余阶段（推荐改用下方分段一键，失败只重跑本段）')}"
+              data-sample="${esc(d.sample)}"
               onclick="runStages(this.dataset.sample, null)">
         ${t('pp.runAll')}</button>
     </div>
     <div class="pipe-templates">
-      <span class="hint" style="margin:0">${t('pp.tplHint', '分析模板：')}</span>
+      <span class="hint" style="margin:0">${t('pp.tplHint', '⚡ 分段一键：')}</span>
       ${PIPE_TEMPLATES.map(tpl =>
         `<button class="btn small" title="${esc(tpl.tip)}"
                  data-sample="${esc(d.sample)}" onclick="runTemplate(this.dataset.sample, '${tpl.id}')">${esc(tpl.label)}</button>`).join('')}
-    </div>`;
+    </div>` +
+    // 功能注释完成后给「提交准备」一键衔接：建/复用同名提交项目 + 导入
+    // ③组装分类表 + 关联 orf 注释，跳提交页自动展开（adoptSubmit）。
+    (byKey.orfa && byKey.orfa.status === 'done' ? `
+    <div class="pipe-templates" style="margin-bottom:8px">
+      <span class="hint" style="margin:0">${t('pp.submitHint', '注释产物已就绪：')}</span>
+      <button class="btn small" title="${t('pp.submitTip', '建/复用同名提交项目，导入组装分类表与注释产物；跳转后可直接生成 featuretable / 提交包')}"
+              data-sample="${esc(d.sample)}"
+              onclick="adoptSubmit(this.dataset.sample)">📦 ${t('pp.submitGo', '一键生成提交项目（NCBI）')}</button>
+    </div>` : '');
 
   if (pre.length) {
     html += `<div class="group-title">${esc(gmap[pre[0].stage] || '')}</div>` +
@@ -221,6 +341,73 @@ function renderPipe(d) {
   }
   extras.forEach(s => { html += arrow() + card(s); });
   $('pipe').innerHTML = html;
+  hydrateKvLibSelects(saved.kv_lib || '');
+}
+
+/* ── ②b 鉴定库下拉：库列表来自 /api/kv_index_list（自动扫描平台内
+   virusref_db/ + 外部登记），末尾带「✍ 自选目录…」可临时指定任意库目录
+   （后端 resolve_kv_lib 统一解析库名/绝对路径）。pref = 重渲染前的选中值，
+   保证翻卡片/重画管道时不丢用户已选的库。 */
+const KVLIB_CUSTOM = '__custom__';
+let _kvLibWired = new Set();
+
+async function hydrateKvLibSelects(pref) {
+  const sels = [...document.querySelectorAll('.kv-lib-select')];
+  if (!sels.length) return;
+  let libs = [];
+  try {
+    libs = (await (await fetch('/api/kv_index_list')).json()).libs || [];
+  } catch (e) { /* 拉不到列表就只留默认项 + 自选 */ }
+  const libVal = l => l.scope === 'platform' ? l.name : l.path;
+  const usable = l => !!(l.salmon || l.minibwa || l.reference);
+  const isDefault = l => l.scope === 'platform' && l.name === 'kv_index';
+  const nonDefault = libs.filter(l => !isDefault(l));
+  const def = libs.find(isDefault);
+  sels.forEach(sel => {
+    const cur = (pref !== undefined && pref !== null) ? pref : sel.value;
+    sel.options.length = 0;
+    sel.add(new Option(t('pp.kvLibDefault', '默认鉴定库 kv_index'), ''));
+    nonDefault.forEach(l => {
+      const tag = l.scope === 'external' ? t('pp.kvLibExternal', '（外部）')
+                : l.scope === 'internal' ? t('pp.kvLibInternal', '（库根内）')
+                : '';
+      sel.add(new Option(
+        l.name + tag +
+        (l.salmon ? '' : ' · salmon✘') + (l.minibwa ? ' · minibwa✔' : ''),
+        libVal(l)));
+    });
+    sel.add(new Option(t('pp.kvLibCustom', '✍ 自选目录…'), KVLIB_CUSTOM));
+    let want = cur;
+    if (want && want !== KVLIB_CUSTOM &&
+        ![...sel.options].some(o => o.value === want)) {
+      // 重渲染前选的是自选目录：作为动态选项保留
+      sel.add(new Option('📂 ' + want + t('pp.kvLibCustomTmp', '（自选）'), want));
+    }
+    if (!want && !(def && usable(def))) {
+      const first = nonDefault.find(usable);   // 默认库不可用 → 首个可用库
+      if (first) want = libVal(first);
+    }
+    if (want && [...sel.options].some(o => o.value === want)) sel.value = want;
+    if (!_kvLibWired.has(sel)) {
+      _kvLibWired.add(sel);
+      sel.addEventListener('change', () => {
+        if (sel.value !== KVLIB_CUSTOM) return;
+        const prev = sel.dataset.customPrev || '';
+        pickDirWith(dir => {
+          dir = String(dir || '').trim();
+          if (!dir) { sel.value = prev; return; }
+          let opt = [...sel.options].find(o => o.value === dir);
+          if (!opt) {
+            opt = new Option('📂 ' + dir + t('pp.kvLibCustomTmp', '（自选）'), dir);
+            sel.add(opt);
+          }
+          sel.value = dir;
+          sel.dataset.customPrev = dir;
+        });
+      });
+    }
+    sel.dataset.customPrev = sel.value;
+  });
 }
 
 // 各阶段专属参数（渲染进对应卡片；label 为 i18n 键 pp.<key>）
@@ -239,14 +426,17 @@ const STAGE_PARAMS = {
   ],
   /* 病毒参考库目录挂在 ②b 上。以前它挂在已退役的 'virus' 阶段键下，
      而 pipeline_overview 永远不会产出 'virus' 卡片 → 输入框从不渲染，
-     collectParams 取到 null，用户无法在管道页指定病毒库（只能用默认值）。 */
+     collectParams 取到 null，用户无法在管道页指定病毒库（只能用默认值）。
+     kv_lib = ②b 鉴定库（salmon/minibwa 比对索引库，下拉可选/自选目录）；
+     db_virus = kunpeng 分类库，供 ③b/④ 使用，与鉴定库正交。 */
   kvsuite: [
+    { id: 'kv_lib', label: 'pp.kv_lib', type: 'kvlib', def: '' },
     { id: 'db_virus', label: 'pp.db_virus', type: 'dir', def: '' },
   ],
   assembly: [
-    { id: 'assembly_mode', label: 'pp.assembly_mode', type: 'select', def: 'metaviral',
-      opts: [['metaviral', 'metaviral'], ['rna', 'rna'], ['meta', 'meta'],
-             ['isolate', 'isolate']] },
+    { id: 'assembly_mode', label: 'pp.assembly_mode', type: 'select', def: 'rnaviral',
+      opts: [['rnaviral', 'rnaviral（RNA 病毒，默认）'], ['metaviral', 'metaviral'],
+             ['rna', 'rna'], ['meta', 'meta'], ['isolate', 'isolate']] },
     { id: 'assembly_input', label: 'pp.assembly_input', type: 'select', def: 'virus',
       opts: [['virus', '② virus'], ['kept', '① host-free'], ['raw', 'raw']] },
     { id: 'memory', label: 'pp.memory', type: 'number', def: 64 },
@@ -272,7 +462,7 @@ const STAGE_PARAMS = {
     { id: 'do_trim', label: 'pp.do_trim', type: 'chk', def: true },
     { id: 'top_n_refs', label: 'pp.top_n_refs', type: 'number', def: 10 },
     { id: 'tree_tool', label: 'pp.tree_tool', type: 'select', def: 'fasttree',
-      opts: [['fasttree', 'FastTree'], ['nj', 'NJ（快速）'], ['iqtree', 'IQ-TREE']] },
+      opts: [['fasttree', 'FastTree'], ['nj', 'NJ（快速）'], ['raxml-ng', 'RAxML-NG']] },
     { id: 'tree_sampling', label: 'pp.tree_sampling', type: 'select', def: 'blast',
       opts: [['blast', 'blast'], ['macro', 'macro'], ['genus', 'genus'],
              ['lineage', 'lineage']] },
@@ -304,6 +494,11 @@ function renderStageParams(stage, saved) {
       const opts = p.opts.map(([v, txt]) =>
         `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${txt}</option>`).join('');
       return `<div><label>${t(p.label)}</label><select id="${p.id}">${opts}</select></div>`;
+    }
+    if (p.type === 'kvlib') {
+      // 鉴定库下拉：先渲染空壳，hydrateKvLibSelects() 异步填充库列表
+      return `<div style="grid-column:1/-1"><label>${t(p.label)}</label>
+        <select id="${p.id}" class="kv-lib-select"></select></div>`;
     }
     if (p.type === 'dir') {
       const ph = { db_host: t('pp.dbHostPh'), db_virus: t('pp.dbVirusPh') }[p.id]
@@ -358,6 +553,11 @@ function collectParams() {
     subsample: +($('subsample')?.value) || undefined,
     db_host: ($('db_host')?.value || '').trim() || null,
     db_virus: ($('db_virus')?.value || '').trim() || null,
+    // ②b 鉴定库：''/自选占位未确认 = 默认 kv_index（resolve_kv_lib 解析）
+    kv_lib: (() => {
+      const v = ($('kv_lib')?.value || '').trim();
+      return (!v || v === KVLIB_CUSTOM) ? null : v;
+    })(),
     assembly_mode: $('assembly_mode')?.value,
     assembly_input: $('assembly_input')?.value,
     memory: +($('memory')?.value) || undefined,

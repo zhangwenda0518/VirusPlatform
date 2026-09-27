@@ -189,6 +189,7 @@ const STAGE_LABELS = {
 };
 
 const TOOL_LABELS = {
+  convert:  ['格式转换', 'Format convert'],   // 缺这条时运行中的转换卡日志区一直是空的
   fastp:    ['质控预处理', 'QC preprocess'],
   hostremoval: ['宿主去除与序列提取', 'Host removal'],
   hostpredict: ['宿主预测', 'Host prediction'],
@@ -209,6 +210,7 @@ const TOOL_LABELS = {
   ncbi:     ['NCBI下载', 'NCBI download'],
   gbdown:   ['GenBank下载', 'GenBank download'],
   gbimport: ['GenBank导入', 'GenBank import'],
+  mirna:    ['miRNA 靶标预测', 'miRNA target'],
 };
 
 // 数据库构建页：建库任务名 → 卡片内嵌日志容器（buildrun-<key>）。
@@ -467,12 +469,13 @@ const CARD_RUN_PREFIX = {
   consensus: 'consensus', kvsuite: 'kvsuite', kvchain: 'kvchain',
   align: 'align', treebuild: 'quicktree', sdt: 'sdt',
   orf: 'orf', orfa: 'orfa', genoplot: 'genoplot', primer: 'primer',
-  hostremoval: 'hostremoval', hostpredict: 'hostpredict'
+  hostremoval: 'hostremoval'
 };
 /* 富结果卡的恢复函数（键 = 卡片 id 去掉 t- 前缀） */
 const TOOL_RESTORE = {
   sdt: run => { sdRun = run; sdtExactLoad(); },
-  identity: run => { if (typeof identityLoad === 'function') identityLoad(run); }
+  identity: run => { if (typeof identityLoad === 'function') identityLoad(run); },
+  mirna: run => { if (typeof loadMirnaResult === 'function') loadMirnaResult(run); }
 };
 /* 卡片「已有结果」探测：避免覆盖正在跑 / 刚跑完的结果 */
 function cardResultFilled(key) {

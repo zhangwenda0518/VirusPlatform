@@ -1,0 +1,2 @@
+method	model	rate	rate_unit	r2	tmrca_calendar	tmrca_ybp	cov	loglik	seconds	suspect	suspect_reason	note
+TreeTime	严格钟（默认）	0.003241	每位点每年	0.44	1978.43	40.0248				0		ML 分子钟；r² 为根到尾回归（与 DRT 不是一回事）

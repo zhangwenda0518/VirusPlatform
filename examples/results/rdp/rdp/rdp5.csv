@@ -1,0 +1,30 @@
+Table key:
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.
+
+,,,Breakpoint Positions
+,,In Alignment, ,In Recombinant Sequence, ,Relative to Sim_Ningxia_1|Ningxia|2019,,, , , , , , Detection Methods
+Recombination Event Number, Number In .RDP File, Begin, End,Begin, End,Begin, End, Recombinant Sequence(s), Minor Parental Sequence(s), Major Parental Sequence(s), RDP, GENECONV, Bootscan, Maxchi, Chimaera, SiSscan,PhylPro, LARD, 3Seq
+ 1 ,1~, 1171, 542, 1171, 542, 1171, 542,Sim_Gansu_REC|Gansu|2022,Sim_Ningxia_1|Ningxia|2019,Sim_Beijing_1|Beijing|2023,NS, 3.56381590904675E-13, 6.21029386802055E-14, 5.99881138553975E-17, 9.92185445741291E-17, 3.61338018637569E-18,NS,NS, 1.60345557179822E-25,
+ 1,,,,,,,,,Sim_Ningxia_2|Ningxia|2021,Sim_Beijing_2|Beijing|2024
+
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.

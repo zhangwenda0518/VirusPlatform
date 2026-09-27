@@ -14,7 +14,8 @@ process_sample / summarize_results_polars 核心逻辑
   - Poisson_Ratio = (Coverage/100) / Predicted_Support
   - 双轨过滤: A 轨全基因组泊松 + B 轨活跃转录区
   - is_segmented 判定（多段物种须全段检出）
-  （Avg_Read_ANI 列已移除：salmon 定量无 NM tag，该列恒为空）
+  - ANI 分物种阈值分流（Avg_Read_ANI：只有真比对引擎 minibwa 能算，
+    salmon 定量无比对位点恒为 None → 视为「未测定」，不拦截）
 """
 
 import json
@@ -27,6 +28,8 @@ except ImportError:
     raise SystemExit("需要 polars: pip install polars")
 
 from .kv_common import fmt_time, load_ref_lengths, load_ref_info, ref_lookup
+from .kv_engines import (SRNA_MAX_READ_LEN, SRNA_SALMON_K,
+                         sniff_read_len_stats, looks_like_srna)
 
 
 # ── 平均读长探测（对齐原管线 get_average_read_length）────────
@@ -125,11 +128,17 @@ class IdentifyStage:
                 'taxid': info.get('taxid', 'Unannotated'),
                 'Species': info.get('species', acc),
                 'Segment': info.get('segment', ''),
-                'Molecule_Type2': info.get('molecule', ''),
+                'Molecule_Type2': info.get('molecule', '') or info.get('molecule_type', ''),
+                # 宿主/地理/GenBank 标题：来自参考注释表（提取信息不再只有 4 列）
+                'Host': info.get('host', ''),
+                'Geo_Location': info.get('geo', ''),
+                'GenBank_Title': info.get('genbank_title', ''),
                 'Coverage(%)': float(cov),
                 'MeanDepth': float(depth),
                 'EM_Reads': float(qreads),
                 'Uniq_Reads': int(qreads),
+                # ANI（只有真比对引擎能算；salmon 无比对位点，置 None）
+                'Avg_Read_ANI': st.get('Avg_Read_ANI'),
                 'Sample_Total_Mapped': int(total_mapped),
                 'Avg_Read_Len': float(avg_len),
             })
@@ -163,7 +172,10 @@ class IdentifyStage:
             empty = pl.DataFrame()
             return empty, empty, empty
 
-        df = pl.DataFrame(all_rows)
+        # infer_schema_length=None 全量扫描定 schema：minibwa 的 Avg_Read_ANI
+        # 是浮点且大量行仅前段为 None——默认只看前 100 行会推断成 Null 列，
+        # 追加后面的浮点值直接 ComputeError（实测 D11 minibwa 全军覆没）
+        df = pl.DataFrame(all_rows, infer_schema_length=None)
 
         # ── 泊松打假（对齐原管线公式）──
         df = df.with_columns([
@@ -217,9 +229,18 @@ class IdentifyStage:
         if len(passed):
             passed = passed.unique(subset=['Sample', 'Accession'], keep='first')
 
-        # ── 确诊输出（ANI 列已移除：salmon 定量无 NM tag，该列恒为空，
-        #    分种确认由共识段之后的分析承担）──
-        confirmed = passed
+        # ── ANI 分流（minibwa 可算，salmon 置空＝未测定不拦截）──
+        if 'Avg_Read_ANI' not in passed.columns:
+            passed = passed.with_columns(
+                pl.lit(None).cast(pl.Float64).alias('Avg_Read_ANI'))
+
+        sp_thresh = self.args.ani_thresh
+        confirmed = passed.filter(
+            pl.col('Avg_Read_ANI').is_null() | (pl.col('Avg_Read_ANI') >= sp_thresh)
+        )
+        novel = passed.filter(
+            pl.col('Avg_Read_ANI').is_not_null() & (pl.col('Avg_Read_ANI') < sp_thresh)
+        )
 
         # is_segmented 判定
         seg_counts = {}
@@ -237,12 +258,15 @@ class IdentifyStage:
                 pl.col('Species').is_in(list(multi_seg)).alias('is_segmented'))
 
         confirmed = _add_seg_flag(confirmed)
+        novel = _add_seg_flag(novel)
 
+        if len(novel):
+            novel.write_csv(out / 'all_viruses.unclassified.tsv', separator='\t')
         if len(confirmed):
             confirmed.write_csv(out / 'all_viruses.best.summary.tsv', separator='\t')
 
-        self.logger.info(f"基础+双轨放行: {len(confirmed)} 行 -> 确诊")
-        return df, confirmed, pl.DataFrame()
+        self.logger.info(f"基础+双轨放行: {len(passed)} 行 -> 确诊 {len(confirmed)} / 疑似新种 {len(novel)}")
+        return df, confirmed, novel
 
     # ── 主流程 ───────────────────────────────────────────
     def run(self, samples, resume=True):
@@ -253,7 +277,35 @@ class IdentifyStage:
         self.logger.info("=" * 60)
 
         idx_dir = getattr(self.args, 'index_dir', None) or (self.out_dir / 'index')
-        self.index_path = self.engine.build_index(self.args.reference, Path(idx_dir), self.args.align_threads)
+        # 小RNA 自动适配：reads 超短（<32bp）时 salmon 索引改用小 k——
+        # 实测 k=31 索引对 21-24nt reads 映射率为 0（reads < k 无种子可用），
+        # k=15 对同一批数据映射率 ~11%，定量与 BWA 真值差 3-6%。
+        # 索引按 k 分目录并存（salmon_k31 仍是库探针与常规默认），
+        # 建一次后跨 run 复用。
+        kmer = 31
+        try:
+            _stats = None
+            for _s in samples[:4]:
+                for _p in (_s.get('r1'), _s.get('r2')):
+                    if _p:
+                        _v = sniff_read_len_stats(_p)
+                        # 任一样本像小RNA 即按小RNA 处理（p90 判定，
+                        # 避免一条长 read 让整批走 k=31 → 映射率为 0）
+                        if _v and looks_like_srna(_v):
+                            _stats = _v
+                            break
+                if _stats:
+                    break
+            if _stats:
+                kmer = SRNA_SALMON_K
+                self.logger.warning(
+                    f"检测到超短 reads（头部采样中位 {_stats['median']}bp / "
+                    f"p90 {_stats['p90']}bp，疑似小RNA/siRNA 数据）："
+                    f"salmon 索引改用 k={SRNA_SALMON_K}"
+                    f"（默认 k=31 对 <32bp reads 映射率为 0）")
+        except OSError:
+            pass
+        self.index_path = self.engine.build_index(self.args.reference, Path(idx_dir), self.args.align_threads, kmer=kmer)
 
         batches_dir = self.out_dir / 'batches'
         batches_dir.mkdir(parents=True, exist_ok=True)

@@ -178,7 +178,8 @@
   <div class="card" id="tree">
     <h2 data-i18n="rs.tree">进化树查看（交互式）</h2>
     <p class="hint" data-i18n="rs.treeDesc">05_phylo/&lt;组&gt;/ 的建树结果（Archaeopteryx.js 渲染）：
-       FastTree tree.nwk 或 IQ-TREE treefile/contree。矩形/环形/无根布局、支持值、缩放、搜索、
+       FastTree tree.nwk / NJ nj.nwk / RAxML-NG raxml.raxml.support
+       （旧 IQ-TREE treefile/contree 仍可查看）。矩形/环形/无根布局、支持值、缩放、搜索、
        PNG/SVG/PDF 导出等在查看器左上面板操作；自动识别内部节点支持值并默认显示。</p>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
       <div class="gp-item">
@@ -429,7 +430,8 @@ function treeRender() {
   if (!treeNwk) { box.innerHTML = `<p class="hint">${t('c.noData')}</p>`; $('treeMeta').textContent = ''; return; }
   let tips = 0;
   try {
-    tips = renderTreeTo(box, treeNwk, { layout: 'rectangular' });
+    tips = renderTreeTo(box, treeNwk,
+                        { layout: 'rectangular', genomeOverlay: treeMeta.overlay || null });
   } catch (e) {
     box.innerHTML = `<p class="hint" style="color:#b91c1c">${t('rs.treeFail')}${esc(e)}</p>`;
     return;
@@ -437,7 +439,7 @@ function treeRender() {
   const m = treeMeta;
   $('treeMeta').textContent = [
     `${tips} 个序列`, m.tool, m.model ? '模型 ' + m.model : '',
-    m.logl ? 'logL ' + m.logl : '', m.file,
+    m.logl ? 'logL ' + m.logl : '', m.file, _tvOverlayNote(m.overlay),
     '查看器面板：布局切换 / 显示与支持值 / 缩放 / 搜索 / Download 导出',
   ].filter(Boolean).join(' · ');
 }

@@ -14,6 +14,7 @@ from flask import (Blueprint, Response, abort, jsonify, request,
 
 from Virus_Platform_Core.config import PLATFORM_ROOT
 from Virus_Platform_Core.utils import (TaskLogger, check_path, fmt_size, safe_open)
+from Virus_Platform_Core.web.common import tree_overlay_for
 from Virus_Platform_Core.web.state import cfg, tool_runs_root as _tool_runs_root
 from Virus_Platform_Core.web.tasks import tm
 
@@ -112,6 +113,58 @@ def api_tool_verify_result():
         with safe_open(summ_json) as f:
             summary = json.load(f)
     return jsonify({'rows': rows, 'summary': summary})
+
+
+@bp.route('/api/tool/verify_export', methods=['POST'])
+def api_tool_verify_export():
+    """候选序列验证：勾选行导出序列（FASTA 下载流）。
+
+    body: {run: 运行名, contigs: [contig 名]}。序列从该运行的
+    verify/virus_input.fasta 与 verify/viroid_input.fasta 里抽取（两条
+    支路的输入 fasta 已覆盖全部参与验证的 contig，无需回溯源 fastq）。
+    """
+    body = request.get_json(force=True) or {}
+    run = body.get('run') or ''
+    contigs = [str(c).strip() for c in (body.get('contigs') or [])
+               if str(c).strip()]
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', run):
+        abort(400, '无效的运行名')
+    if not contigs:
+        abort(400, '请先勾选要导出的行')
+    vdir = check_path(os.path.join(_tool_runs_root(), run, 'verify'),
+                      must_exist=False, in_platform=True)
+    if not os.path.isdir(vdir):
+        abort(404, f'运行 {run} 没有验证产物（verify/ 目录不存在）')
+    want = set(contigs)
+    kept, missing = [], set(want)
+
+    def _push(rec_id, seq):
+        missing.discard(rec_id)
+        kept.append((rec_id, seq))
+
+    for fname in ('virus_input.fasta', 'viroid_input.fasta'):
+        fp = os.path.join(vdir, fname)
+        if not os.path.isfile(fp):
+            continue
+        rec_id, chunks = None, []
+        with safe_open(fp) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('>'):
+                    if rec_id in want:
+                        _push(rec_id, ''.join(chunks))
+                    rec_id, chunks = line[1:].split()[0], []
+                elif rec_id is not None:
+                    chunks.append(line)
+            if rec_id in want:
+                _push(rec_id, ''.join(chunks))
+    if not kept:
+        abort(404, '所选 contig 在该运行的序列文件中均未找到')
+    fa = ''.join(f'>{rid}\n{seq}\n' for rid, seq in kept)
+    resp = Response(fa, mimetype='application/octet-stream')
+    resp.headers['Content-Disposition'] = (
+        f'attachment; filename="{run}_selected.fasta"')
+    return resp
 
 
 @bp.route('/api/tool/kvsuite_refs')
@@ -579,7 +632,10 @@ def api_tool_quicktree_data():
         abort(404, '树文件为空')
     base = os.path.basename(tree_file)
     return jsonify({'newick': nwk, 'file': base,
-                    'tool': 'NJ' if base == 'nj.nwk' else 'FastTree'})
+                    'tool': 'NJ' if base == 'nj.nwk' else 'FastTree',
+                    # 「进化树 + 基因组叠加」：与树同名的 <stem>.overlay.json，
+                    # 有就带上（无则 null，前端照常渲染纯树）。
+                    'overlay': tree_overlay_for(tree_file)})
 
 
 _ALIGN_EXTS = ('.fasta', '.fa', '.fna', '.fas', '.aln', '.txt')
@@ -731,7 +787,8 @@ def api_tree_file():
         nwk = f.read().strip()
     if not nwk:
         abort(404, '树文件为空')
-    return jsonify({'newick': nwk, 'file': os.path.basename(p)})
+    return jsonify({'newick': nwk, 'file': os.path.basename(p),
+                    'overlay': tree_overlay_for(p)})
 
 
 @bp.route('/api/tool/report')

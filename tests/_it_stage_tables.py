@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """阶段表一致性守卫 + ③c 共识阶段可见性回归。
 
-背景：阶段信息散落在 pipeline.py 的 9 张表 + app.js 的 3 张表里，
+背景：阶段信息散落在 pipeline.py 的 9 张表 + 前端 static/*.js 的 3 张表里
+（前端已拆分：STAGE_LABELS 在 app-jobs.js、PIPE_FANOUT/STAGE_PARAMS 在
+app-batch.js，故本脚本按目录扫描全部脚本、不绑死单个文件名），
 新增/改名阶段时极易漏掉一处——③c consensus 就是这么"半接入"的：
 已在 STAGE_ORDER / STAGE_REGISTRY / STAGE_GROUPS / DEFAULT_ANALYZE_STAGES /
 STAGE_WEIGHTS / DEFAULT_STAGE_EST / 前端 PIPE_FANOUT / 前端 STAGE_LABELS 里，
@@ -110,24 +112,33 @@ def main():
         check(f'{key} 目录名非空', bool(dirname))
 
     print('[5] 前端表必须认识后端全部阶段（否则卡内日志注入漏挂）')
-    appjs = io.open(os.path.join(ROOT, 'webapp', 'static', 'app.js'),
-                    encoding='utf-8').read()
+    # 2026-09-16：前端已拆分（app.js / app-jobs.js / app-batch.js…），
+    # 旧版只读 app.js，阶段表搬走后全部误报。这里改为扫描 static 下全部
+    # *.js，符号定义在哪一个文件里都能找到，且退役键检查的覆盖面更广。
+    static_dir = os.path.join(ROOT, 'webapp', 'static')
+    js_files = sorted(fn for fn in os.listdir(static_dir)
+                      if fn.endswith('.js'))
+    js_sources = {fn: io.open(os.path.join(static_dir, fn),
+                              encoding='utf-8').read() for fn in js_files}
+    appjs = '\n'.join(js_sources.values())
+    print(f'  （扫描 {len(js_files)} 个前端脚本: {", ".join(js_files)}）')
 
     def js_keys(var):
-        m = re.search(re.escape(var) + r'\s*=\s*\{(.*?)\n\};', appjs, re.S)
-        if not m:
-            return None
-        return set(re.findall(r"^\s{2,}([A-Za-z_][\w]*)\s*:", m.group(1),
-                              re.M))
+        for src in js_sources.values():
+            m = re.search(re.escape(var) + r'\s*=\s*\{(.*?)\n\};', src, re.S)
+            if m:
+                return set(re.findall(r"^\s{2,}([A-Za-z_][\w]*)\s*:",
+                                      m.group(1), re.M))
+        return None
 
     stage_labels = js_keys('STAGE_LABELS')
-    check('app.js STAGE_LABELS 覆盖全部阶段',
+    check('前端 STAGE_LABELS 覆盖全部阶段',
           stage_labels is not None and stage_labels == order,
           diff(order, stage_labels or set()))
 
     m = re.search(r'PIPE_FANOUT\s*=\s*\[(.*?)\]', appjs, re.S)
     fanout = set(re.findall(r"'([\w]+)'", m.group(1))) if m else set()
-    check('app.js PIPE_FANOUT 里的阶段都存在', fanout <= order,
+    check('前端 PIPE_FANOUT 里的阶段都存在', fanout <= order,
           diff(order, fanout))
     # renderPipe 用 groups[0] 当"预处理链"，必须真的是预处理阶段
     pre_group = set(P.STAGE_GROUPS[0][1])
@@ -146,20 +157,37 @@ def main():
     # 前端散落的 'virus' 阶段键会导致卡片错位 / 参数框消失（都真发生过）。
     # 注意 'virus' 作为**数据库名**（首页数据库卡片）与注释里的说明文字是合法的，
     # 所以只扫「代码行」（去掉 // 注释）里的阶段键用法。
-    code_lines = [(i + 1, ln) for i, ln in enumerate(appjs.splitlines())
-                  if not ln.lstrip().startswith('//')]
-    bad = [(i, ln.strip()) for i, ln in code_lines
-           if re.match(r"^\s*(?:'virus'|\"virus\"|virus)\s*:", ln)
-           or re.search(r"\bbyKey\.virus\b", ln)]
+    # 逐文件扫（行号带文件名，便于直接跳转）。对象键型误用只可能出现在
+    # 带阶段机制的脚本里（app-batch.js / app-jobs.js）——其他页面的
+    # `virus: qs('exVirus')` 之类是 URL 参数名，不是阶段键，不应误报；
+    # 而 `byKey.virus` 这种硬编码访问在任何文件里都非法，全量扫。
+    stage_js = {fn: src for fn, src in js_sources.items()
+                if re.search(r'STAGE_LABELS|PIPE_FANOUT|STAGE_PARAMS'
+                             r'|renderPipe|byKey', src)}
+    print(f'  （阶段键扫描范围: {", ".join(sorted(stage_js))}；'
+          f'byKey 访问全量扫 {len(js_sources)} 个）')
+    bad = []
+    for fn, src in js_sources.items():
+        for i, ln in enumerate(src.splitlines(), 1):
+            if ln.lstrip().startswith('//'):
+                continue
+            if fn in stage_js and re.match(
+                    r"^\s*(?:'virus'|\"virus\"|virus)\s*:", ln):
+                bad.append((f'{fn}:{i}', ln.strip(), '阶段键'))
+            elif re.search(r"\bbyKey\.virus\b", ln):
+                bad.append((f'{fn}:{i}', ln.strip(), 'byKey 访问'))
     check('代码里无 virus 阶段键 / byKey.virus 访问', not bad, str(bad[:3]))
 
-    known_ln = next((ln for i, ln in code_lines
+    known_ln = next((ln for src in stage_js.values()
+                     for ln in src.splitlines()
                      if 'const known = new Set(' in ln), '')
     check("renderPipe 的 known 集合含 'kvsuite' 且不含退役键 'virus'",
           "'kvsuite'" in known_ln and "'virus'" not in known_ln,
           known_ln.strip())
     check('STAGE_PARAMS 的 db_virus 挂在 kvsuite 上（输入框才会渲染）',
-          re.search(r"kvsuite:\s*\[\s*\{[^}]*db_virus", appjs) is not None)
+          # db_virus 允许是 kvsuite 参数列表里的任意一项（前面可以有 kv_lib
+          # 等其他参数），只要还在 kvsuite: [ ... ] 列表内即算挂载成功
+          re.search(r"kvsuite:\s*\[[^\]]*db_virus", appjs) is not None)
 
     print('[6] ③c 共识阶段实测：产物 → 卡片')
     from Virus_Platform_Core import config

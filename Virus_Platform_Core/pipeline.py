@@ -21,11 +21,14 @@ from .utils import (check_path, safe_open, iter_fastq_records,
                     log_res_plan, fmt_eta, is_step_done, mark_step_done,
                     resolve_sample_name, safe_sample_name)
 
+# hostana 与 verify 都只依赖 assembly（互不喂数据），顺序是业务口径而非依赖：
+# 2026-09-20 用户定为「组装·kunpeng鉴定分类 → 宿主预测 → 再结构域鉴定」，
+# hostana 提到 verify 之前，同层拓扑定序（_stage_execution_order）按此执行。
 STAGE_ORDER = ['subsample', 'fastp', 'fq2fa', 'host', 'kvsuite', 'assembly',
-               'verify', 'consensus', 'hostana', 'orf', 'orfa', 'phylo',
+               'hostana', 'verify', 'consensus', 'orf', 'orfa', 'phylo',
                'primer', 'gbdraw', 'report']
 DEFAULT_ANALYZE_STAGES = [
-    'fq2fa', 'host', 'kvsuite', 'assembly', 'verify', 'consensus', 'hostana',
+    'fq2fa', 'host', 'kvsuite', 'assembly', 'hostana', 'verify', 'consensus',
     'orf', 'orfa', 'phylo', 'primer', 'gbdraw', 'report',
 ]
 STAGE_NAMES = {
@@ -359,13 +362,20 @@ def _stage_host(C):
     """① 宿主去除（分类输入优先复用 ⓪b 转换产物）。"""
     st, logger = C.st, C.logger
     _adopt_qc(C)
-    conv1, conv2 = _fresh_converted(C.sample_dir, C.cur_r1, C.cur_r2)
+    # --no-fq2fa 语义：显式关闭预转换时不得再偷用历史 conv_* 产物，
+    # 否则用户关掉了转换、分类却仍走旧 FASTA（参数被静默无视）。
+    conv1 = conv2 = None
+    if C.do_fq2fa:
+        conv1, conv2 = _fresh_converted(C.sample_dir, C.cur_r1, C.cur_r2)
+        if conv1 and logger:
+            logger.log("① 分类输入复用 ⓪b 转换产物 "
+                       f"{os.path.basename(conv1)}（源输入指纹一致）")
     st.begin('host')
     C.host_stats = remove_host_logged(
         C.sample_dir, C.cur_r1, C.cur_r2, C.db_host, threads=C.threads,
         confidence=C.confidence, logger=logger, force=C.force,
         chunk_dir=C.chunk_dir, classify_r1=conv1, classify_r2=conv2,
-        allow_convert=C.do_fq2fa or bool(conv1),
+        allow_convert=C.do_fq2fa,
         progress=lambda p, m: st.prog('host', p, m))
     st.prog('host', 1.0, f"宿主占比 {C.host_stats['host_ratio'] * 100:.2f}%")
     st.end('host')
@@ -392,6 +402,7 @@ def _stage_kvsuite(C):
     C.vs = run_kvsuite_stage(
         out, r1=v_in1, r2=v_in2, sample=os.path.basename(C.sample_dir),
         threads=C.threads, force=C.force, logger=logger,
+        kv_lib=getattr(C, 'kv_lib', '') or None,
         need_viral_reads=(C.assembly_input == 'virus'),
         progress=lambda p, m: st.prog('kvsuite', p, m))
     st.prog('kvsuite', 1.0,
@@ -596,6 +607,17 @@ def _stage_primer(C):
     """⑧ 引物设计。"""
     st = C.st
     st.begin('primer')
+    # conserved 模式依赖 ⑦系统发育产物：缺了必然 FileNotFoundError，
+    # 提前给出可操作的中文原因（无断点续跑时最容易踩）
+    if C.primer_mode == 'conserved' and not (
+            not C.force and is_step_done(os.path.join(C.sample_dir, '06_primer'),
+                                         'primer')):
+        _ps = os.path.join(C.sample_dir, '05_phylo', 'summary.json')
+        if not os.path.isfile(_ps):
+            raise RuntimeError(
+                '⑧ 引物设计为 conserved 模式，需要 ⑦系统发育产物 '
+                '05_phylo/summary.json（提供组内保守区）；请先完成 ⑦，'
+                '或在参数中改用 specific 模式（按靶序列设计）')
     st.prog('primer', 0.1, f'primer3 引物设计 ({C.primer_mode})')
     from .primer import design_primers
     pr = design_primers(C.sample_dir, mode=C.primer_mode, logger=C.logger,
@@ -653,7 +675,8 @@ STAGE_REGISTRY = {
     'kvsuite':   {'deps': [],                    'fn': _stage_kvsuite},
     'assembly':  {'deps': [],                    'fn': _stage_assembly},
     'verify':    {'deps': ['assembly'],          'fn': _stage_verify},
-    'consensus': {'deps': ['assembly'],          'fn': _stage_consensus},
+    # ③c 的 reads 取自 01_host_removal（见 _stage_consensus），少了①必然失败
+    'consensus': {'deps': ['assembly', 'host'],  'fn': _stage_consensus},
     'hostana':   {'deps': ['assembly'],          'fn': _stage_hostana},
     'orf':       {'deps': ['assembly'],          'fn': _stage_orf},
     'orfa':      {'deps': ['orf'],               'fn': _stage_orfa},
@@ -671,10 +694,18 @@ STAGE_DEPS = {k: list(v['deps']) for k, v in STAGE_REGISTRY.items()}
 
 
 def _stage_execution_order(selected, logger=None):
-    """已选阶段的稳定拓扑排序：保证依赖先跑，其余保持调用方顺序。
+    """已选阶段的稳定拓扑排序：保证依赖先跑，同层按 STAGE_ORDER 定序。
 
     未知阶段名会被忽略，但一定要留日志——否则用户拼错阶段名
     （如 README 曾经写过的 virome）会得到「什么都没跑但也没报错」。
+
+    为什么同层要用 STAGE_ORDER 而不是调用方顺序：deps 只表达**硬依赖**
+    （assembly→verify/orf/…），覆盖不了「report 天然排在最后」这类顺序
+    约定。照搬调用方顺序时，传 ['report', 'primer', 'orfa', 'orf',
+    'assembly'] 会得到 ['report', 'assembly', 'primer', 'orf', 'orfa'] ——
+    报告先于组装执行，生成出来的报告里就没有组装/注释结果。
+    STAGE_ORDER 本身是拓扑合理的全序，用它兜底定序既消除该隐患，
+    又不改变按 STAGE_ORDER 传参的调用方行为。
     """
     unknown = [s for s in selected if s not in STAGE_REGISTRY]
     if unknown and logger:
@@ -682,6 +713,8 @@ def _stage_execution_order(selected, logger=None):
         _log(f"忽略未知阶段名：{', '.join(unknown)}（"
              f"可用阶段：{', '.join(STAGE_ORDER)}）")
     sel = [s for s in selected if s in STAGE_REGISTRY]
+    sel.sort(key=lambda s: STAGE_ORDER.index(s)
+             if s in STAGE_ORDER else len(STAGE_ORDER))
     sel_set = set(sel)
     order, seen = [], set()
 
@@ -700,7 +733,8 @@ def _stage_execution_order(selected, logger=None):
 
 
 def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
-                 threads=None, confidence=0.0, assembly_mode='metaviral',
+                 kv_lib=None,
+                 threads=None, confidence=0.0, assembly_mode='rnaviral',
                  memory_gb=64, subsample=0, min_contig_len=200, top_n_refs=10,
                  tree_tool='fasttree', tree_sampling='blast', ncbi_refs=None,
                  primer_mode='conserved', do_trim=True,
@@ -726,18 +760,30 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
         logger.log(f"忽略未知阶段名：{', '.join(map(str, _unknown))}（"
                    f"可用阶段：{', '.join(STAGE_ORDER)}）", "WARN")
     stages = [s for s in STAGE_ORDER if s in _sel]
-    # 可选步骤在工具缺失/用户关闭时静默剔除
+    # 可选步骤在工具缺失/用户关闭时剔除——每次剔除都必须留痕（静默跳过铁律）
     if 'fastp' in stages:
         from .preprocess import fastp_available
         if not fastp_available():
+            if logger:
+                logger.log('未检测到 fastp.exe，跳过 ⓪ 质控（原始 reads 直接进入下游）',
+                           'WARN')
             stages = [s for s in stages if s != 'fastp']
     if 'fq2fa' in stages and (not do_fq2fa or not _seqkit_ok()):
+        if logger:
+            _why = '参数中已关闭' if not do_fq2fa else '未检测到 seqkit.exe'
+            logger.log(f'跳过 ⓪b fq2fa 转换（{_why}；②b 分类将直接用 FASTQ）', 'WARN')
         stages = [s for s in stages if s != 'fq2fa']
     if 'gbdraw' in stages and not _plots_ok(plot_engine):
+        if logger:
+            logger.log('未检测到基因组图引擎（gbdraw / dna_features_viewer），'
+                       '跳过 ⑨ 基因组图', 'WARN')
         stages = [s for s in stages if s != 'gbdraw']
     if 'orfa' in stages:
         from .orf_annot import annotation_engine
         if not annotation_engine():
+            if logger:
+                logger.log('未检测到 DIAMOND / MMseqs2 / blastp（任一即可），'
+                           '跳过 ⑥b ORF 功能注释', 'WARN')
             stages = [s for s in stages if s != 'orfa']
     if 'verify' in stages:
         from .verify import verify_engine
@@ -765,6 +811,8 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
     C.chunk_dir = chunk_dir
     C.r1, C.r2 = r1, r2
     C.db_host, C.db_virus = db_host, db_virus
+    # ②b 鉴定库（平台内库名或库目录绝对路径；空 = 默认 kv_index）
+    C.kv_lib = (str(kv_lib).strip() if kv_lib else '')
     C.confidence, C.assembly_mode = confidence, assembly_mode
     C.memory_gb, C.subsample = memory_gb, subsample
     C.min_contig_len, C.top_n_refs = min_contig_len, top_n_refs
@@ -817,6 +865,7 @@ def run_analysis(sample, r1, r2, stages, db_host=None, db_virus=None,
             'do_fq2fa': do_fq2fa, 'gbdraw_max': gbdraw_max,
             'plot_engine': plot_engine, 'db_host': db_host,
             'db_virus': db_virus, 'ncbi_refs': ncbi_refs,
+            'kv_lib': (str(kv_lib).strip() if kv_lib else ''),
             'chunk_dir': chunk_dir,
         }),
         status='running')
@@ -907,26 +956,28 @@ def _plots_ok(engine):
 def _fresh_converted(sample_dir, cur_r1, cur_r2):
     """可安全复用的预处理 FASTA（conv_R1/R2.fa.gz）。
 
-    转换产物 mtime 不旧于当前输入才复用（fastp/输入更新后旧转换文件失效）。
+    复用判据 = fq2fa.json 记录的**源输入指纹**（路径+大小+mtime_ns）与本次
+    输入完全一致。只比 mtime 不安全（历史事故）：子采样改全量 / `--force` /
+    换输入文件都会让旧转换产物被当成"新鲜"，宿主分类在旧子集上跑而过滤在
+    全量上跑 → 宿主占比被严重低估、宿主 reads 漏进下游。
     """
     prep = check_path(os.path.join(sample_dir, '00_prep'),
                       must_exist=False, in_platform=True)
     c1 = os.path.join(prep, 'conv_R1.fa.gz')
     c2 = os.path.join(prep, 'conv_R2.fa.gz')
-    out1 = out2 = None
-
-    def _fresh(conv, src):
-        if conv and os.path.isfile(conv) and src and os.path.isfile(str(src)):
-            try:
-                return os.path.getmtime(conv) >= os.path.getmtime(str(src)) - 5
-            except OSError:
-                return False
-        return False
-
-    if _fresh(c1, cur_r1):
-        out1 = c1
-        if _fresh(c2, cur_r2):
-            out2 = c2
+    try:
+        with safe_open(os.path.join(prep, 'fq2fa.json')) as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return None, None
+    if rec.get('skipped'):
+        return None, None
+    from .preprocess import input_fingerprint
+    cur_fp = [input_fingerprint(p) for p in (cur_r1, cur_r2) if p]
+    if not rec.get('inputs') or rec.get('inputs') != cur_fp:
+        return None, None
+    out1 = c1 if cur_r1 and os.path.isfile(c1) else None
+    out2 = c2 if (out1 and cur_r2 and os.path.isfile(c2)) else None
     return out1, out2
 
 
@@ -1024,10 +1075,20 @@ def _sum_fq2fa(s):
 
 
 def _sum_host(s): return f"宿主占比 {s.get('host_ratio', 0) * 100:.2f}%，保留 {s.get('kept_pairs', 0):,} 对"
+def _kvsuite_unit(s, zh=True):
+    """读数单位：优先读结果里的 reads_unit，缺失时按引擎回推（老结果兼容）。"""
+    u = s.get('reads_unit') or (
+        'fragments' if (s.get('engine') or '').lower() == 'salmon' else '')
+    return ('片段' if zh else 'fragments') if u == 'fragments' else 'reads'
+
+
 def _sum_kvsuite(s):
+    # 读数单位随引擎不同（salmon=fragments / minibwa=reads），必须跟着显示，
+    # 否则两引擎的"病毒 reads"数字不可比（见 kv_stage.reads_unit）
+    _u = _kvsuite_unit(s)
     return (f"检出物种 {len(s.get('species_detected', []))} 个"
             f"（通过 {s.get('passed', 0)} / 剔除 {s.get('rejected', 0)}），"
-            f"病毒 reads {s.get('viral_reads', 0):,}")
+            f"病毒 {s.get('viral_reads', 0):,} {_u}")
 def _sum_asm(s): return (f"contigs {s.get('contigs', '?')} 条"
                          f"（病毒 {len(s.get('viral_contigs', []))} 条）")
 
@@ -1128,9 +1189,11 @@ def _sum_host_en(s):
 
 
 def _sum_kvsuite_en(s):
+    # unit differs by engine (salmon=fragments / minibwa=reads); see kv_stage.reads_unit
+    _u = _kvsuite_unit(s, zh=False)
     return (f"{len(s.get('species_detected', []))} species "
             f"({s.get('passed', 0)} passed / {s.get('rejected', 0)} filtered), "
-            f"{s.get('viral_reads', 0):,} viral reads")
+            f"{s.get('viral_reads', 0):,} viral {_u}")
 
 
 def _sum_asm_en(s):
@@ -1308,10 +1371,17 @@ def pipeline_overview(sample_dir, lang=None):
             skipped_reason = skipped_reason or str(
                 summary.get('reason') or '未生成基因组图（无可用 contig）')
         is_skipped = bool(has_summary and skipped_reason)
+        # 「失败」也不等于「完成」：失败阶段会留下 stats/summary（供排障），
+        # 但 .done 未落盘。只认 summary 会把失败态显示为 done 并解锁下游
+        # （历史事故：①宿主去除 0 reads 失败后卡片仍"已完成"、②b 可运行）。
+        failed_reason = ''
+        if isinstance(summary, dict) and summary.get('ok') is False:
+            failed_reason = str(summary.get('error') or '阶段失败（详见日志）')
         # 依赖判定用的是「上游跑过」，不是「上游成功」：
         # skipped 阶段确实跑过且产物目录就绪，下游取到空数据会自行跳过；
         # 若把它当未完成，用户反而无法手动补跑下游，更糟。
-        ran_map[key] = has_summary
+        # 失败阶段例外：它的产物不完整，下游必须保持 blocked。
+        ran_map[key] = has_summary and not failed_reason
         deps_ok = all(ran_map.get(d) for d in STAGE_DEPS.get(key, []))
         missing_tool = None
         if key == 'fastp' and not has_fastp:
@@ -1335,6 +1405,10 @@ def pipeline_overview(sample_dir, lang=None):
                            if skipped_reason else '已跳过') if lang == 'zh' \
                 else (f'Skipped: {skipped_reason}' if skipped_reason
                       else 'Skipped')
+        elif failed_reason:
+            status = 'failed'
+            summary_txt = (f'失败：{failed_reason}' if lang == 'zh'
+                           else f'Failed: {failed_reason}')
         elif has_summary:
             status = 'done'
             fn = sum_tab.get(key)
@@ -1402,7 +1476,9 @@ _MANIFEST_PARAM_KEYS = (
     'do_fq2fa', 'gbdraw_max', 'plot_engine',
 )
 # 这些参数含绝对路径，只记文件名以避免清单泄露/绑定本机路径
-_MANIFEST_PATH_KEYS = ('db_host', 'db_virus', 'ncbi_refs', 'chunk_dir')
+# （kv_lib 可能是库名也可能是库目录，统一按 basename 记：库名 basename 不变）
+_MANIFEST_PATH_KEYS = ('db_host', 'db_virus', 'ncbi_refs', 'chunk_dir',
+                       'kv_lib')
 
 
 def _manifest_path(sample_dir):

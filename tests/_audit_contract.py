@@ -33,13 +33,19 @@ TEMPLATES = os.path.join(WEBAPP, 'templates')
 SKIP_DIRS = ('virome', 'vendor')
 SKIP_FILES = ('plotly.min.js',)
 
+# 已归档模块的前端资源。explorer（病毒浏览器）2026-09-17 摘除入口、
+# 2026-09-27 彻底归档（archive/_retire_20260927/explorer/，模板与脚本已随之
+# 移出 webapp/）——这里的豁免仅防御历史副本/备份残留在 webapp 下，正常
+# 情况不会再命中。
+RETIRED_FILES = ('app-explorer.js', 'explorer.html')
+
 
 def _skip(path):
     rel = os.path.relpath(path, WEBAPP).replace('\\', '/')
     if any(rel.startswith(d + '/') for d in SKIP_DIRS):
         return True
     base = os.path.basename(path)
-    if base in SKIP_FILES or '.bak' in base:
+    if base in SKIP_FILES or base in RETIRED_FILES or '.bak' in base:
         return True
     return False
 
@@ -98,8 +104,13 @@ _PLACEHOLDER_RE = re.compile(r'\{\{[^}]*\}\}|\$\{[^}]*\}')
 
 
 def frontend_urls():
-    """返回 {url: [引用位置]}。只收以 / 开头的站内路径。"""
-    out = {}
+    """返回 ({url: [引用位置]}, {处于 '+' 拼接上下文的 url})。只收站内路径。
+
+    第二个集合供 _match_url(loose=True) 使用：逐行扫描拿到的可能只是拼接
+    表达式的**尾段**（'/tool_runs/' + run + '/rdp/events.json'），单独看它
+    匹配不到任何路由，但它是合法片段。
+    """
+    out, glued = {}, set()
     for p in _walk_web():
         txt = _read(p)
         rel = os.path.relpath(p, ROOT).replace('\\', '/')
@@ -118,15 +129,35 @@ def frontend_urls():
                     # 单段片段（如 JS 拼接残留 '/cancel'）不单独判定
                     if u.count('/') < 2 and not u.startswith('/api'):
                         continue
+                    # 前后紧邻 '+' 说明这是拼接链中的一段
+                    if (line[:m.start()].rstrip().endswith('+')
+                            or line[m.end():].lstrip().startswith('+')):
+                        glued.add(u)
                     out.setdefault(u, []).append(f'{rel}:{i}')
-    return out
+    return out, glued
 
 
-def _match_url(u, rules):
+def _static_prefix(rule):
+    """路由中第一个 <conv:name> 之前的静态前缀（保留尾部斜杠）；无通配返回 None。
+
+    例：'/tool_runs/<run>/<path:filename>' → '/tool_runs/'
+    """
+    idx = rule.find('<')
+    if idx <= 0:
+        return None
+    return rule[:idx]
+
+
+def _match_url(u, rules, loose=False):
     """判断前端 URL 是否命中某条后端路由。
 
     支持 JS 字符串拼接导致的截断（如 '/api/task/' + tid + '/cancel'）
     与模板插值 '*'。
+
+    loose=True 时额外启用「拼接尾段」判定：'/tool_runs/' + run + '/rdp/events.json'
+    逐行扫描只能拿到尾部片段 '/rdp/events.json'，把它接到某条通配路由的静态
+    前缀之后若能命中，即视为合法拼接片段。只在片段确实处于 '+' 拼接上下文
+    时由调用方开启，避免把真正的死链也放过。
     """
     u2 = u.rstrip('/') or '/'
     pat_u = re.escape(u2).replace(r'\*', '.*')
@@ -143,6 +174,12 @@ def _match_url(u, rules):
             return rule
         if rx_u is not None and rx_u.match(r2):
             return rule
+    if loose:
+        tail = u2.lstrip('/')
+        for rule in rules:
+            pre = _static_prefix(rule)
+            if pre and _rule_regex(rule).match(pre + tail):
+                return rule
     return None
 
 
@@ -264,9 +301,17 @@ def module_reachability():
     refs = set()
     string_refs = set()   # 以字符串形式被引用的模块名（子进程脚本等）
     for dp, dns, fns in os.walk(ROOT):
+        # 只审计**平台自有代码**。3rd/ 是随包的第三方源码（5000+ .py），
+        # run/ 是运行产物与历史备份，_bioaider_re/ 是第三方参考反编译 ——
+        # 它们既不会 import 平台模块，又会拖慢遍历，且 3rd 里非 raw 字符串的
+        # `\s`/`\w` 转义会刷出一片 SyntaxWarning，把真实问题淹没。
         dns[:] = [d for d in dns
                   if d not in ('__pycache__', '.git', 'build', 'dist',
-                               'node_modules', 'tools', 'bin', '_archive')
+                               'node_modules', 'tools', 'bin', '_archive',
+                               '3rd', 'run', '_bioaider_re', 'examples',
+                               'databases', 'host-db', '.mimosa', '.zcode',
+                               '.pytest_cache', '.ruff_cache',
+                               '.workbuddy', '.workbuddy-ai')
                   and not d.startswith(('_backup', '_audit'))]
         for fn in fns:
             if not fn.endswith('.py') or '.bak' in fn:
@@ -311,11 +356,11 @@ def main():
 
     # --- 1/2 前端 ↔ 后端 ---
     rules = backend_rules()
-    urls = frontend_urls()
+    urls, glued = frontend_urls()
     print(f'\n[1] 后端路由 {len(rules)} 条 / 前端站内路径 {len(urls)} 个')
     unmatched = []
     for u in sorted(urls):
-        if _match_url(u, rules) is None:
+        if _match_url(u, rules, loose=(u in glued)) is None:
             unmatched.append((u, urls[u]))
     if unmatched:
         print(f'  ⚠ 前端引用但后端无匹配路由 {len(unmatched)} 个:')
@@ -346,7 +391,12 @@ def main():
           f'代码使用 {len(used)} 键')
     only_zh = sorted(zh - en)
     only_en = sorted(en - zh)
-    missing = sorted(k for k in used if k not in zh and k not in en)
+    # 动态拼接前缀不算缺失键：形如 t('tk.' + name) 的写法，正则会抓到 'tk.'
+    # 这个**前缀**本身，它不是一个独立的键。此前把 tools.html 的
+    # `t('tk.' + x[0], x[1])` 报成「未定义键 tk.」，是纯误报。
+    dyn_prefix = {k for k in used if k.endswith('.')}
+    missing = sorted(k for k in used
+                     if not k.endswith('.') and k not in zh and k not in en)
     unused = sorted(k for k in zh if k not in used)
     if only_zh:
         print(f'  ⚠ 仅 zh 有、en 缺失 {len(only_zh)} 键: {only_zh[:12]}'
@@ -365,6 +415,9 @@ def main():
         problems.append(f'i18n 未定义键 {len(missing)}')
     if not (only_zh or only_en or missing):
         print('  ✔ i18n 键完整（zh/en 一致，使用键全部有定义）')
+    if dyn_prefix:
+        print(f'  · 动态拼接前缀 {len(dyn_prefix)} 个（已跳过）: '
+              + ', '.join(sorted(dyn_prefix)))
     print(f'  · 字典中未被使用的键 {len(unused)} 个')
 
     # --- 4 静态资源 ---

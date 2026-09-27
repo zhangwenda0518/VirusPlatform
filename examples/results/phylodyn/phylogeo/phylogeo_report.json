@@ -1,0 +1,214 @@
+{
+ "stage": "phylogeo",
+ "ok": true,
+ "error": null,
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo",
+ "trait": "region",
+ "warnings": [
+  "2/14 个内部节点的ML 最大边际概率 < 0.7（最低 0.43）—— 涉及这些节点的迁移方向不可靠，做方向性结论前先看置信分布"
+ ],
+ "notes": [
+  "坐标：0 个区划来自用户坐标表，3 个用内置**近似质心**兜底（不是精确地理中心，引用时须写明出处）"
+ ],
+ "outputs": {
+  "ml_gtr": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\GTR.txt",
+  "ml_confidence_csv": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\confidence.csv",
+  "ml_annotated_nexus": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\annotated_tree.nexus",
+  "corridors": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\corridors.tsv",
+  "events_year": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\events_year.tsv"
+ },
+ "sampling_bias_correction": "auto",
+ "tree_in": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\timetree.nwk",
+ "states_in": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\states.csv",
+ "ml": {
+  "ok": true,
+  "error": null,
+  "returncode": 0,
+  "gtr": {
+   "mapping": {
+    "D": "?",
+    "A": "Americas",
+    "B": "Asia",
+    "C": "Europe"
+   },
+   "states": [
+    "D",
+    "A",
+    "B",
+    "C"
+   ],
+   "mu": 0.043904,
+   "pi": {
+    "A": 0.2404,
+    "B": 0.3973,
+    "C": 0.3623
+   },
+   "W": {},
+   "Q": {}
+  },
+  "confidence_summary": {
+   "confidence_labels_raw": [
+    "A",
+    "B",
+    "C"
+   ],
+   "confidence_labels": [
+    "Americas",
+    "Asia",
+    "Europe"
+   ],
+   "confidence_labels_mapped": true,
+   "n_labels_unmapped": 0,
+   "confidence_labels_unmapped": [],
+   "n_nodes": 29,
+   "n_internal": 14,
+   "median_max_p_internal": 0.9995153476155009,
+   "min_max_p": 0.4296896863913765,
+   "n_below_0_7": 2,
+   "n_below_0_5": 1,
+   "frac_below_0_7": 0.1429
+  },
+  "sampling_bias_correction": 0.992887,
+  "sampling_bias_correction_suggested": 0.992887,
+  "stdout_tail": "Using column 'name' as taxon name. This needs to match the taxa in the tree!\n\n0.00\tWARNING: TreeTime has detected branches that are longer than 4. TreeTime\n    \trequires trees where branch length is in units of average number of\n    \tnucleotide or protein substitutions per site. Use on trees with longer\n    \tbranches is not recommended for ancestral sequence reconstruction.\nAssigned discrete traits to 15 out of 15 taxa.\n\n\nCompleted mugration model inference of attribute 'region' for D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\timetree.nwk\n\nSaved inferred mugration model as: D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml/GTR.txt\nSaved table with ancestral state confidences as: D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml/confidence.csv\nSaved annotated tree as: D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml/annotated_tree.nexus\n---Done!\n"
+ },
+ "root_year": 1978.4307255555555,
+ "ml_n_changes": 4,
+ "ml_edges_missing": 0,
+ "ml_counts": {
+  "Asia->Americas": 1,
+  "Americas->Asia": 1,
+  "Asia->Europe": 2
+ },
+ "ml_events": [
+  {
+   "from": "Asia",
+   "to": "Americas",
+   "child": "NODE_0000005",
+   "parent": "NODE_0000013",
+   "year": 2009.624,
+   "branch_len": 31.19375
+  },
+  {
+   "from": "Americas",
+   "to": "Asia",
+   "child": "SIM_Americas_5|Asia|2018",
+   "parent": "NODE_0000006",
+   "year": 2018.456,
+   "branch_len": 8.43417
+  },
+  {
+   "from": "Asia",
+   "to": "Europe",
+   "child": "NODE_0000009",
+   "parent": "NODE_0000004",
+   "year": 2005.508,
+   "branch_len": 17.09961
+  },
+  {
+   "from": "Asia",
+   "to": "Europe",
+   "child": "SIM_Asia_5|Europe|2009",
+   "parent": "NODE_0000002",
+   "year": 2009.456,
+   "branch_len": 8.32614
+  }
+ ],
+ "cross_check": {
+  "tree": "divergence_tree.nwk",
+  "mu": 36.033338,
+  "n_changes": 4,
+  "counts": {
+   "Asia->Americas": 1,
+   "Americas->Asia": 1,
+   "Asia->Europe": 2
+  },
+  "n_skipped_missing": 0,
+  "n_unmatched": 0,
+  "aligned_by": "leafset",
+  "primary_n_changes": 4,
+  "delta": 0,
+  "rel_diff": 0.0,
+  "divergent": false
+ },
+ "fitch_n_changes": 4,
+ "fitch_counts": {
+  "Americas->Asia": 2,
+  "Asia->Europe": 2
+ },
+ "fitch_events": [
+  {
+   "from": "Americas",
+   "to": "Asia",
+   "parent": "NODE_0000013",
+   "child": "NODE_0000004",
+   "year": 1988.408
+  },
+  {
+   "from": "Americas",
+   "to": "Asia",
+   "parent": "NODE_0000006",
+   "child": "SIM_Americas_5|Asia|2018",
+   "year": 2018.456
+  },
+  {
+   "from": "Asia",
+   "to": "Europe",
+   "parent": "NODE_0000004",
+   "child": "NODE_0000009",
+   "year": 2005.508
+  },
+  {
+   "from": "Asia",
+   "to": "Europe",
+   "parent": "NODE_0000002",
+   "child": "SIM_Asia_5|Europe|2009",
+   "year": 2009.456
+  }
+ ],
+ "n_events_ml": 4,
+ "n_events_fitch": 4,
+ "n_corridors": 3,
+ "sampling_bias": {
+  "state_counts": {
+   "Europe": 6,
+   "Asia": 5,
+   "Americas": 4
+  },
+  "shares": {
+   "Europe": 0.4,
+   "Asia": 0.3333,
+   "Americas": 0.2667
+  },
+  "max_share": 0.4,
+  "min_share": 0.2667,
+  "corrected": true,
+  "factor": 0.992887
+ },
+ "coords": {
+  "Americas": [
+   10.0,
+   -80.0
+  ],
+  "Asia": [
+   34.0,
+   100.0
+  ],
+  "Europe": [
+   50.0,
+   10.0
+  ]
+ },
+ "coord_src": {
+  "Americas": "builtin",
+  "Asia": "builtin",
+  "Europe": "builtin"
+ },
+ "coord_missing": [],
+ "coord_regions": {
+  "Americas": 4,
+  "Asia": 5,
+  "Europe": 6
+ },
+ "coord_table": null
+}

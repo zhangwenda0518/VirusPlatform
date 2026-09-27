@@ -233,7 +233,7 @@ def robust_eutils_get(url, params):
         time.sleep(0.2 + secrets.randbelow(201) / 1000)
         res = session.get(url, params=params, headers=HEADERS, timeout=20)
         if res.status_code == 200: return res
-    except: pass
+    except Exception: pass
     return None
 
 TAXONOMY_CACHE = {}
@@ -275,7 +275,7 @@ class NCBIAPIClient:
                 r = get_retry_session().get(url, params=params, headers=self.headers, timeout=15)
                 if r.status_code == 200: return r.json()
                 if r.status_code == 429: time.sleep(2)
-            except: time.sleep(1)
+            except Exception: time.sleep(1)
         return {}
 
     def get_bioproject_summary(self, bp_id):
@@ -291,7 +291,7 @@ class NCBIAPIClient:
         res = self._req("elink.fcgi", {"dbfrom": "bioproject", "db": "sra", "id": nid})
         try:
             return [l for ls in res.get("linksets", []) for ldb in ls.get("linksetdbs", []) if ldb.get("linkname") == "bioproject_sra" for l in ldb.get("links", [])]
-        except: return []
+        except Exception: return []
 
     def get_sra_linked_pubmed(self, sra_ids):
         if not sra_ids: return []
@@ -301,7 +301,7 @@ class NCBIAPIClient:
             res = self._req("elink.fcgi", {"dbfrom": "sra", "db": "pubmed", "id": ",".join(map(str, batch))})
             try:
                 pmids.extend([l for ls in res.get("linksets", []) for ldb in ls.get("linksetdbs", []) if ldb.get("linkname") == "sra_pubmed" for l in ldb.get("links", [])])
-            except: pass
+            except Exception: pass
         return list(set(pmids))
 
     def search_exact_id(self, bp_id):
@@ -341,7 +341,7 @@ class GSAClientP:
                     if data.get("message") == "SUCCESS":
                         return {"bioproject_id": bp_id, "title": data.get("title", ""), "submission_date": data.get("releaseTime", ""), "linked_pmids":[str(pub.get("pubmedId")) for pub in data.get("listPublication", []) if pub.get("pubmedId")]}
                     return {"bioproject_id": bp_id}
-            except: time.sleep(1)
+            except Exception: time.sleep(1)
         return {"bioproject_id": bp_id}
 
 class EuropePMCClient:
@@ -355,7 +355,7 @@ class EuropePMCClient:
                 r = get_retry_session().get("https://www.ebi.ac.uk/europepmc/webservices/rest/search", params={"query": f'"{bp_id}"', "format": "json", "pageSize": 50, "resultType": "core"}, headers=self.headers, timeout=15)
                 if r.status_code == 200:
                     return [{"pmid": str(item.get("pmid", "")), "doi": item.get("doi", ""), "title": item.get("title", ""), "journal": item.get("journalTitle", ""), "pubdate": item.get("firstPublicationDate", "")} for item in r.json().get("resultList", {}).get("result",[])]
-            except: time.sleep(1)
+            except Exception: time.sleep(1)
         return []
 
 def rule_based_primary_expert(articles, bp_info):
@@ -393,7 +393,7 @@ class BioProjectTracer:
         try:
             epmc_res = self.epmc.search_by_bioproject(bp_id)
             if epmc_res: candidates.extend(epmc_res)
-        except: pass
+        except Exception: pass
         
         seen, unique_candidates = set(), []
         for c in candidates:
@@ -419,7 +419,7 @@ class BioProjectTracer:
                         for cand in candidates:
                             if (v.get('pmid') and str(cand.get('pmid')) == str(v['pmid'])) or (v.get('doi') and cand.get('doi') == v['doi']):
                                 return cand
-            except: pass
+            except Exception: pass
         
         r_cls = rule_based_primary_expert(candidates, bp_info)
         if r_cls and r_cls.get("pmid"):
@@ -447,7 +447,7 @@ class SRAPipeline:
             if res is not None and "<EXPERIMENT_PACKAGE" in res.text:
                 with safe_open(xp, 'wt') as f: f.write(res.text)
                 return res.text, "[✓XML下载]"
-        except: return None, "[❌XML下载失败]"
+        except Exception: return None, "[❌XML下载失败]"
         return None, "[❌XML无效]"
 
     def xml_to_json(self, srr, xml):
@@ -458,7 +458,7 @@ class SRAPipeline:
             d = xmltodict.parse(xml, process_namespaces=False, force_list=fl, dict_constructor=dict)
             with safe_open(jp, 'wt') as f: json.dump(d, f, indent=4, ensure_ascii=False)
             return d, "[✓JSON转换]"
-        except: return None, "[❌JSON转换失败]"
+        except Exception: return None, "[❌JSON转换失败]"
 
     def local_parse(self, srr, data_dict):
         jp = os.path.join(self.d_local, srr + '_local.json')
@@ -545,7 +545,7 @@ class SRAPipeline:
                     records.append(rr)
             with safe_open(jp, 'wt') as f: json.dump(records, f, indent=4, ensure_ascii=False)
             return records, "[✓Local解析]"
-        except: return None, "[❌Local解析失败]"
+        except Exception: return None, "[❌Local解析失败]"
 
     def api_infer(self, srr, xml):
         jp = os.path.join(self.d_api, srr + '_api.json')
@@ -557,7 +557,7 @@ class SRAPipeline:
             rd['query_id'] = srr
             with safe_open(jp, 'wt') as f: json.dump(rd, f, indent=4, ensure_ascii=False)
             return rd, "[✓API推断]"
-        except: return {"query_id": srr}, "[❌API推断失败]"
+        except Exception: return {"query_id": srr}, "[❌API推断失败]"
 
     def api_arbitrate(self, srr, ld, ad):
         jp = os.path.join(self.d_arb, srr + '_arb.json')
@@ -570,7 +570,7 @@ class SRAPipeline:
             fd['query_id'] = srr
             with safe_open(jp, 'wt') as f: json.dump(fd, f, indent=4, ensure_ascii=False)
             return fd, "[✓Arb仲裁]"
-        except: return ad, "[❌Arb仲裁失败]"
+        except Exception: return ad, "[❌Arb仲裁失败]"
 
     def process_all(self, sra_list, threads):
         all_local, all_arb = [], []
@@ -797,7 +797,7 @@ class GSAPipeline:
                             lines = text.splitlines(); text = "\n".join([lines[0]] + [l for l in lines[1:] if acc in l]) + "\n"
                         with safe_open(csv_f, 'wt') as f: f.write(text)
                         df_main = pd.read_csv(csv_f); logs.append("[✓CSV下载]"); api_success = True
-                    except: pass
+                    except Exception: pass
 
                 if not api_success or df_main.empty:
                     logs.append("[⚠️容灾重建]"); df_main = self.build_fallback_df(acc, web_feat)
@@ -920,7 +920,7 @@ class GSAPipeline:
                                 logs.append("[✓API缓存]")
                                 if pd.notna(org) and ai_res.get('Location') and "Unknown" not in ai_res['Location']:
                                     self.org_loc_cache[org] = ai_res['Location']
-                            except: pass
+                            except Exception: pass
 
                         if not ai_res:
                             raw_context = row.dropna().to_dict()
@@ -1117,7 +1117,7 @@ def standardize_metadata_df(df, api_client, ai_model):
                     res = api_client.chat.completions.create(**kwargs)
                     batch_res = json.loads(clean_ai_json(res.choices[0].message.content))
                     mapped_locs.update(batch_res)
-                except: pass
+                except Exception: pass
             if mapped_locs:
                 df['Location'] = df['Location'].map(mapped_locs).fillna(df['Location'])
     return df
@@ -1160,7 +1160,7 @@ def merge_global_results(df_sra, df_gsa, out_dir, fill_date, mode, api_client, a
                         # 忽略大小写，防止 AI 输出小写的 not_provided 覆盖掉已填补的时间
                         if val.lower() not in ["", "none", "nan", "not_provided"]:
                             df_global.at[idx, k] = val
-            except: pass
+            except Exception: pass
     # 强制将 TaxID 转为字符串并去除 .0 后缀
     if 'TaxID' in df_global.columns:
         df_global['TaxID'] = df_global['TaxID'].astype(str).str.replace(r'\.0$', '', regex=True).replace(['nan', '<NA>', 'None', ''], pd.NA)

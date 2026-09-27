@@ -103,6 +103,9 @@ def _release_lock():
 # slow=True 的测试含真实重型计算或在线请求，`--quick` 时跳过。
 TESTS = [
     ('tests/_it_platform.py',       300,  False),
+    # 日志编码统一（2026-09-27）：decode_output 三分支 + to_utf8_file 四场景
+    # （纯 GBK 转写 / 纯 UTF-8 幂等 / 混编码逐行无损 / 缺失文件静默）。
+    ('tests/_check_enc_utils.py',    60,  False),
     ('tests/_it_msa.py',            300,  False),
     ('tests/_it_concurrency.py',    300,  False),
     ('tests/_smoke_phylo.py',       300,  False),
@@ -172,6 +175,10 @@ TESTS = [
     # spec 里 webapp 的 datas 展开：既不漏前端文件、也不带 .mimosa 等工具残留
     # （AST 抽出 spec 里的 _tree 单独执行；秒级，只读）
     ('tests/_check_spec_datas.py',   60,  False),
+    # 阶段表一致性守卫（后端 9 张表 + 前端 static/*.js + ③c 卡片可见性实测）。
+    # 2026-09-16 修掉它"只读 app.js"的过时假设（前端已拆分到 app-jobs/app-batch）
+    # 后重新入编——此前不在批量里，被前端重构甩下后静默腐烂了一轮。
+    ('tests/_it_stage_tables.py',   120,  False),
     # PYZ↔源码字节码比较器的灵敏度自检：确认它**不是恒真**
     # （纯内存 compile 比较，不读产物、不需 PyInstaller；秒级）
     ('tests/_selftest_pyz_cmp.py',   60,  False),
@@ -190,14 +197,94 @@ TESTS = [
     # 全程无 console error。覆盖 198,819 条 / 6,168 物种真实数据，约 3 分钟。
     # 自起临时实例。无 playwright（开发依赖未装）时自动 SKIP 并返回 0。
     # 其中 [13] 深链跳转需要外网；断网时该段自动 SKIP，不判失败。
-    ('tests/_check_explorer.py',   900,  False),
+    # ⛔ 已停用用例（2026-09-17 摘除 explorer；2026-09-27 彻底归档）。
+    # _check_explorer.py 走真实的 /explorer 与 /api/explorer/* 路由，explorer
+    # 蓝图已不再注册 → 必然 404。它验证的是一个**已下线的入口**，失败不代表
+    # 回归，故从默认清单移除，避免长期红灯把真回归淹掉。
+    # 需要复核归档代码时到 archive/_retire_20260927/explorer/tests/ 手动跑
+    # （_check_explorer.py / _check_explorer_links.py / _check_virphykit_export.py
+    # / _check_decimal_year_conventions.py 都随引擎一起归档）。
+    # ('tests/_check_explorer.py',   900,  False),
+    # Explorer → VirPhyKit 输入包导出：小数年解析（正/负控各 8）、区域口径与 name
+    # token、严格档预过滤（无日期/无地点/非完整/重复登录号/空序列五道剔，含记账
+    # 恒等式 sum(dropped)+kept==in 与「被剔的不能出现在保留集」负控）、**灵敏度
+    # 自检**（同一套契约断言函数喂一个故意做坏的包，必须逐条报出问题，否则断言
+    # 可能恒真）、真库端到端（PVY 4470→588 与 preview 一致，另用科级 24511 条
+    # 证明导出没吃表格 5000 行截断）。可选的 GeoSubsampler 实跑在缺外部目录时
+    # 自动 SKIP。约 30 秒。
+    # 注：端到端段走 /api/explorer/export/* 路由，而 explorer 蓝图 2026-09-17
+    # 起不再挂载（2026-09-27 随引擎彻底归档）——该段探测到路由
+    # 不在 url_map 时自动 SKIP 并返回 0；引擎契约由本用例 [1]-[6] 段常态守护。
+    # （本用例文件已随 explorer 归档：archive/_retire_20260927/explorer/tests/）
+    # Fitch 重构回归：锁住 2026-09-15 AUDIT 记的缺陷 —— fitch_mugration 的
+    # down-pass 从未执行（内部状态退化成候选集字典序最小者 → 高估迁移数），
+    # 以及缺失数据被当成字面状态 'Unknown' 凭空造迁移。含旧实现对照。
+    # 注：本平台的进化动力学卡片已迁往「植物病毒进化分析平台」，但 2026-09-16
+    # 起本站重新接上了裁剪版系统地理（RRT/RSPP/MOTP/三分类/GIF/分带，见下一项）。
+    ('tests/_check_phylogeo_fitch.py', 900, False),
+    # 主平台裁剪版系统地理：haversine 自研口径、坐标表/别名/逐样本落点优先级、
+    # classify_transitions 分位带与证据标记、RSPP 驱动的权重分带（措辞非贝叶斯）、
+    # MOTP 时间分箱（含 LSD2 定年树解析）、GIF 帧计划、analyze() 端到端产物 +
+    # 默认关开时 rrt/rssp/motp/weight_bands 均为 None。全离线、确定性夹具，秒级。
+    ('tests/_check_phylogeo_geo.py',  900, False),
+    # 同一张卡的真浏览器端到端（自起临时实例，随机空闲端口）：一级导航 → 组落地
+    # → 点卡片进卡 → 参数齐全 + 静态文案已 i18n（切英文验证）→ 真跑一次
+    # （RRT/RSSP/MOTP 全开的 8 条合成集）→ 三分类表 / 权重分带表 / GIF 区渲染
+    # 且写明非贝叶斯 → 无 pageerror。无 playwright（开发依赖未装）时自动 SKIP。
+    ('tests/_check_phylogeo_ui.py',   900, False),
+    # 进化动力学工具组（VirPhyKit 对齐 12 卡，2026-09-17）：Engine 逐模块验证 +
+    # 两个精确对拍契约（MJRM 与 PVS_with_matrix.xml 逐字节、TempMig 矩阵与
+    # Migration_matrix.txt 逐格）+ 数据接入三来源时间地点同检 + 灵敏度自检
+    # （坏输入必须红）。VirPhyKit Example 目录不在时 Example 段 SKIP。
+    # TreeTime 全量跑约 40s（500 叶）；--fast 可跳。Example 不在本机也全绿。
+    ('tests/_check_phylodyn_kit.py',  900, False),
+    # VirPhyKit Example 全目录验证（2026-09-17）：42 个文件逐个被对应工具真实
+    # 消费并断言（含 Total=各区行和自洽、RRT Min/Max 与 20 副本逐棵核对、
+    # na_20/na_200/ebola 三个负例的精确拒绝、全目录覆盖检查漏一个文件即失败）。
+    # [13] TreeDater 段跑真 R 引擎：定年 ~1 分钟 + parboot 置信带单核 15-20 分钟
+    # （引擎内注释原话 10-40 分钟）——900s 超时必挂（2026-09-18 全量首跑即超时），
+    # 故放宽到 2400s 并标 slow：--quick 跳过，引擎契约由 _check_phylodyn_kit.py
+    # （~70s，含 MJRM/TempMig 逐字节对拍）在 quick 档继续守护。
+    ('tests/_check_phylodyn_example.py', 2400, True),
+    # 同组的真浏览器端到端（自起临时实例）：15 卡组落地 → 数据接入卡三来源切换 +
+    # 真跑手动粘贴（坏行点名 + 图渲染 + 下载链接）→ 重命名卡 / MJRM 卡真跑 →
+    # 其余 9 卡控件存在性 → 新增 i18n 键切英文 → 无 pageerror。无 playwright SKIP。
+    ('tests/_check_phylodyn_ui.py',   900, False),
+    # 数据准备链（2026-09-18 合并 4 张卡 + 引入上游预处理）：任务层真跑 44 项
+    # （治理/去重/比对QC/允无地点/坐标表/降采样/两张卡已摘的负向）。
+    ('tests/_check_pdprep_chain.py',  900, False),
+    # 与上游 `virome_phylo_pipeline` 的治理层**逐条对拍**（上游仓库不在则自跳过返回 0）。
+    ('tests/_check_govern_vs_upstream.py', 300, False),
+    # 元数据列名自动识别与择优（explorer 新版 25 列）+ 治理边界（关治理回到老行为）。
+    ('tests/_check_phylodyn_meta_alias.py', 300, False),
+    # 小数年口径：四处实现的数值钉住 + 「月份必须生效」的 P0 防回归。
+    # （原 _check_decimal_year_conventions.py 依赖 explorer 的 virphykit_export，
+    #  已随 2026-09-27 归档移除；其 P0 断言由 _check_phylodyn_meta_alias.py 延续。）
+    # 示例**输入** fixture 自洽（叶名能被元数据匹配 / 等长 / 不是 GenBank 转储）。
+    ('tests/_check_examples_inputs.py', 120, False),
+    # 在线获取（替代 SeqHarvester 的便利层）+ **输出 schema 一致性**：
+    # taxid/物种名一键采集、geo_loc_name 优先、host 通道、host 可选列。
+    # ⚠️ 里面含**真联网**的段（NCBI 不可达时自动 SKIP 并返回 0）。
+    ('tests/_check_online_meta.py',   600, False),
+    # TreeTime mugration 的**状态代号映射**（代号会跨到标点 ）：
+    # 不依赖 TreeTime，用合成 GTR.txt/confidence.csv 钉住口径。
+    ('tests/_check_gtr_mapping.py',   120, False),
+    # 「进化树 + 基因组叠加」接线（2026-09-17）：后端 /api/tree/file 按「与树同名的
+    # <stem>.overlay.json」带上 overlay（3 轨道 / 18 基因 / 18 条蛋白同一性连线）+
+    # 五类坏 overlay 的降级负控（树照常返回）+ 真浏览器点「✨ 示例·基因组叠加」数
+    # SVG（属色带 / 基因框 / 同源连线）与换纯树时的清零负控 + 新增 i18n 键。
+    # 无 playwright（开发依赖未装）时真浏览器段自动 SKIP 并返回 0。
+    ('tests/_check_tree_overlay.py', 900, False),
     # 真跑 HMM + CDD 全链路 + 在线 NCBI，实测 400s~900s（网络波动大）
     ('tests/_it_annotate.py',      1500,  True),
 ]
 DEFAULT_TIMEOUT = 300
 _ONLINE_HINT = {
     'tests/_it_annotate.py': '含在线 NCBI 请求，可设 VP_SKIP_ONLINE=1 跳过该段',
-    'tests/_check_explorer.py': '深链跳转段会探线上站，可设 VP_SKIP_ONLINE=1 跳过该段',
+    'tests/_check_explorer.py': '已停用并随 2026-09-27 彻底归档移出 tests/'
+                                '（archive/_retire_20260927/explorer/tests/）。'
+                                '若手动跑：必须设 VP_EXPLORER_DATA 指回归档数据，'
+                                '且把 explorer 蓝图临时挂回 app.py，否则必然 404。',
 }
 
 

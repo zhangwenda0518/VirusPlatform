@@ -109,11 +109,14 @@ def _run(cmd, log_path=None, master_log=None, check=True, logger=None, env=None,
 
 def _write_cmd_log(log_path, master_log, disp, returncode, out=None, err=None):
     """管道式命令的日志记录（_run 的伴侣，供 Python 桥接管道使用）"""
+    from Virus_Platform_Core.utils import decode_output
     start_time = time.strftime('%Y-%m-%d %H:%M:%S')
     content = f"\n[{start_time}] CMD: {disp}\nEXIT_CODE: {returncode}\n"
     for tag, blob in (('STDOUT', out), ('STDERR', err)):
         if blob:
-            txt = blob.decode('utf-8', 'replace') if isinstance(blob, bytes) else str(blob)
+            # 与 utils.run_cmd 同一解码口径：utf-8 优先、GBK 兜底——
+            # 中文路径出现在 ANSI 代码页报错里时按 utf-8+replace 会整体变 U+FFFD
+            txt = decode_output(blob) if isinstance(blob, bytes) else str(blob)
             if txt.strip():
                 content += f"--- {tag} ---\n{txt.strip()}\n"
     content += "-" * 80 + "\n"
@@ -306,17 +309,34 @@ def align_sample(fq, index_prefix, out_bam, threads, log_file=None,
 
     # 原管线的 `minibwa map ... | samtools sort ...`，改用 Python 桥接：
     # 逐块把 SAM 文本吸给 samtools sort 的 stdin，语义一致且不经 shell。
-    p_map = subprocess.Popen(map_cmd, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
-    p_sort = subprocess.Popen([samtools, 'sort', '-@', str(t_io),
-                               '-o', str(out_bam), '-'], stdin=p_map.stdout,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    p_map.stdout.close()                 # 交给 p_sort 后本地关闭写端
-    err_sort = p_sort.communicate()[1]
-    err_map = p_map.stderr.read()
-    p_map.stderr.close()
-    rc_map = p_map.wait()
-    rc_sort = p_sort.returncode
+    # stderr 落文件而非 PIPE：大数据集比对 stderr 产出可观，PIPE 无人并发
+    # 读取会在缓冲写满后把 minibwa 写死（与 kv_engines 同一处死锁修复）。
+    errf = Path(str(log_file) + '.pipe_err.log')
+    errf.parent.mkdir(parents=True, exist_ok=True)
+    with open(errf, 'ab') as ef:
+        p_map = subprocess.Popen(map_cmd, stdout=subprocess.PIPE,
+                                 stderr=ef)
+        p_sort = subprocess.Popen([samtools, 'sort', '-@', str(t_io),
+                                   '-o', str(out_bam), '-'], stdin=p_map.stdout,
+                                  stdout=subprocess.DEVNULL, stderr=ef)
+        p_map.stdout.close()                 # 交给 p_sort 后本地关闭写端
+        rc_sort = p_sort.wait()
+        rc_map = p_map.wait()
+    err_map = err_sort = b''
+    try:
+        size = errf.stat().st_size
+        if size:
+            raw = errf.read_bytes()
+            err_map = err_sort = raw[-4096:]
+            # minibwa/samtools 的 CRT 消息按系统 ANSI 代码页（中文 Windows =
+            # GBK）打印：捕获文件就地转成 UTF-8，日志编码全站统一。
+            try:
+                from Virus_Platform_Core.utils import decode_output
+                errf.write_bytes(decode_output(raw).encode('utf-8'))
+            except (OSError, UnicodeError):
+                pass
+    except OSError:
+        pass
 
     _write_cmd_log(log_file, master_log,
                    f"{' '.join(map_cmd)} | {samtools} sort -@ {t_io} -o {out_bam}",
@@ -505,7 +525,11 @@ class ConsensusStage:
         cols = passed_df.columns
         sp_col = 'Sample' if 'Sample' in cols else cols[0]
         vc_col = 'Virus' if 'Virus' in cols else ('Accession' if 'Accession' in cols else cols[1])
-        tax_col = 'taxonomy' if 'taxonomy' in cols else None
+        # 物种列：老管线叫 taxonomy；本套件识别/过滤表叫 Species。
+        # 之前只认 'taxonomy'， Species 全部落到 Unannotated → 共识产物目录
+        # 变成 consensus/Unannotated_<acc>/（物种名丢失）。
+        tax_col = next((c for c in ('taxonomy', 'Species', 'species')
+                        if c in cols), None)
         depth_col = 'Recalc_MeanDepth' if 'Recalc_MeanDepth' in cols else None
 
         # ── 1. 提取每病毒单序列参考 ──

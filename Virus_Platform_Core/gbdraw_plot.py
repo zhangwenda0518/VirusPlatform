@@ -208,7 +208,12 @@ def _safe_fn(name):
 
 
 def _pick_inputs(sample_dir, logger=None):
-    """默认输入：③ 的病毒 contigs FASTA + ⑥ 的 pyrodigal GFF 注释。"""
+    """默认输入：③ 的病毒 contigs FASTA + ⑥b/⑥ 的 GFF 注释。
+
+    注释优先 ⑥b 的功能注释 GFF3（含产物名/类别，与 DFV 引擎口径一致），
+    缺了再退 ⑥ 的 pyrodigal.gff——两引擎用不同注释源会让同一批数据在
+    切换引擎时 ORF 标签不一致。
+    """
     fa = os.path.join(sample_dir, '03_assembly', 'viral_contigs.fasta')
     if not os.path.isfile(fa):
         fa = os.path.join(sample_dir, '03_assembly', 'contigs.filtered.fasta')
@@ -216,10 +221,25 @@ def _pick_inputs(sample_dir, logger=None):
         raise FileNotFoundError(
             "③组装 目录缺少 viral_contigs.fasta / contigs.filtered.fasta，"
             "请先运行组装步骤（或在卡片参数中指定自备 FASTA 路径）")
-    gff = os.path.join(sample_dir, '04_orf', 'pyrodigal.gff')
-    if not os.path.isfile(gff):
-        gff = None
+    cands = [os.path.join(sample_dir, '04b_orf_annot', 'orf_annotation.gff3'),
+             os.path.join(sample_dir, '04_orf', 'pyrodigal.gff')]
+    gff = next((p for p in cands if os.path.isfile(p)), None)
+    if logger:
+        if gff:
+            logger.log(f"注释来源: {os.path.relpath(gff, sample_dir)}")
+        else:
+            logger.log("未找到注释文件（04b_orf_annot / 04_orf），"
+                       "将画裸骨架图（无 ORF 特征）", "WARN")
     return fa, gff
+
+
+def _rel_plots(plots, out_dir):
+    """summary 里的 plots 记相对路径（相对 09_genome_plots/）。
+
+    报告端按 os.path.join(sample_dir, '09_genome_plots', rel) 解析；记绝对
+    路径时样品目录一旦搬迁/拷贝，join 返回原绝对路径 → 报告静默丢图。
+    """
+    return [os.path.relpath(p, out_dir) for p in plots]
 
 
 def run_genome_plots(sample_dir, logger=None, force=False, max_plots=12,
@@ -264,7 +284,8 @@ def run_genome_plots(sample_dir, logger=None, force=False, max_plots=12,
             plots += made
         seqs = []
         summary = {'stage': step, 'standalone': True,
-                   'input': os.path.basename(str(ann_in)), 'plots': plots,
+                   'input': os.path.basename(str(ann_in)),
+                   'plots': _rel_plots(plots, out_dir),
                    'n_seqs': 0}
     else:
         fa = check_path(fasta_in, must_exist=True) if fasta_in else \
@@ -308,7 +329,8 @@ def run_genome_plots(sample_dir, logger=None, force=False, max_plots=12,
                 except OSError:
                     pass
         summary = {'stage': step, 'standalone': bool(fasta_in or ann_in),
-                   'input': os.path.basename(str(fa)), 'plots': plots,
+                   'input': os.path.basename(str(fa)),
+                   'plots': _rel_plots(plots, out_dir),
                    'n_seqs': len(seqs)}
     with safe_open(summary_file, 'wt') as f:
         json.dump(summary, f, ensure_ascii=False, indent=1)

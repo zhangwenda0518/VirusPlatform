@@ -135,12 +135,22 @@
       </div>
 
       <div class="card">
-        <h2 data-i18n="bd.kvTitle">🧱 病毒鉴定库（salmon 比对索引）</h2>
-        <p class="hint" data-i18n="bd.kvHint">给「已知病毒识别与定量」模块用的比对索引（定量引擎仅 salmon）。建好的库落在
+        <h2 id="m-datasets" data-i18n="bd.dsTitle">📦 原始数据集（分发物）→ 一键建库</h2>
+        <p class="hint" data-i18n="bd.dsHint">数据集与数据库<b>区分开</b>：<b>数据集</b>是随包分发的原始参考
+           （FASTA + 注释表，只读、体量小）；<b>数据库</b>是本机派生物（比对索引、kunpeng 分类库），
+           删了可随时由数据集重建。鉴定库引擎索引（salmon/minibwa）<b>首次运行自动现建</b>，无需手动；
+           kunpeng 病毒分类库在下方一键构建（构建后即被工具②/④自动识别）。</p>
+        <div id="dsList" class="dbbadge"><p class="hint" data-i18n="c.loading">加载中…</p></div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="bd.kvTitle">🧱 病毒鉴定库（比对索引）</h2>
+        <p class="hint" data-i18n="bd.kvHint">给「已知病毒识别与定量」模块用的比对索引。建好的库落在
            <b>databases/virusref_db/&lt;库名&gt;/</b>，<b>自包含</b>：库内自带 reference.fasta +
-           reference.ref_info.tsv + salmon_k31/ 索引；库名 <code>kv_index</code> 就是平台默认库，
+           reference.ref_info.tsv + 各引擎索引子目录；库名 <code>kv_index</code> 就是平台默认库，
            工具卡留空参考即用它，省掉每次重建索引。
            单基因组/自定义参考也能在这里临时建库，再到工具卡里把参考指过来即可。<br>
+           库与引擎正交：库 = 参考真相 + 索引集合；定量时选哪个引擎与用哪个库互不干涉。<br>
            与上方「病毒分类库」（kunpeng）无关，两者互不影响。</p>
 
         <label data-i18n="bd.kvFastaLbl">参考序列 FASTA（平台内外均可，只读）</label>
@@ -157,8 +167,11 @@
             <input id="kvidxThreads" type="number" value="8"></div>
         </div>
 
-        <p class="hint" style="margin:10px 0 0" data-i18n="bd.kvEnginesFixed">建库引擎固定为 salmon（定量唯一引擎；
-          共识段的 minibwa 索引由共识段在运行目录内自建自用，不进鉴定库）。</p>
+        <p class="hint" style="margin:10px 0 0" data-i18n="bd.kvEnginesFixed">默认构建 salmon 索引（EM 定量，默认引擎）；
+          勾选 minibwa 可一并（或事后单独）构建真比对定量索引：<code>minibwa/reference.mbw</code>。
+          两套索引互不影响，缺哪套就补建哪套。</p>
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="kvidxMinibwa">
+          <span data-i18n="bd.kvMbwChk"> 同时构建 minibwa 索引（真比对定量用；EM 定量用不到它）</span></label>
 
         <label class="chk" style="margin-top:8px"><input type="checkbox" id="kvidxOverwrite">
           <span data-i18n="bd.kvOverwrite"> 允许覆盖同名库（引擎内部已有索引会自动复用，一般不用勾）</span></label>
@@ -343,7 +356,8 @@ async function unregisterKvIndex(i) {
 
 async function buildKvIndex(btn) {
   const fasta = val('kvidxFasta');
-  const engines = ['salmon'];   // 定量唯一引擎，固定 salmon
+  const engines = ['salmon'];   // salmon 索引默认建；minibwa 按勾选追加
+  if ($('kvidxMinibwa') && $('kvidxMinibwa').checked) engines.push('minibwa');
   const name = val('kvidxName') || 'kv_index';
   if (!fasta && name === 'kv_index' && !confirm(
       t('bd.kvDefaultConfirm','未指定参考 FASTA，将用平台默认病毒参考（默认鉴定库 kv_index 内自带，约 31 MB）重建索引。继续？'))) return;
@@ -351,6 +365,7 @@ async function buildKvIndex(btn) {
     const r = await fetch('/api/build_kv_index', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fasta, engines, name,
+                             overwrite: !!( $('kvidxOverwrite') && $('kvidxOverwrite').checked ),
                              threads: parseInt(val('kvidxThreads'), 10) || 8 })});
       if (!r.ok) { alert(t('bd.startFail','启动失败: ') + ((await r.json()).error || '')); return; }
     const d = await r.json();
@@ -368,7 +383,7 @@ async function loadKvIndexList() {
     const badge = (ok, label) =>
       `<span class="badge ${ok ? 'ok' : 'no'}">${label} ${ok ? '✔' : '✘'}</span>`;
     const engs = d.engines || {};
-    const engLine = ['salmon'].map(e => {
+    const engLine = ['salmon', 'minibwa'].map(e => {
       const st = engs[e] || {};
       return badge(!!st.available, e) +
         `<span class="hint" style="margin:0 10px 0 6px">${esc(st.path || t('bd.notFound','未找到'))}</span>`;
@@ -389,6 +404,7 @@ async function loadKvIndexList() {
         ? `<span class="hint" style="margin-left:6px">${t('bd.external','外部')}</span>` : '';
       return `<div style="margin:4px 0">${badge(true, esc(l.name))} ` +
         badge(!!l.salmon, 'salmon') +
+        badge(!!l.minibwa, 'minibwa') +
         tag + extra +
         `<span class="hint" style="margin-left:8px">${esc(l.path)}</span>` + rm + '</div>';
     }).join('') || '<p class="hint">' + t('bd.noKvLib','（databases/virusref_db/ 下暂无鉴定库）') + '</p>';
@@ -396,7 +412,89 @@ async function loadKvIndexList() {
   } catch (e) {}
 }
 
+/* ── 原始数据集（分发物）与派生库就绪态 ──
+   数据集与数据库区分开的 UI 落点：数据集（reference.fasta + ref_info.tsv、
+   RefSeq/RVDB 源 FASTA）随包分发；派生库（引擎索引、kunpeng 分类库）
+   本机构建。引擎索引首跑自动现建；kunpeng 分类库这里一键构建。 */
+function _dsChip(ok, txt, warn) {
+  const mark = ok ? '✔' : (warn ? '○' : '✘');
+  return `<span class="hint" style="margin-left:8px">${mark} ${esc(txt)}</span>`;
+}
+
+async function loadDatasets() {
+  const box = $('dsList');
+  if (!box) return;
+  let d;
+  try { d = await (await fetch('/api/datasets')).json(); } catch (e) { return; }
+  const rows = (d.virusref || []).map(it => {
+    const idxOk = !!(it.salmon || it.minibwa);
+    const idxTxt = idxOk
+      ? `salmon${it.salmon ? '✔' : '✘'} · minibwa${it.minibwa ? '✔' : '○'}`
+      : t('bd.dsIdxAuto', '索引未建（首次运行自动现建）');
+    const kp = it.kunpeng_ready
+      ? _dsChip(true, t('bd.dsKpReady', '分类库已建') + '（' + it.kunpeng_name + '）')
+      : (it.ref_info
+        ? ` <button class="btn small" onclick="buildKunpengFromDataset('${esc(it.name)}', this)"
+             title="${t('bd.dsKpBuildTt', '用本数据集构建 kunpeng 病毒分类库（工具②/④ 用）')}">🧬 ${t('bd.dsKpBuild', '构建分类库')}</button>`
+        : _dsChip(false, t('bd.dsNoInfo', '缺 ref_info（无 Taxid 列），不能构建分类库')));
+    return `<div style="margin:6px 0">🧬 <b>${esc(it.name)}</b>` +
+      _dsChip(true, `${t('bd.dsRef', '参考')} ${it.ref_mb} MB`) +
+      (it.ref_info ? _dsChip(true, t('bd.dsInfo', '注释表'))
+                   : _dsChip(false, t('bd.dsNoInfo2', '无注释表'))) +
+      _dsChip(idxOk, idxTxt, !idxOk) + kp +
+      `<span class="hint" style="margin-left:8px">${esc(it.path)}</span></div>`;
+  }).join('') ||
+    `<p class="hint">${t('bd.dsNone', '（virusref_db 下暂无数据集）')}</p>`;
+  const uniRow = (key, label, tip) => {
+    const u = (d.universal || {})[key];
+    if (!u) return '';
+    const has = !!u.fasta;
+    const built = u.built ? _dsChip(true, t('bd.dsUniBuilt', '分类库已建'))
+                          : _dsChip(false, t('bd.dsUniNotBuilt', '分类库未建'));
+    const btn = has && !u.built
+      ? ` <button class="btn small" onclick="buildUniversalDb('${key}', this)">🧬 ${t('bd.dsUniBuild', '构建')}</button>`
+      : '';
+    const tipTxt = has ? esc(u.fasta) : esc(tip);
+    return `<div style="margin:6px 0">🧬 <b>${esc(label)}</b>${built}${btn}` +
+      `<span class="hint" style="margin-left:8px">${tipTxt}</span></div>`;
+  };
+  box.innerHTML = rows +
+    uniRow('refvirus', 'RefSeq Viral 源 FASTA',
+           t('bd.dsRefseqTip', '未就绪：下载 viral.1.1.genomic.fna.gz 放入 databases/virus_ref/')) +
+    uniRow('rvdb', 'RVDB 源 FASTA',
+           t('bd.dsRvdbTip', '未就绪：下载 C-RVDB FASTA 放入 databases/virus_ref/'));
+}
+
+/* 数据集 → kunpeng 病毒分类库（kv_index ↔ plant 主库，其余数据集同名建库）。
+   建库源就是分发数据集本身：reference.fasta（Accession 头）+ ref_info.tsv
+   （含 Accession/Taxid 列），走 /api/build_virus_db 同一入口。 */
+async function buildKunpengFromDataset(name, btn) {
+  try {
+    const r = await fetch('/api/datasets');
+    const d = await r.json();
+    const it = (d.virusref || []).find(x => x.name === name);
+    if (!it || !it.ref_info) {
+      alert(t('bd.dsNoInfo', '缺 ref_info（无 Taxid 列），不能构建分类库'));
+      return;
+    }
+    const r2 = await fetch('/api/build_virus_db', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fasta: it.reference, info: it.ref_info,
+                             name: it.kunpeng_name || name })});
+    if (!r2.ok) {
+      alert(t('bd.startFail', '启动失败: ') + ((await r2.json()).error || ''));
+      return;
+    }
+    const d2 = await r2.json();
+    taskLogOpen.add(d2.task);
+    startPolling();
+    watchTaskBtn(d2.task, btn, t('bd.building', '⏳ 建库中…'),
+                 () => { loadDbs(); loadDatasets(); });
+  } catch (e) { alert(t('bd.connFail', '无法连接平台服务: ') + e); }
+}
+
 loadDbs(); loadKvIndexList(); startPolling();
-if (typeof loadHostDbs === 'function') loadHostDbs();</script>
+if (typeof loadHostDbs === 'function') loadHostDbs();
+loadDatasets();</script>
 </body>
 </html>

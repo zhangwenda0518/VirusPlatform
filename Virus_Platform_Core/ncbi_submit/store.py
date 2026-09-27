@@ -29,11 +29,12 @@ import pandas as pd
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from Virus_Platform_Core.config import DIRS
-    from Virus_Platform_Core.utils import safe_open, check_path
+    from Virus_Platform_Core.utils import (safe_open, check_path,
+                                           resolve_sample_name)
     from Virus_Platform_Core.ncbi_submit.unified_metadata import UNIFIED_COLUMNS, REQUIRED_COLS
 else:
     from ..config import DIRS
-    from ..utils import safe_open, check_path
+    from ..utils import safe_open, check_path, resolve_sample_name
     from .unified_metadata import UNIFIED_COLUMNS, REQUIRED_COLS
 
 # 列描述（unified_metadata.UNIFIED_COLUMNS 的 desc 字段）
@@ -555,7 +556,7 @@ def generate_sbt(fields, extra_authors=None, title='', out_name=None):
 # 产物导出（source.src / biosample / miuvig / assembly / report）
 # ══════════════════════════════════════════════════════════════
 
-def export_files(name, assembler='SPAdes;4.3.0;metaviral',
+def export_files(name, assembler='SPAdes;4.3.0;rnaviral',
                  sequencer='Illumina NovaSeq 6000',
                  enrichment='rRNA depletion', log=None):
     """由当前 unified_metadata.csv 生成全部提交产物。返回产物路径 dict。"""
@@ -718,40 +719,97 @@ def fasta_id_check(name, fasta_path):
     return r
 
 
+# ── 样品管道世界（results/<样品>/）与工具运行世界（tool_runs/）的统一寻址 ──
+# 链接 json / 下拉值里的 run 名带 'sample:' 前缀 = 样品管道结果目录，
+# 其余 = tool_runs/<运行名>。提交模块由此能认领管道页 ⚡分段一键的产物
+# （③组装分类表 / 04_orf+04b 注释），两个世界共用同一套导入/关联/推断代码。
+SAMPLE_RUN_PREFIX = 'sample:'
+
+
+def _is_sample_run(run):
+    return str(run or '').strip().startswith(SAMPLE_RUN_PREFIX)
+
+
+def _sample_of_run(run):
+    return str(run or '').strip()[len(SAMPLE_RUN_PREFIX):]
+
+
+def _sample_results_dir(sample):
+    """样品名 → results/<真实目录名>。
+
+    resolve_sample_name 兼容历史/中文命名的样品目录（与 samples.py 同口径），
+    样品不存在时 check_path 抛 FileNotFoundError。"""
+    name = resolve_sample_name(str(sample or '').strip(), DIRS['results'])
+    return check_path(os.path.join(DIRS['results'], name), must_exist=True,
+                      in_platform=True)
+
+
+def _resolve_run_dir(run):
+    """run 名 → 真实目录：'sample:<样品名>' → results/<样品>；否则 tool_runs/<run>。"""
+    r = str(run or '').strip()
+    if r.startswith(SAMPLE_RUN_PREFIX):
+        return _sample_results_dir(r[len(SAMPLE_RUN_PREFIX):])
+    from ..config import PLATFORM_ROOT
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', r):
+        raise ValueError(f'非法运行名: {run!r}')
+    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
+    return check_path(os.path.join(root, r), must_exist=True, in_platform=True)
+
+
+def _iter_pipeline_samples():
+    """results/ 下的一级样品目录名（_ 开头内部目录除外），新→旧排序。"""
+    res = DIRS.get('results')
+    if not os.path.isdir(res):
+        return
+    for nm in sorted(os.listdir(res), reverse=True):
+        if nm.startswith('_') or not os.path.isdir(os.path.join(res, nm)):
+            continue
+        yield nm
+
+
 def infer_source_fasta(name):
     """自动推断提交序列 FASTA 路径（供前端预填，找不到返回 None）。
 
     优先级：
-      1. 关联的 contigs 运行 viral_contigs.fasta（分类运行输出=病毒序列）
+      1. 关联的 contigs 运行 viral_contigs.fasta（分类运行输出=病毒序列；
+         sample: 链接则指向 results/<样品>/03_assembly/）
       2. 关联的 orf 运行 04_orf 上游 contigs（03_assembly/*.fasta 或输入）
       3. 关联 contigs 运行目录下其余 fasta（contigs.filtered.fasta）
     返回绝对路径或 None。
     """
-    from ..config import PLATFORM_ROOT
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     cands = []
     cl = _read_link(name, 'contigs')
     if cl and cl.get('run'):
-        rd = os.path.join(root, cl['run'])
-        for p in (os.path.join(rd, 'viral_contigs.fasta'),
-                  os.path.join(rd, 'contigs.filtered.fasta')):
-            if os.path.isfile(p):
-                cands.append(p)
-    if not cands and cl and cl.get('run'):
-        for cur, _s, fns in os.walk(os.path.join(root, cl['run'])):
-            for fn in sorted(fns):
-                if fn.endswith('.fasta') or fn.endswith('.fna'):
-                    cands.append(os.path.join(cur, fn))
-            if cands:
-                break
+        try:
+            rd = _resolve_run_dir(cl['run'])
+        except (OSError, ValueError):
+            rd = None
+        if rd:
+            for p in (os.path.join(rd, 'viral_contigs.fasta'),
+                      os.path.join(rd, '03_assembly', 'viral_contigs.fasta'),
+                      os.path.join(rd, 'contigs.filtered.fasta')):
+                if os.path.isfile(p):
+                    cands.append(p)
+            if not cands:
+                for cur, _s, fns in os.walk(rd):
+                    for fn in sorted(fns):
+                        if fn.endswith('.fasta') or fn.endswith('.fna'):
+                            cands.append(os.path.join(cur, fn))
+                    if cands:
+                        break
     ol = _read_link(name, 'orf')
     if ol and ol.get('run') and not cands:
-        for cur, _s, fns in os.walk(os.path.join(root, ol['run'])):
-            for fn in sorted(fns):
-                if fn.endswith('.fasta') or fn.endswith('.fna'):
-                    cands.append(os.path.join(cur, fn))
-            if cands:
-                break
+        try:
+            rd = _resolve_run_dir(ol['run'])
+        except (OSError, ValueError):
+            rd = None
+        if rd:
+            for cur, _s, fns in os.walk(rd):
+                for fn in sorted(fns):
+                    if fn.endswith('.fasta') or fn.endswith('.fna'):
+                        cands.append(os.path.join(cur, fn))
+                if cands:
+                    break
     # 取第一个真实存在的
     for p in cands:
         if os.path.isfile(p):
@@ -809,19 +867,42 @@ _RUN_FIELD_MAP = {
 
 
 def import_from_run(name, run):
-    """把 tool_runs/<run>/virus_classification.tsv 的病毒 contigs 导入为表行。
+    """把运行/样品分类表的病毒 contigs 导入为表行。
 
+    run 两种寻址：
+      - tool_runs/<run>/virus_classification.tsv（工具世界的 contigs 运行）
+      - 'sample:<样品名>' → results/<样品>/03_assembly/virus_contigs.tsv
+        （样品管道 ⚡组装·kunpeng鉴定分类 段产物；该表是 CONTIG_COLS 口径、
+        没有 lineage 列，把 kunpeng_species/blast_species → species、
+        blast_family → family 映射后供 organism 推断）
     sequence_name=contig，organism 由分级分类智能推断（species→genus sp.→family sp.）。
     表内已有同名 sequence_name 的行跳过。
     返回 {added, skipped, run, lineage_cols, rows:[{contig, organism, family, near_complete}]}
     """
-    from ..config import PLATFORM_ROOT
-    if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
-        raise ValueError(f'非法运行名: {run!r}')
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
-    tsv = check_path(os.path.join(root, run, 'virus_classification.tsv'),
-                     must_exist=True, in_platform=True)
+    if _is_sample_run(run):
+        sdir = _sample_results_dir(_sample_of_run(run))
+        tsv = check_path(os.path.join(sdir, '03_assembly', 'virus_contigs.tsv'),
+                         must_exist=True, in_platform=True)
+    else:
+        from ..config import PLATFORM_ROOT
+        if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
+            raise ValueError(f'非法运行名: {run!r}')
+        root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
+        tsv = check_path(os.path.join(root, run, 'virus_classification.tsv'),
+                         must_exist=True, in_platform=True)
     tdf = pd.read_csv(tsv, sep='\t', dtype=str, keep_default_na=False)
+    if _is_sample_run(run):
+        def _first(r, *keys):
+            for k in keys:
+                v = str(r.get(k, '') or '').strip()
+                if v and v.lower() not in ('na', 'nan', 'none'):
+                    return v
+            return ''
+        recs = tdf.to_dict('records')
+        tdf = tdf.assign(
+            species=[_first(r, 'kunpeng_species', 'blast_species') for r in recs],
+            family=[_first(r, 'blast_family') for r in recs],
+        )
     for col in ('contig',):
         if col not in tdf.columns:
             raise KeyError(f"{run} 的分类表缺少 {col} 列")
@@ -869,7 +950,11 @@ def import_from_run(name, run):
 
 
 def list_contig_runs():
-    """有 virus_classification.tsv 的 contigs 运行列表（导入下拉用）。"""
+    """有分类表的运行列表（导入下拉用）。
+
+    两类来源：tool_runs/ 的 contigs_* 运行（virus_classification.tsv）、
+    样品管道（results/<样品>/03_assembly/virus_contigs.tsv，值带 sample: 前缀，
+    前端显示为「样品 X（管道产物）」）。"""
     from ..config import PLATFORM_ROOT
     root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     out = []
@@ -880,12 +965,18 @@ def list_contig_runs():
             if os.path.isfile(os.path.join(root, nm,
                                            'virus_classification.tsv')):
                 out.append(nm)
+    for nm in _iter_pipeline_samples():
+        if os.path.isfile(os.path.join(DIRS['results'], nm, '03_assembly',
+                                       'virus_contigs.tsv')):
+            out.append(SAMPLE_RUN_PREFIX + nm)
     return out[:30]
 
 
 def list_orf_runs():
     """有 CDS 注释产物（04b_orf_annot/orf_annotation.tsv 或 04_orf/*.gff）的
-    orf/orfa 运行列表（"关联注释"下拉用）。"""
+    orf/orfa 运行列表（"关联注释"下拉用）。
+
+    同样含样品管道条目（results/<样品>/，值带 sample: 前缀）。"""
     from ..config import PLATFORM_ROOT
     root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
     out = []
@@ -900,16 +991,19 @@ def list_orf_runs():
                    list(Path(d).glob('04b_orf_annot/*.gff*')))
             if hit:
                 out.append(nm)
+    for nm in _iter_pipeline_samples():
+        d = os.path.join(DIRS['results'], nm)
+        hit = (os.path.isfile(os.path.join(d, '04b_orf_annot',
+                                           'orf_annotation.tsv')) or
+               list(Path(d).glob('04_orf/*.gff')) or
+               list(Path(d).glob('04b_orf_annot/*.gff*')))
+        if hit:
+            out.append(SAMPLE_RUN_PREFIX + nm)
     return out[:30]
 
 
 def _orf_run_dir(run):
-    from ..config import PLATFORM_ROOT
-    if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
-        raise ValueError(f'非法运行名: {run!r}')
-    root = DIRS.get('tool_runs') or os.path.join(PLATFORM_ROOT, 'run', 'tool_runs')
-    return check_path(os.path.join(root, run), must_exist=True,
-                      in_platform=True)
+    return _resolve_run_dir(run)
 
 
 def _link_file(name, kind):
@@ -997,6 +1091,46 @@ def link_orf_run(name, orf_run):
             'n_cds': n_cds, 'host_sources': host_sources,
             'missing': missing[:50], 'n_missing': len(missing),
             'gffs': gffs[:5]}
+
+
+def adopt_sample(sample):
+    """样品管道注释产物 → 提交项目一键建档（管道页「提交准备」按钮直达）。
+
+    三步：① 建/复用与样品同名的提交项目；② 导入 ③组装分类表
+    （virus_contigs.tsv）为表行；③ 关联该样品的 orf 注释运行
+    （04_orf/04b，sample: 前缀寻址）。
+    缺哪类产物就在 missing 里如实标注（引导先跑对应段），
+    两类全缺才抛 ValueError。
+
+    返回 {name, created, imported, linked, missing}
+    """
+    name = str(sample or '').strip()
+    _sample_results_dir(name)          # 校验样品存在（并解析真实目录名）
+    created = False
+    try:
+        create_table(name)
+        created = True
+    except FileExistsError:
+        pass                           # 复用现有项目（幂等：重复点击不炸）
+    missing, imported, linked = [], None, None
+    try:
+        imported = import_from_run(name, SAMPLE_RUN_PREFIX + name)
+    except (OSError, ValueError, KeyError):
+        missing.append('③组装分类表（先跑「组装·kunpeng鉴定分类」段）')
+    try:
+        linked = link_orf_run(name, SAMPLE_RUN_PREFIX + name)
+        # link_orf_run 对"目录在但没注释产物"不报错（n_cds=0/gffs 空）——
+        # 那只是空关联，如实归入缺产物，引导先跑注释段
+        if not linked.get('n_cds') and not linked.get('gffs'):
+            missing.append('orf 注释产物（先跑「注释三连」段）')
+            linked = None
+    except (OSError, ValueError, KeyError):
+        missing.append('orf 注释产物（先跑「注释三连」段）')
+    if imported is None and linked is None:
+        raise ValueError(f'样品 {name} 暂无可认领的注释产物：'
+                         + '；'.join(missing))
+    return {'name': name, 'created': created, 'imported': imported,
+            'linked': linked, 'missing': missing}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1208,7 +1342,7 @@ _DEMO_ROWS = [
         "gb-title": "",
         "sra": "CRR123456",
         "biosample": "SAMNXXXXXXXX",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Genome_Coverage": "42.5x",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",
@@ -1238,7 +1372,7 @@ _DEMO_ROWS = [
         "gb-title": "",
         "sra": "CRR123456",
         "biosample": "SAMNXXXXXXXX",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Genome_Coverage": "38.1x",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",
@@ -1268,7 +1402,7 @@ _DEMO_ROWS = [
         "gb-title": "Torradovirus Ningxiaense genome sequencing",
         "sra": "SRR31651831",
         "biosample": "SAMN56789012",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Genome_Coverage": "56.3x",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",
@@ -1296,7 +1430,7 @@ _DEMO_ROWS = [
         "gb-title": "Mint virus X from Lycium ruthenicum",
         "sra": "SRR33301106",
         "biosample": "SAMN67890123",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Genome_Coverage": "23.7x",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",
@@ -1321,7 +1455,7 @@ _DEMO_ROWS = [
         "gb-title": "",
         "sra": "SRR33389501",
         "biosample": "SAMNXXXXXXXX",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",
         "bs-isolate": "novel_virus_SRR33389501",
@@ -1347,7 +1481,7 @@ _DEMO_ROWS = [
         "gb-title": "Potexvirus lycii from goji berry",
         "sra": "SRR30124789",
         "biosample": "SAMN78901234",
-        "cmt-Assembly_Method": "SPAdes;4.3.0;metaviral",
+        "cmt-Assembly_Method": "SPAdes;4.3.0;rnaviral",
         "cmt-Sequencing_Technology": "Illumina NovaSeq 6000",
         "cmt-Genome_Coverage": "61.2x",
         "cmt-Annotation_Pipeline": "MMPV-RNA v2.3 + suvtk v0.1.1",

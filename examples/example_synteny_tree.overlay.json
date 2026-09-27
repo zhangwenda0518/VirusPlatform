@@ -1,0 +1,265 @@
+{
+ "note": "Platform built-in example: tracks from examples/example_synteny_{A,B,C}.gb CDS; links = per-family protein identity of the /translation qualifiers; tree = NJ over concatenated CDS.",
+ "tracks": [
+  {
+   "name": "example_synteny_A",
+   "acc": "example_synteny_A",
+   "genus": "Potexvirus",
+   "length": 5640,
+   "genes": [
+    {
+     "id": "example_synteny_A__ORF1",
+     "start": 151,
+     "end": 990,
+     "strand": "+",
+     "product": "RNA-dependent RNA polymerase",
+     "cid": "F01"
+    },
+    {
+     "id": "example_synteny_A__ORF2",
+     "start": 1051,
+     "end": 1890,
+     "strand": "+",
+     "product": "Triple gene block 1 protein",
+     "cid": "F02"
+    },
+    {
+     "id": "example_synteny_A__ORF3",
+     "start": 1951,
+     "end": 2790,
+     "strand": "+",
+     "product": "Triple gene block 2 protein",
+     "cid": "F03"
+    },
+    {
+     "id": "example_synteny_A__ORF4",
+     "start": 2851,
+     "end": 3690,
+     "strand": "+",
+     "product": "Triple gene block 3 protein",
+     "cid": "F04"
+    },
+    {
+     "id": "example_synteny_A__ORF5",
+     "start": 3751,
+     "end": 4590,
+     "strand": "+",
+     "product": "Coat protein",
+     "cid": "F05"
+    },
+    {
+     "id": "example_synteny_A__ORF6",
+     "start": 4651,
+     "end": 5490,
+     "strand": "+",
+     "product": "Nucleic acid-binding protein",
+     "cid": "F06"
+    }
+   ]
+  },
+  {
+   "name": "example_synteny_B",
+   "acc": "example_synteny_B",
+   "genus": "Potexvirus",
+   "length": 5640,
+   "genes": [
+    {
+     "id": "example_synteny_B__ORF1",
+     "start": 151,
+     "end": 990,
+     "strand": "+",
+     "product": "RNA-dependent RNA polymerase",
+     "cid": "F01"
+    },
+    {
+     "id": "example_synteny_B__ORF2",
+     "start": 1051,
+     "end": 1890,
+     "strand": "+",
+     "product": "Triple gene block 1 protein",
+     "cid": "F02"
+    },
+    {
+     "id": "example_synteny_B__ORF3",
+     "start": 1951,
+     "end": 2790,
+     "strand": "+",
+     "product": "Triple gene block 2 protein",
+     "cid": "F03"
+    },
+    {
+     "id": "example_synteny_B__ORF4",
+     "start": 2851,
+     "end": 3690,
+     "strand": "+",
+     "product": "Triple gene block 3 protein",
+     "cid": "F04"
+    },
+    {
+     "id": "example_synteny_B__ORF5",
+     "start": 3751,
+     "end": 4590,
+     "strand": "+",
+     "product": "Coat protein",
+     "cid": "F05"
+    },
+    {
+     "id": "example_synteny_B__ORF6",
+     "start": 4651,
+     "end": 5490,
+     "strand": "+",
+     "product": "Nucleic acid-binding protein",
+     "cid": "F06"
+    }
+   ]
+  },
+  {
+   "name": "example_synteny_C",
+   "acc": "example_synteny_C",
+   "genus": "Potexvirus",
+   "length": 5640,
+   "genes": [
+    {
+     "id": "example_synteny_C__ORF1",
+     "start": 151,
+     "end": 990,
+     "strand": "+",
+     "product": "RNA-dependent RNA polymerase",
+     "cid": "F01"
+    },
+    {
+     "id": "example_synteny_C__ORF2",
+     "start": 1051,
+     "end": 1890,
+     "strand": "+",
+     "product": "Triple gene block 1 protein",
+     "cid": "F02"
+    },
+    {
+     "id": "example_synteny_C__ORF3",
+     "start": 1951,
+     "end": 2790,
+     "strand": "+",
+     "product": "Triple gene block 2 protein",
+     "cid": "F03"
+    },
+    {
+     "id": "example_synteny_C__ORF4",
+     "start": 2851,
+     "end": 3690,
+     "strand": "+",
+     "product": "Triple gene block 3 protein",
+     "cid": "F04"
+    },
+    {
+     "id": "example_synteny_C__ORF5",
+     "start": 3751,
+     "end": 4590,
+     "strand": "+",
+     "product": "Coat protein",
+     "cid": "F05"
+    },
+    {
+     "id": "example_synteny_C__ORF6",
+     "start": 4651,
+     "end": 5490,
+     "strand": "+",
+     "product": "Nucleic acid-binding protein",
+     "cid": "F06"
+    }
+   ]
+  }
+ ],
+ "links": [
+  {
+   "q": "example_synteny_A__ORF1",
+   "t": "example_synteny_B__ORF1",
+   "ident": 92.9
+  },
+  {
+   "q": "example_synteny_A__ORF2",
+   "t": "example_synteny_B__ORF2",
+   "ident": 93.2
+  },
+  {
+   "q": "example_synteny_A__ORF3",
+   "t": "example_synteny_B__ORF3",
+   "ident": 92.1
+  },
+  {
+   "q": "example_synteny_A__ORF4",
+   "t": "example_synteny_B__ORF4",
+   "ident": 92.5
+  },
+  {
+   "q": "example_synteny_A__ORF5",
+   "t": "example_synteny_B__ORF5",
+   "ident": 92.1
+  },
+  {
+   "q": "example_synteny_A__ORF6",
+   "t": "example_synteny_B__ORF6",
+   "ident": 92.1
+  },
+  {
+   "q": "example_synteny_A__ORF1",
+   "t": "example_synteny_C__ORF1",
+   "ident": 75.0
+  },
+  {
+   "q": "example_synteny_A__ORF2",
+   "t": "example_synteny_C__ORF2",
+   "ident": 75.0
+  },
+  {
+   "q": "example_synteny_A__ORF3",
+   "t": "example_synteny_C__ORF3",
+   "ident": 75.7
+  },
+  {
+   "q": "example_synteny_A__ORF4",
+   "t": "example_synteny_C__ORF4",
+   "ident": 75.7
+  },
+  {
+   "q": "example_synteny_A__ORF5",
+   "t": "example_synteny_C__ORF5",
+   "ident": 74.6
+  },
+  {
+   "q": "example_synteny_A__ORF6",
+   "t": "example_synteny_C__ORF6",
+   "ident": 74.3
+  },
+  {
+   "q": "example_synteny_B__ORF1",
+   "t": "example_synteny_C__ORF1",
+   "ident": 70.7
+  },
+  {
+   "q": "example_synteny_B__ORF2",
+   "t": "example_synteny_C__ORF2",
+   "ident": 69.6
+  },
+  {
+   "q": "example_synteny_B__ORF3",
+   "t": "example_synteny_C__ORF3",
+   "ident": 68.6
+  },
+  {
+   "q": "example_synteny_B__ORF4",
+   "t": "example_synteny_C__ORF4",
+   "ident": 70.7
+  },
+  {
+   "q": "example_synteny_B__ORF5",
+   "t": "example_synteny_C__ORF5",
+   "ident": 69.3
+  },
+  {
+   "q": "example_synteny_B__ORF6",
+   "t": "example_synteny_C__ORF6",
+   "ident": 69.6
+  }
+ ]
+}

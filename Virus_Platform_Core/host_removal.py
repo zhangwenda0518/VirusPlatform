@@ -36,6 +36,17 @@ def _norm_read_id(name_line):
     return _strip_pe_suffix(_read_id(name_line))
 
 
+def _finfo(path):
+    """文件指纹（供 stats.json 记录真实分类输入，便于事后复核）。"""
+    p = str(path)
+    try:
+        st = os.stat(p)
+        return {'name': os.path.basename(p), 'size': int(st.st_size),
+                'mtime': int(st.st_mtime_ns)}
+    except OSError:
+        return {'name': os.path.basename(p), 'size': None, 'mtime': None}
+
+
 def _id_patterns(ids, pe_suffix=''):
     """把 ID 集合转成 seqkit 模式文件行（精确匹配用，逐行一个）。
 
@@ -73,13 +84,19 @@ def detect_pe_suffix(fastq_path):
 
 
 def collect_host_read_ids(kraken_out):
-    """收集判定为宿主的 read id 集合（C 行）。"""
+    """收集判定为宿主的 read id 集合（C 行）。
+
+    统一剥掉 /1 /2 配对后缀：过滤侧（python 路径 `_norm_read_id`、seqkit 路径
+    `_id_patterns` 追加探测后缀）都按"无后缀 ID"工作，若这里保留后缀，
+    seqkit 模式会变成 `id/1/1`、python 侧则永不相等——两条路径同时失配且
+    无异常（实测 dropped=0 静默漏掉全部宿主 reads）。
+    """
     host_ids = set()
     total = 0
     for flag, rid, _taxid, _len, _path in parse_classify_output(kraken_out):
         total += 1
         if flag == 'C':
-            host_ids.add(rid)
+            host_ids.add(_strip_pe_suffix(rid))
     return host_ids, total
 
 
@@ -158,13 +175,44 @@ def _seqkit_filter(seqkit, r1, r2, out_r1, out_r2, ids, threads, work_dir,
                 pass
 
 
+def _passthrough_fastq(r1, r2, out_r1, out_r2, logger=None):
+    """0 条宿主 read（合法且常见）：整文件直通，避免逐条解压重压一遍。
+
+    仍做 R1/R2 条数一致性校验（读取即校验完整性，截断文件会抛错）。
+    """
+    import shutil
+    for src, dst in ((r1, out_r1), (r2, out_r2)):
+        if src and dst:
+            shutil.copyfile(check_path(src, must_exist=True),
+                            check_path(dst, must_exist=False, in_platform=True))
+
+    def _count(path):
+        n = 0
+        with safe_open(path) as f:
+            for _rec in iter_fastq_records(f):
+                n += 1
+        return n
+
+    n1 = _count(out_r1)
+    kept2 = _count(out_r2) if r2 else n1
+    if r2 and n1 != kept2:
+        raise RuntimeError(f"R1/R2 read 数不一致（{n1} vs {kept2}），"
+                           f"输入可能不配对")
+    if logger:
+        logger.log("0 条宿主 read：整文件直通（复制，不做逐条过滤）")
+    return {'total_pairs': n1, 'kept_pairs': n1, 'dropped_pairs': 0,
+            'kept_mate2': kept2, 'filter_mode': 'passthrough'}
+
+
 def filter_host_fastq(r1, r2, out_r1, out_r2, drop_ids, logger=None,
                       threads=None, work_dir=None, progress=None):
     """宿主过滤：优先 seqkit -v 反选（多线程），失败回退纯 Python 流式。
 
-    返回统计 dict（total_pairs/kept_pairs/dropped_pairs）。
+    返回统计 dict（total_pairs/kept_pairs/dropped_pairs/filter_mode）。
     """
-    if work_dir is not None and drop_ids:
+    if not drop_ids:
+        return _passthrough_fastq(r1, r2, out_r1, out_r2, logger=logger)
+    if work_dir is not None:
         try:
             from .config import get_config
             seqkit = get_config().tool('seqkit')
@@ -175,17 +223,23 @@ def filter_host_fastq(r1, r2, out_r1, out_r2, drop_ids, logger=None,
                 if logger:
                     logger.log(f"seqkit grep -v 加速过滤"
                                f"（宿主 IDs {len(drop_ids):,} 条）")
-                return _seqkit_filter(seqkit, r1, r2, out_r1, out_r2,
-                                      drop_ids, threads, work_dir,
-                                      logger=logger, progress=progress)
+                res = _seqkit_filter(seqkit, r1, r2, out_r1, out_r2,
+                                     drop_ids, threads, work_dir,
+                                     logger=logger, progress=progress)
+                res['filter_mode'] = 'seqkit'
+                return res
             except Exception as e:
                 if logger:
-                    logger.log(f"seqkit 过滤异常，回退内置过滤: {e}")
+                    logger.log(f"seqkit 过滤异常，回退内置过滤 "
+                               f"[{type(e).__name__}]: {e}", "WARN")
     if r2:
-        return filter_paired_fastq(r1, r2, out_r1, out_r2, drop_ids,
-                                   logger=logger, progress=progress)
-    return filter_single_fastq(r1, out_r1, drop_ids, logger=logger,
-                               progress=progress)
+        res = filter_paired_fastq(r1, r2, out_r1, out_r2, drop_ids,
+                                  logger=logger, progress=progress)
+    else:
+        res = filter_single_fastq(r1, out_r1, drop_ids, logger=logger,
+                                  progress=progress)
+    res['filter_mode'] = 'python'
+    return res
 
 
 def _est_total_pairs(paths):
@@ -342,6 +396,12 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
         'single_end': not bool(r2),
         'input_r1': os.path.basename(str(r1)),
         'input_r2': os.path.basename(str(r2)) if r2 else None,
+        # 真实分类输入（可能是 ⓪b 的 conv_*.fa.gz，而非 input_r1/r2）：
+        # 不记录会导致宿主占比不可复核（历史事故：分类用旧子集、过滤用全量，
+        # 但 stats 只写 input_r1，事后无法看出分母分子错配）。
+        'classify_inputs': [_finfo(p) for p in cls_in],
+        'classify_params': {'confidence': confidence, 'threads': threads,
+                            'min_hit_groups': 2},
         'kraken_out': os.path.basename(res['kraken']) if res['kraken'] else None,
         'kreport': os.path.basename(res['kreport']) if res['kreport'] else None,
         # 宿主库溯源：谁被用来做宿主去除。原先 stats 里完全没有这项，
@@ -360,6 +420,13 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
         **filt,
         'host_ratio': round(filt['dropped_pairs'] / max(filt['total_pairs'], 1), 6),
     }
+    if filt['kept_pairs'] == 0:
+        # 失败态也落 stats（供排障），但显式标 ok=false：
+        # 管道总览/清单据此显示「失败」而不是「已完成」。
+        stats['ok'] = False
+        stats['error'] = ('宿主去除后 0 条 reads 保留——输入可能为空、'
+                          'R1/R2 不配对，或宿主库选错'
+                          '（如用细菌宿主库处理植物数据）')
     with safe_open(stats_file, 'wt') as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
     if logger:
@@ -368,14 +435,18 @@ def remove_host(sample_dir, r1, r2, db_host, threads=None, confidence=0.0,
         # 0 条被去除 = 宿主库与样品宿主可能不匹配（也可能是纯化病毒样品，
         # 所以只告警不报错）。原先这种情况完全静默，下游 ②b 会拿到满屏宿主 reads。
         if filt['dropped_pairs'] == 0 and filt['total_pairs'] > 0:
-            logger.log("⚠ 没有任何 read 被判为宿主：请确认宿主库物种与样品宿主"
-                       "一致（纯化病毒/无宿主污染样品也会如此）", "WARN")
+            if host_ids:
+                logger.log(
+                    f"⚠ kunpeng 判出 {len(host_ids):,} 个宿主 read 但过滤掉 0 条"
+                    f"——疑似 read ID 口径不匹配（过滤模式 "
+                    f"{filt.get('filter_mode')}）；请检查 FASTQ 头格式后重跑",
+                    "WARN")
+            else:
+                logger.log("⚠ 没有任何 read 被判为宿主：请确认宿主库物种与样品宿主"
+                           "一致（纯化病毒/无宿主污染样品也会如此）", "WARN")
     # 先校验再落断点标记：否则 0 reads 的失败态会留下 .done，重跑时
     # 281-285 行直接返回 stats.json，阶段被当成"成功"并让 ②③ 吃空输入。
     if filt['kept_pairs'] == 0:
-        raise RuntimeError(
-            '宿主去除后 0 条 reads 保留——输入可能为空、R1/R2 不配对，'
-            '或宿主库选错（如用细菌宿主库处理植物数据）。'
-            '请核对输入文件与宿主库后重跑。')
+        raise RuntimeError(stats['error'] + '。请核对输入文件与宿主库后重跑。')
     mark_step_done(out_dir, step)
     return stats

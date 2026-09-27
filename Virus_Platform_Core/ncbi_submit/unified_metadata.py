@@ -90,7 +90,7 @@ UNIFIED_COLUMNS = OrderedDict([
     ("biosample",              {"required": True,  "group": "gb", "desc": "BioSample ID (SAMN...)"}),
 
     # === 结构化注释字段 (cmt-*) ===
-    ("cmt-Assembly_Method",    {"required": True,  "group": "cmt", "desc": "组装方法 (如 SPAdes v4.3.0 metaviral)"}),
+    ("cmt-Assembly_Method",    {"required": True,  "group": "cmt", "desc": "组装方法 (如 SPAdes v4.3.0 rnaviral)"}),
     ("cmt-Sequencing_Technology", {"required": True, "group": "cmt", "desc": "测序平台 (如 Illumina NovaSeq 6000)"}),
     ("cmt-Genome_Coverage",    {"required": False, "group": "cmt", "desc": "基因组覆盖度 (如 42.5x)"}),
     ("cmt-Annotation_Pipeline", {"required": False, "group": "cmt", "desc": "注释流程 (如 植物病毒分析平台 ⑥b ORF 功能注释)"}),
@@ -397,7 +397,7 @@ def generate_metadata_csv(seqs, meta_lookup, species_map, args, log):
             "sra": sra,
             "biosample": biosample,
 
-            "cmt-Assembly_Method": args.assembler or "SPAdes v4.3.0 (metaviral)",
+            "cmt-Assembly_Method": args.assembler or "SPAdes v4.3.0 (rnaviral)",
             "cmt-Sequencing_Technology": ref.get('platform') or args.sequencer or "Illumina NovaSeq 6000",
             "cmt-Genome_Coverage": args.coverage or "",
             "cmt-Annotation_Pipeline": args.pipeline or "植物病毒分析平台 ⑥b ORF 功能注释 (DIAMOND/MMseqs2 × RefSeq 病毒蛋白库)",
@@ -777,7 +777,7 @@ def main():
     parser.add_argument('--metadata', help='Global_Unified_Metadata.tsv 或 Core14.tsv (自动优先同目录 Full.tsv)')
     parser.add_argument('--run-title', default='viral_submission', help='运行标题')
     parser.add_argument('-o', '--output', required=True, help='输出目录（限平台目录内）')
-    parser.add_argument('--assembler', default='SPAdes;4.3.0;metaviral')
+    parser.add_argument('--assembler', default='SPAdes;4.3.0;rnaviral')
     parser.add_argument('--sequencer', default='Illumina NovaSeq 6000')
     parser.add_argument('--enrichment', default='rRNA depletion')
     parser.add_argument('--pipeline', default='植物病毒分析平台 ⑥b ORF 功能注释 (DIAMOND/MMseqs2 × RefSeq 病毒蛋白库)')

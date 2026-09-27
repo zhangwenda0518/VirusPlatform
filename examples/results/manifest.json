@@ -22,7 +22,7 @@
   "kind": "tool",
   "module": "align",
   "run": "align_20260909_230255",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "aln": "aln.fasta",
    "aln_used": "aln.trim.fasta",
@@ -89,7 +89,7 @@
   "kind": "tool",
   "module": "assemble",
   "run": "assemble_20260909_231825",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "contigs": "D:\\桌面\\植物病毒分析平台\\tool_runs\\assemble_20260909_231825\\contigs.filtered.fasta",
    "n_contigs": 3,
@@ -104,7 +104,7 @@
   ],
   "generated_at": "2026-09-10 00:51:42",
   "note": "本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / DIAMOND vs RefSeq 病毒蛋白库",
-  "source": "databases/examples/example_contig_1.fasta",
+  "source": "examples/example_contig_1.fasta",
   "title": "保守域与功能元件注释（CDD）"
  },
  "consensus": {
@@ -150,7 +150,7 @@
   "kind": "tool",
   "module": "consensus",
   "run": "consensus_20260909_232131",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "min_cov_pct": 10.0,
    "n_isnv": 0,
@@ -199,7 +199,7 @@
   "kind": "tool",
   "module": "contigs",
   "run": "contigs_20260909_231853",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "classification": "D:\\桌面\\植物病毒分析平台\\tool_runs\\contigs_20260909_231853\\virus_classification.tsv",
    "kreport": "D:\\桌面\\植物病毒分析平台\\tool_runs\\contigs_20260909_231853\\classify\\output_1.kreport2",
@@ -225,12 +225,30 @@
   "kind": "tool",
   "module": "convert",
   "run": "convert_20260909_230247",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "n_files": 1,
    "run": "convert_20260909_230247"
   },
   "title": "格式转换（FASTQ→FASTA）"
+ },
+ "dsrna": {
+  "files": [
+   "amplicons.fa",
+   "arms.fa",
+   "cand_w0_c0.csv",
+   "cand_w0_c1.csv",
+   "cand_w0_c2.csv",
+   "primers.tsv",
+   "report.json",
+   "result.csv",
+   "summary.json",
+   "targets_w0.fa"
+  ],
+  "generated_at": "2026-09-19 16:43:58",
+  "note": "dsRNA 设计全链（dsrnamax 选窗 + siRNA 效价 + T7 引物）：CMV 三条 RNA，seed=42 可复现",
+  "source": "examples/example_cmv.fasta",
+  "title": "dsRNA 设计（RNAi 臂序列优化）"
  },
  "fastp": {
   "files": [
@@ -263,7 +281,7 @@
   "kind": "tool",
   "module": "fastp",
   "run": "fastp_20260909_230245",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "fastp_r1": "fastp_R1.fastq.gz",
    "fastp_r2": "fastp_R2.fastq.gz",
@@ -303,7 +321,7 @@
   "kind": "tool",
   "module": "genoplot",
   "run": "genoplot_20260909_230217",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "input": "example_genome.gb",
    "n_seqs": 0,
@@ -320,70 +338,8 @@
   ],
   "generated_at": "2026-09-10 00:51:42",
   "note": "本地引擎（离线）：mmseqs2 vs CDD / blastn vs 病毒参考核酸库 / DIAMOND vs RefSeq 病毒蛋白库",
-  "source": "databases/examples/example_contig_1.fasta",
+  "source": "examples/example_contig_1.fasta",
   "title": "同源比对（BLASTN / BLASTX）"
- },
- "hostpredict": {
-  "files": [
-   {
-    "path": "run.log",
-    "size": "664.0B"
-   },
-   {
-    "path": "08_host_analysis/sunburst_host.html",
-    "size": "7.7KB"
-   },
-   {
-    "path": "08_host_analysis/sankey_host.html",
-    "size": "7.5KB"
-   },
-   {
-    "path": "08_host_analysis/plotly.min.js",
-    "size": "4.6MB"
-   },
-   {
-    "path": "08_host_analysis/.host_analysis.done",
-    "size": "19.0B"
-   },
-   {
-    "path": "08_host_analysis/summary.json",
-    "size": "834.0B"
-   },
-   {
-    "path": "08_host_analysis/Plant.classified.fasta",
-    "size": "13.0KB"
-   },
-   {
-    "path": "08_host_analysis/host_summary.tsv",
-    "size": "30.0B"
-   },
-   {
-    "path": "08_host_analysis/host_prediction.tsv",
-    "size": "597.0B"
-   },
-   {
-    "path": "03_assembly/virus_contigs.tsv",
-    "size": "302.0B"
-   },
-   {
-    "path": "03_assembly/viral_contigs.fasta",
-    "size": "13.0KB"
-   }
-  ],
-  "generated_at": "2026-09-09 23:21:53",
-  "kind": "tool",
-  "module": "hostpredict",
-  "run": "hostpredict_20260909_232147",
-  "source": "databases/examples/",
-  "stats": {
-   "n_contigs": 2,
-   "n_host_warn": 0,
-   "run": "hostpredict_20260909_232147",
-   "stage": "host_analysis",
-   "summary_tsv": "host_summary.tsv",
-   "tsv": "host_prediction.tsv"
-  },
-  "title": "宿主预测（ICTV 级联）"
  },
  "hostremoval": {
   "files": [
@@ -424,7 +380,7 @@
   "kind": "tool",
   "module": "hostremoval",
   "run": "hostremoval_20260909_230239",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "dropped_pairs": 44,
    "host_ratio": 0.012222,
@@ -478,7 +434,7 @@
   "kind": "tool",
   "module": "identify",
   "run": "identify_20260909_231851",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "kreport": "D:\\桌面\\植物病毒分析平台\\tool_runs\\identify_20260909_231851\\classify\\output_1.kreport2",
    "n_classified": 3600,
@@ -538,7 +494,7 @@
   "kind": "tool",
   "module": "identity",
   "run": "identity_20260909_230408",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "aa_csv": "aa_matrix.csv",
    "composite": "identity_composite.png",
@@ -559,17 +515,13 @@
    {
     "path": "_chain.json",
     "size": "748.0B"
-   },
-   {
-    "path": "run.log",
-    "size": "8.6KB"
    }
   ],
   "generated_at": "2026-09-09 23:28:11",
   "kind": "tool",
   "module": "kvchain",
   "run": "kvchain_20260909_232729",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "chain": "kvchain_20260909_232729",
    "chain_json": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvchain_20260909_232729\\_chain.json",
@@ -634,7 +586,7 @@
   "kind": "tool",
   "module": "kvsuite",
   "run": "kvsuite_20260909_232324",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "engine": "minibwa",
    "filtered_tsv": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232324\\kvsuite\\filter\\filtered.tsv",
@@ -656,8 +608,21 @@
   ],
   "generated_at": "2026-09-09 23:41:55",
   "note": "示例任务已建在 logan/EXAMPLE_TMV/，可直接在 /logan 页面查看；结果表为演示数据，列名与 Logan-Search 导出表一致",
-  "source": "databases/examples/",
+  "source": "examples/",
   "title": "LOGAN 序列溯源查询（示例任务 EXAMPLE_TMV）"
+ },
+ "mirna": {
+  "files": [
+   "mirna_report.html",
+   "mirna_targets_merged.csv",
+   "results.json",
+   "results.tsv",
+   "summary.json"
+  ],
+  "generated_at": "2026-09-20 01:19:07",
+  "note": "准确引擎重写版：psRNATarget=MiRNATarget 官方口径 / RNA22=参考实现 / TAPIR=erbon7 口径 / psRobot=v1.2 C 口径移植；含官方 miRanda/RNAhybrid/PITA 二进制交叉验证层与 sRNA 风格合并报告",
+  "source": "examples/example_mirna.fasta + examples/example_cmv.fasta",
+  "title": "miRNA 靶标预测（PAmiRDB）"
  },
  "orf": {
   "files": [
@@ -714,7 +679,7 @@
   "kind": "tool",
   "module": "orf",
   "run": "orf_20260909_230215",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "input": "viral_contigs.fasta",
    "n_contigs": 2,
@@ -778,7 +743,7 @@
   "kind": "tool",
   "module": "orfa",
   "run": "orfa_20260909_231215",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "input": "viral_contigs.fasta",
    "n_contigs": 2,
@@ -786,6 +751,424 @@
    "stage": "orf"
   },
   "title": "ORF 功能注释"
+ },
+ "pdprep": {
+  "files": [
+   {
+    "path": "pdprep/summary.json",
+    "size": "2.4KB"
+   },
+   {
+    "path": "run.log",
+    "size": "220.0B"
+   },
+   {
+    "path": "pdprep/metadata.csv",
+    "size": "627.0B"
+   },
+   {
+    "path": "pdprep/sequences.fasta",
+    "size": "18.2KB"
+   }
+  ],
+  "generated_at": "2026-09-21 03:56:17",
+  "kind": "tool",
+  "module": "pdprep",
+  "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\pdprep_20260921_035615_f9c226",
+  "run": "pdprep_20260921_035615_f9c226",
+  "source": "examples/",
+  "stats": {
+   "abs.coords": null,
+   "abs.meta": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\pdprep_20260921_035615_f9c226\\pdprep\\metadata.csv",
+   "abs.seq": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\pdprep_20260921_035615_f9c226\\pdprep\\sequences.fasta",
+   "abs.sub_meta": null,
+   "abs.sub_seq": null,
+   "align_qc": null,
+   "coords": null,
+   "dedup": null,
+   "fasta": "pdprep/sequences.fasta",
+   "govern.date_format.iso_year": 15,
+   "govern.date_precision.year": 15,
+   "govern.mode": "mid",
+   "govern.n_country_only": 0,
+   "govern.n_date_ambiguous_frac": 0,
+   "govern.n_date_ok": 15,
+   "govern.n_rows": 15,
+   "govern.warnings_n": 1,
+   "issues_n": 0,
+   "meta_pick.govern.mode": "mid",
+   "meta_pick.govern.n_country_only": 0,
+   "meta_pick.govern.n_date_ambiguous_frac": 0,
+   "meta_pick.govern.n_date_ok": 15,
+   "meta_pick.govern.n_rows": 15,
+   "meta_pick.govern.warnings_n": 1,
+   "meta_pick.n_rows": 15,
+   "meta_pick.release_date_rows": 0,
+   "metadata": "pdprep/metadata.csv",
+   "n_input": 15,
+   "n_issues": 0,
+   "n_kept": 15,
+   "n_rows_input": 15,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\pdprep_20260921_035615_f9c226",
+   "run": "pdprep_20260921_035615_f9c226",
+   "source": "files",
+   "subsample": null,
+   "summary.has_coords": false,
+   "summary.location_counts_n": 3,
+   "summary.locations_n": 3,
+   "summary.map_points_n": 0,
+   "summary.n_locations": 3,
+   "summary.n_locations_hidden": 0,
+   "summary.n_rows": 15,
+   "summary.n_sequences": 15,
+   "summary.per_year_n": 12,
+   "summary.year_span_n": 2,
+   "summary.years_n": 12,
+   "tool": "pdprep",
+   "warnings_n": 1
+  },
+  "title": "进化动力学数据接入"
+ },
+ "phylodyn": {
+  "files": [
+   {
+    "path": "run.log",
+    "size": "11.4KB"
+   },
+   {
+    "path": "phylodyn_summary.json",
+    "size": "21.2KB"
+   },
+   {
+    "path": "report/RUN_REPORT.md",
+    "size": "4.5KB"
+   },
+   {
+    "path": "report/config.resolved.json",
+    "size": "760.0B"
+   },
+   {
+    "path": "report/run_summary.json",
+    "size": "6.9KB"
+   },
+   {
+    "path": "phylogeo/phylogeo_report.json",
+    "size": "5.8KB"
+   },
+   {
+    "path": "phylogeo/events_year.tsv",
+    "size": "488.0B"
+   },
+   {
+    "path": "phylogeo/corridors.tsv",
+    "size": "109.0B"
+   },
+   {
+    "path": "phylogeo/ml_xcheck/annotated_tree.nexus",
+    "size": "1.7KB"
+   },
+   {
+    "path": "phylogeo/ml_xcheck/confidence.csv",
+    "size": "1.7KB"
+   },
+   {
+    "path": "phylogeo/ml_xcheck/GTR.txt",
+    "size": "408.0B"
+   },
+   {
+    "path": "phylogeo/ml/annotated_tree.nexus",
+    "size": "1.7KB"
+   }
+  ],
+  "generated_at": "2026-09-21 03:56:54",
+  "kind": "tool",
+  "module": "phylodyn",
+  "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6",
+  "run": "phylodyn_20260921_035638_83ccc6",
+  "source": "examples/",
+  "stats": {
+   "ancestral.n_mutations": null,
+   "ancestral.ok": null,
+   "ancestral.tree_used": null,
+   "clock.drt.conclusion": "✓ 通过：真实 R²=0.6171，经验 p=0.005（0/200 次日期随机化 ≥ 真实值，阈值 0.05）—— 时间信号显著，适合做分子钟定年",
+   "clock.drt.n_ge": 0,
+   "clock.drt.n_invalid": 0,
+   "clock.drt.n_valid": 200,
+   "clock.drt.old_threshold_pass": true,
+   "clock.drt.p_value": 0.005,
+   "clock.drt.passed": true,
+   "clock.drt.passed_percentile95": true,
+   "clock.drt.r2_best_root": 0.6171,
+   "clock.drt.r2_percentile": 100.0,
+   "clock.drt.real_r2": 0.6171,
+   "clock.drt.real_slope": 0.01169519587628866,
+   "clock.drt.sign_consistent": false,
+   "clock.drt.verdict": "pass",
+   "clock.drt.verdict_dissent_n": 0,
+   "clock.drt.warnings_n": 1,
+   "clock.n_methods_ok": 1,
+   "clock.n_methods_usable": 1,
+   "clock.root_year": 1978.4307,
+   "clock.rtt_fit.intercept": -6.420225893459335,
+   "clock.rtt_fit.n": 15,
+   "clock.rtt_fit.r2": 0.4447522764003706,
+   "clock.rtt_fit.slope": 0.003241318556701031,
+   "clock.rtt_points_n": 15,
+   "clock.stats_n": 1,
+   "clock.timetree.axis_label": "采样年（日历年）",
+   "clock.timetree.dating_source": "TreeTime",
+   "clock.timetree.max_x": 2018.4555555555555,
+   "clock.timetree.min_x": 1978.4307255555555,
+   "clock.timetree.n_back_tips": 0,
+   "clock.timetree.n_backfilled": 0,
+   "clock.timetree.n_date_map": 15,
+   "clock.timetree.n_dated": 29,
+   "clock.timetree.n_internal": 14,
+   "clock.timetree.n_tips": 15,
+   "clock.timetree.note": "横轴＝由时间树枝长反推的日历年（date_node = date_root + dist(root→node)，叶钉在采样年上）；时间树（采样年（日历年））：15 叶，坐标全部取自定年结果的节点时间。未做任何额外插值。",
+   "clock.timetree.root_year": 1978.4307,
+   "clock.timetree.source": "timetree.nwk",
+   "clock.timetree.tips_n": 15,
+   "clock.timetree.x_n": 168,
+   "clock.timetree.y_n": 168,
+   "clock.timetree_source": "TreeTime",
+   "clock.tt_env.exe": "C:\\Python312\\Scripts\\treetime.exe",
+   "clock.tt_env.how": "内置/首选解释器：C:\\Python312\\Scripts\\treetime.exe",
+   "clock.tt_env.ok": true,
+   "clock.tt_env.problems_n": 0,
+   "clock.tt_env.version": "0.12.1",
+   "coalescent.is_hpd": false,
+   "coalescent.ok": null,
+   "coalescent.r2_this_pass": null,
+   "coalescent.rate_this_pass": null,
+   "coalescent.skyline_n": 0,
+   "errors_n": 0,
+   "files_n": 22,
+   "meta_pick.date_src.year": 15,
+   "meta_pick.location_src.region": 15,
+   "meta_pick.n_rows": 15,
+   "meta_pick.name_src.seq_id": 15,
+   "meta_pick.release_date_rows": 0,
+   "mode": "pipeline",
+   "n_files": 22,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6",
+   "params.ancestral": false,
+   "params.clock_rate": null,
+   "params.coord_table": null,
+   "params.cross_check": true,
+   "params.date_col": null,
+   "params.date_trait": null,
+   "params.divergence_tree": null,
+   "params.drt": true,
+   "params.drt_perm": 200,
+   "params.from_run": null,
+   "params.gen_per_year": 50.0,
+   "params.homoplasy": false,
+   "params.keep_root": false,
+   "params.meta": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.meta.csv",
+   "params.methods_n": 1,
+   "params.mode": "pipeline",
+   "params.n_skyline": 10,
+   "params.prune": false,
+   "params.prune_clade_cutoff": 5,
+   "params.prune_date_resolution": "month",
+   "params.prune_max_reps": 3,
+   "params.prune_method": "fps",
+   "params.prune_min_snp_diff": 2,
+   "params.relax": null,
+   "params.rename_map": null,
+   "params.reroot": "least-squares",
+   "params.rssp_bs": 0,
+   "params.sampling_bias_correction": "auto",
+   "params.seed": 0,
+   "params.seq_len": null,
+   "params.skyline": false,
+   "params.stage": null,
+   "params.trait": "region",
+   "params.tree": null,
+   "phylogeo.align.aligned_by": "leafset",
+   "phylogeo.align.delta": 0,
+   "phylogeo.align.divergent": false,
+   "phylogeo.align.mu": 36.033338,
+   "phylogeo.align.n_changes": 4,
+   "phylogeo.align.n_skipped_missing": 0,
+   "phylogeo.align.n_unmatched": 0,
+   "phylogeo.align.primary_n_changes": 4,
+   "phylogeo.align.rel_diff": 0.0,
+   "phylogeo.align.tree": "divergence_tree.nwk",
+   "phylogeo.confidence_summary.confidence_labels_mapped": true,
+   "phylogeo.confidence_summary.confidence_labels_n": 3,
+   "phylogeo.confidence_summary.confidence_labels_raw_n": 3,
+   "phylogeo.confidence_summary.confidence_labels_unmapped_n": 0,
+   "phylogeo.confidence_summary.frac_below_0_7": 0.1429,
+   "phylogeo.confidence_summary.median_max_p_internal": 0.9995153476155009,
+   "phylogeo.confidence_summary.min_max_p": 0.4296896863913765,
+   "phylogeo.confidence_summary.n_below_0_5": 1,
+   "phylogeo.confidence_summary.n_below_0_7": 2,
+   "phylogeo.confidence_summary.n_internal": 14,
+   "phylogeo.confidence_summary.n_labels_unmapped": 0,
+   "phylogeo.confidence_summary.n_nodes": 29,
+   "phylogeo.coord_missing_n": 0,
+   "phylogeo.coord_regions.Americas": 4,
+   "phylogeo.coord_regions.Asia": 5,
+   "phylogeo.coord_regions.Europe": 6,
+   "phylogeo.coord_src.Americas": "builtin",
+   "phylogeo.coord_src.Asia": "builtin",
+   "phylogeo.coord_src.Europe": "builtin",
+   "phylogeo.coord_table": null,
+   "phylogeo.coords.Americas_n": 2,
+   "phylogeo.coords.Asia_n": 2,
+   "phylogeo.coords.Europe_n": 2,
+   "phylogeo.corridors_n": 3,
+   "phylogeo.edges_missing": 0,
+   "phylogeo.events_n": 8,
+   "phylogeo.n_changes_fitch": 4,
+   "phylogeo.n_changes_ml": 4,
+   "phylogeo.n_corridors": 3,
+   "phylogeo.n_events_fitch": 4,
+   "phylogeo.n_events_ml": 4,
+   "phylogeo.rssp": null,
+   "phylogeo.sampling_bias.corrected": true,
+   "phylogeo.sampling_bias.factor": 0.992887,
+   "phylogeo.sampling_bias.max_share": 0.4,
+   "phylogeo.sampling_bias.min_share": 0.2667,
+   "phylogeo.trait": "region",
+   "prune.abandoned": false,
+   "prune.date_resolution": null,
+   "prune.dropped_n": 0,
+   "prune.enabled": false,
+   "prune.groups_n": 0,
+   "prune.how": null,
+   "prune.method": null,
+   "prune.n_clades": null,
+   "prune.n_dropped": null,
+   "prune.n_dropped_total": 0,
+   "prune.n_groups": 0,
+   "prune.n_in": null,
+   "prune.n_out": null,
+   "prune.n_seqs_input": 15,
+   "prune.reason": null,
+   "prune.skipped": false,
+   "prune.tree_pruned": null,
+   "resumed_from": null,
+   "run": "phylodyn_20260921_035638_83ccc6",
+   "seconds": 14.67,
+   "stages_n": 4,
+   "tool": "phylodyn",
+   "warnings_n": 2
+  },
+  "title": "⚡ 一键分析（定年 → 地理迁移 → 汇总溯源）"
+ },
+ "phylogeo": {
+  "files": [
+   {
+    "path": "phylogeo/summary.json",
+    "size": "4.4KB"
+   },
+   {
+    "path": "run.log",
+    "size": "447.0B"
+   },
+   {
+    "path": "phylogeo/transition_classes.json",
+    "size": "2.2KB"
+   },
+   {
+    "path": "phylogeo/transition_classes.tsv",
+    "size": "435.0B"
+   },
+   {
+    "path": "phylogeo/import_export.tsv",
+    "size": "163.0B"
+   },
+   {
+    "path": "phylogeo/coords_resolved.tsv",
+    "size": "110.0B"
+   },
+   {
+    "path": "phylogeo/transitions.tsv",
+    "size": "167.0B"
+   },
+   {
+    "path": "phylogeo/leaf_states.tsv",
+    "size": "484.0B"
+   },
+   {
+    "path": "phylogeo/migration_matrix.tsv",
+    "size": "78.0B"
+   },
+   {
+    "path": "phylogeo/tree_annotated.nwk",
+    "size": "834.0B"
+   },
+   {
+    "path": "phylogeo/tree.nwk",
+    "size": "653.0B"
+   }
+  ],
+  "generated_at": "2026-09-21 11:11:45",
+  "kind": "tool",
+  "module": "phylogeo",
+  "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylogeo_20260921_111143_3233ea",
+  "run": "phylogeo_20260921_111143_3233ea",
+  "source": "examples/",
+  "stats": {
+   "coord_missing_n": 0,
+   "coord_skips_n": 0,
+   "coord_src.Americas": "builtin",
+   "coord_src.Asia": "builtin",
+   "coord_src.Europe": "builtin",
+   "coords.Americas_n": 2,
+   "coords.Asia_n": 2,
+   "coords.Europe_n": 2,
+   "coords_file": null,
+   "corridor_classes_n": 4,
+   "date_trait": "year",
+   "dated_tree": null,
+   "matrix_n": 4,
+   "method": "nj",
+   "motp": null,
+   "motp_bin": 0.0,
+   "n_sample_coords": 0,
+   "n_seqs": 15,
+   "n_transitions": 4,
+   "n_years": 15,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylogeo_20260921_111143_3233ea",
+   "regions.Americas": 4,
+   "regions.Asia": 5,
+   "regions.Europe": 6,
+   "rrt": null,
+   "rrt_perm": 0,
+   "rssp": null,
+   "rssp_bs": 0,
+   "run": "phylogeo_20260921_111143_3233ea",
+   "sample_points_n": 0,
+   "sample_points_truncated": 0,
+   "seed": 0,
+   "tool": "phylogeo",
+   "trait": "",
+   "transition_classes.counts.Distant": 4,
+   "transition_classes.flags.low-divergence": 2,
+   "transition_classes.flags.sparse-sampling": 3,
+   "transition_classes.method": "分类口径（自研）：主标签 = 两端区划锚点的 haversine 距离**运行内分位带**（≤q33 Direct / ≥q67 Distant / 中间 Indirect）。阈值随数据自适应，不沿用 phymapr 的固定公里阈值；跨区边 <6 条或分位退化时退回 500/3000 km（thresholds.src 标注）。低分化远程（edge_snp ≤ 中位数）与同期远程（|dt| ≤1 年）只作证据标记，不改分类。另给 intro/group_size（是否为引入边及其连续同区叶组大小；与 import/export 同一判定，因几乎每条带叶跨区边都满足，故不作主标签）。",
+   "transition_classes.n_edges": 4,
+   "transition_classes.n_intro": 4,
+   "transition_classes.n_no_tips": 0,
+   "transition_classes.n_state_changes": 4,
+   "transition_classes.n_unknown_state": 0,
+   "transition_classes.n_with_step": 0,
+   "transition_classes.rows_n": 4,
+   "transition_classes.rows_truncated": 0,
+   "transition_classes.snp_median": 21.0,
+   "transition_classes.thresholds.q33": 500.0,
+   "transition_classes.thresholds.q67": 3000.0,
+   "transition_classes.thresholds.src": "default(n<6)",
+   "transitions_top_n": 4,
+   "unresolved": 0,
+   "warnings_n": 0,
+   "weight_bands": null
+  },
+  "title": "🌍 系统地理分析"
  },
  "primer": {
   "files": [
@@ -814,7 +1197,7 @@
   "kind": "tool",
   "module": "primer",
   "run": "primer_20260909_230253",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "n_primers": 0,
    "reason": "未设计出引物（保守区不足或序列问题）",
@@ -846,7 +1229,7 @@
   "kind": "tool",
   "module": "quicktree",
   "run": "quicktree_20260909_230305",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "method": "fasttree",
    "n_seqs": 6,
@@ -854,6 +1237,137 @@
    "tree": "tree.nwk"
   },
   "title": "进化树构建（快速）"
+ },
+ "rdp": {
+  "files": [
+   {
+    "path": "rdp/summary.json",
+    "size": "1.2KB"
+   },
+   {
+    "path": "rdp/events.tsv",
+    "size": "208.0B"
+   },
+   {
+    "path": "rdp/events.json",
+    "size": "805.0B"
+   },
+   {
+    "path": "rdp/rdp5RecombIdentifyStats.csv",
+    "size": "1.2KB"
+   },
+   {
+    "path": "rdp/rdp5RecIDTests.csv",
+    "size": "554.0B"
+   },
+   {
+    "path": "rdp/rdp5.rdp5",
+    "size": "59.9KB"
+   },
+   {
+    "path": "rdp/rdp5.csv",
+    "size": "2.9KB"
+   },
+   {
+    "path": "rdp/rdp5 breakpoint distribution.emf",
+    "size": "32.1KB"
+   },
+   {
+    "path": "rdp/rdp5 breakpoint distribution.csvBreakpointPositions.csv",
+    "size": "34.0B"
+   },
+   {
+    "path": "rdp/rdp5 breakpoint distribution.csv",
+    "size": "21.1KB"
+   },
+   {
+    "path": "rdp/rdp5 breakpoint cluster probability distribution.emf",
+    "size": "31.4KB"
+   },
+   {
+    "path": "rdp/rdp5 breakpoint cluster probability distribution.csvBreakpointPositions.csv",
+    "size": "34.0B"
+   }
+  ],
+  "generated_at": "2026-09-21 04:21:53",
+  "kind": "tool",
+  "module": "rdp",
+  "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rdp_20260921_042147_478491",
+  "run": "rdp_20260921_042147_478491",
+  "source": "examples/",
+  "stats": {
+   "aln_len": 1200,
+   "csv": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rdp_20260921_042147_478491\\rdp\\rdp5.csv",
+   "engine": "rdp5",
+   "events_n": 1,
+   "input": "D:\\桌面\\植物病毒分析平台\\examples\\example_rdp.fasta",
+   "n_events": 1,
+   "n_seqs": 5,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rdp_20260921_042147_478491",
+   "qc.clean": "clean.fasta",
+   "qc.n_in": 5,
+   "qc.n_keep": 5,
+   "qc.n_removed": 0,
+   "qc.ref_id": "Sim_Gansu_REC|Gansu|2022",
+   "qc.ref_len": 1200,
+   "qc.report": "align_qc_report.tsv",
+   "qc.thresholds.max_gap": 0.1,
+   "qc.thresholds.max_identity_drop": 0.02,
+   "qc.thresholds.max_n": 0.05,
+   "qc.thresholds.min_length": 0.9,
+   "run": "rdp_20260921_042147_478491",
+   "source_input": "D:\\桌面\\植物病毒分析平台\\examples\\example_rdp.fasta",
+   "tool": "rdp",
+   "variable": 158
+  },
+  "title": "🔁 RDP5 重组分析"
+ },
+ "rtt": {
+  "files": [
+   {
+    "path": "rtt/summary.json",
+    "size": "1.9KB"
+   },
+   {
+    "path": "rtt/tree.date.nexus",
+    "size": "1.2KB"
+   },
+   {
+    "path": "rtt/rtt_scatter.tsv",
+    "size": "601.0B"
+   },
+   {
+    "path": "rtt/rtt.json",
+    "size": "1.5KB"
+   },
+   {
+    "path": "rtt/tree.nwk",
+    "size": "653.0B"
+   }
+  ],
+  "generated_at": "2026-09-21 03:56:35",
+  "kind": "tool",
+  "module": "rtt",
+  "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rtt_20260921_035633_923ac0",
+  "run": "rtt_20260921_035633_923ac0",
+  "source": "examples/",
+  "stats": {
+   "aln": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.fasta",
+   "dated_nexus": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rtt_20260921_035633_923ac0\\rtt\\tree.date.nexus",
+   "intercept": -15.954519839175259,
+   "meta": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.meta.csv",
+   "method": "nj",
+   "n": 15,
+   "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rtt_20260921_035633_923ac0",
+   "points_n": 15,
+   "r2": 0.6185,
+   "run": "rtt_20260921_035633_923ac0",
+   "slope": 0.007978427835051547,
+   "strong_signal": true,
+   "tool": "rtt",
+   "trait": "year"
+  },
+  "title": "⏱ 时间信号与定年"
  },
  "sdt": {
   "files": [
@@ -894,7 +1408,7 @@
   "kind": "tool",
   "module": "sdt",
   "run": "sdt_20260909_230313",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "csv": "sdt_matrix.csv",
    "distribution": "sdt_distribution.png",
@@ -908,6 +1422,18 @@
    "seqtype": "nt"
   },
   "title": "SDT 同一性分析"
+ },
+ "seqprep": {
+  "files": [
+   "AF226160.1.gb",
+   "AF226161.1.gb",
+   "AF226162.1.gb",
+   "AF235033.1.gb"
+  ],
+  "generated_at": "2026-09-19 20:22:40",
+  "note": "参考序列获取（ICTV 属检索 → GenBank 下载）：Ilarvirus 属 4 条记录示例（真实检索产物）",
+  "source": "ICTV 属检索：Ilarvirus（2026-09-10 实际下载）",
+  "title": "参考序列获取（ICTV / GenBank）"
  },
  "structcmp": {
   "files": [
@@ -936,7 +1462,7 @@
   "kind": "tool",
   "module": "structcmp",
   "run": "structcmp_20260909_230341",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "aln": "D:\\桌面\\植物病毒分析平台\\tool_runs\\structcmp_20260909_230341\\aln.fasta",
    "aln_cols": 6694,
@@ -958,7 +1484,7 @@
   ],
   "generated_at": "2026-09-10 03:36:11",
   "note": "示例 3 个同属 GenBank：18 基因 → 6 个家族",
-  "source": "databases/examples/example_synteny_{A,B,C}.gb",
+  "source": "examples/example_synteny_{A,B,C}.gb",
   "title": "同属共线性比较（LoVis4u / 内置引擎）"
  },
  "variant": {
@@ -1004,7 +1530,7 @@
   "kind": "tool",
   "module": "variant",
   "run": "kvsuite_20260909_232425",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "engine": "minibwa",
    "out": "D:\\桌面\\植物病毒分析平台\\tool_runs\\kvsuite_20260909_232425\\kvsuite",
@@ -1045,7 +1571,7 @@
   "kind": "tool",
   "module": "verify",
   "run": "verify_20260909_231620",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "combine": "union",
    "host_filter": "all",
@@ -1097,7 +1623,7 @@
   "kind": "tool",
   "module": "virchain",
   "run": "virchain_20260909_232453",
-  "source": "databases/examples/",
+  "source": "examples/",
   "stats": {
    "chain": "virchain_20260909_232453",
    "chain_json": "D:\\桌面\\植物病毒分析平台\\tool_runs\\virchain_20260909_232453\\_chain.json",

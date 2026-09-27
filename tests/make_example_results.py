@@ -67,7 +67,7 @@ JOBS = [
         'nt_seqs': EX + 'example_virus_set.fasta'}),
     ('assemble', 'assemble', '提取序列组装（SPAdes）', {
         'r1': EX + 'example_R1.fastq.gz',
-        'r2': EX + 'example_R2.fastq.gz', 'mode': 'metaviral'}),
+        'r2': EX + 'example_R2.fastq.gz', 'mode': 'rnaviral'}),
     ('contigs', 'contigs', 'contig 分类（组装结果再鉴定）', {
         'contigs': EX + 'example_viral_contigs.fasta',
         'db_virus': 'databases/kunpeng_db/plant'}),
@@ -75,9 +75,8 @@ JOBS = [
         'fasta': EX + 'example_viral_contigs.fasta'}),
     ('verify', 'verify', '候选序列验证', {
         'fasta': EX + 'example_viral_contigs.fasta'}),
-    ('hostpredict', 'hostpredict', '宿主预测（ICTV 级联）', {
-        'tsv': EX + 'example_contig_classification.tsv',
-        'fasta': EX + 'example_viral_contigs.fasta'}),
+    # hostpredict（独立宿主预测工具）2026-09-27 撤出 TOOL_REGISTRY（孤儿页删除，
+    # 功能保留为 contigs 后自动运行与管道 ④）——不再生成示例；已有快照保留。
     ('consensus', 'consensus', '共识序列与变异', {
         'fasta': EX + 'example_viral_contigs.fasta',
         'reads': EX + 'example_R1.fastq.gz'}),
@@ -87,8 +86,31 @@ JOBS = [
         'input': EX + 'example_R1.fastq.gz',
         'input2': EX + 'example_R2.fastq.gz',
         'run_identify': True, 'do_verify': True,
-        'mode': 'metaviral', 'memory': 32}),
+        'mode': 'rnaviral', 'memory': 32}),
     ('kvchain', 'kvchain', '病毒定量与共识·一键（全流程）', 'KVCHAIN'),
+    # ---- 进化动力学（2026-09-21 补：四卡链 + 数据接入的示例结果）----
+    ('pdprep', 'pdprep', '进化动力学数据接入', {
+        'source': 'files',
+        'fasta': EX + 'example_phylogeo.fasta',
+        # pdprep 治理要 name/date/location 三列（seq_id/year/region 那份是
+        # rtt/phylogeo 用的旧口径，治理不认 → 0 行通过）
+        'meta': EX + 'example_pdprep.meta.csv'}),
+    ('rdp', 'rdp', '🔁 RDP5 重组分析', {
+        # 用带嵌合体的专用示例（2026-09-21 造：5 条×1200bp，Gansu_REC 前半 A 谱系
+        # 后半 B 谱系）——CMV example_recomb_set 跑出来分布全 0，无演示价值；
+        # 这份有明确重组信号，断点分布图/事件表都有内容
+        'input': EX + 'example_rdp.fasta',
+        'meta': EX + 'example_rdp.meta.csv'}),
+    ('rtt', 'rtt', '⏱ 时间信号与定年', {
+        'input': EX + 'example_phylogeo.fasta',
+        'meta': EX + 'example_phylogeo.meta.csv'}),
+    ('phylogeo', 'phylogeo', '🌍 系统地理分析', {
+        'input': EX + 'example_phylogeo.fasta',
+        # 统一元数据（name=完整 FASTA 头，region 列与卡默认区划列名一致）
+        'meta': EX + 'example_pdprep.meta.csv'}),
+    ('phylodyn', 'phylodyn', '⚡ 一键分析（定年 → 地理迁移 → 汇总溯源）', {
+        'input': EX + 'example_phylogeo.fasta',
+        'meta': EX + 'example_phylogeo.meta.csv'}),
 ]
 
 # 复制产物时排除的中间目录/大文件（体积大且对示例无价值）

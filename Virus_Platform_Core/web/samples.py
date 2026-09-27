@@ -37,12 +37,18 @@ class SampleQueue:
         self.items = []
         self.thread = None
         self._worker_alive = False
+        self._paused = False
         self._load()
 
     def _load(self):
         try:
             with safe_open(self.QUEUE_FILE) as f:
-                self.items = json.load(f)
+                data = json.load(f)
+            # 兼容旧格式（裸列表）：暂停标记是后来才加的字段
+            if isinstance(data, list):
+                data = {'items': data, 'paused': False}
+            self.items = data.get('items') or []
+            self._paused = bool(data.get('paused'))
             for it in self.items:
                 if it.get('status') in ('queued', 'running'):
                     it['status'] = 'queued'
@@ -57,17 +63,23 @@ class SampleQueue:
                 # 原子写：断电/崩溃不损坏现有队列
                 tmp = self.QUEUE_FILE + '.tmp'
                 with safe_open(tmp, 'wt') as f:
-                    json.dump(self.items, f, ensure_ascii=False, indent=1)
+                    json.dump({'items': self.items, 'paused': self._paused},
+                              f, ensure_ascii=False, indent=1)
                 os.replace(tmp, self.QUEUE_FILE)
             except OSError:
                 pass
 
     def add(self, samples, stages, params, project=None):
-        """samples: [样品名]（须已创建并含 input.json）。"""
+        """samples: [样品名]（须已创建并含 input.json）。
+
+        入队只登记为 queued（**待手动启动**），不拉起 worker —— 2026-09-20
+        用户要求「入队后必须手动点开始」。点「启动」（单条 start）或
+        「全部启动」（start_all）把条目转为 ready 后才由 worker 依序执行。
+        """
         added = []
         with self.lock:
             existing = {it['sample'] for it in self.items
-                        if it['status'] in ('queued', 'running')}
+                        if it['status'] in ('queued', 'ready', 'running')}
             for s in samples:
                 if s in existing:
                     continue
@@ -78,8 +90,35 @@ class SampleQueue:
                 self.items.append(it)
                 added.append(it)
         self._persist()
-        self._ensure_worker()
         return added
+
+    def start(self, entry_id):
+        """手动启动一条：queued/ready → ready，并拉起 worker。
+
+        对已 ready 条目幂等（服务重启后 worker 不在，再点一次启动即恢复）。
+        返回 False 表示条目不存在或状态不可启动。
+        """
+        with self.lock:
+            it = next((x for x in self.items if x['id'] == entry_id), None)
+            if not it or it['status'] not in ('queued', 'ready'):
+                return False
+            it['status'] = 'ready'
+        self._persist()
+        self._ensure_worker()
+        return True
+
+    def start_all(self):
+        """全部「待启动」→「排队中」，返回转掉的条数（没有可转的就不拉 worker）。"""
+        with self.lock:
+            n = 0
+            for it in self.items:
+                if it['status'] == 'queued':
+                    it['status'] = 'ready'
+                    n += 1
+        self._persist()
+        if n:
+            self._ensure_worker()
+        return n
 
     def _ensure_worker(self):
         with self.lock:
@@ -92,11 +131,18 @@ class SampleQueue:
     def _worker(self):
         while True:
             with self.lock:
+                # 暂停中：worker 退出（resume 会重新拉起），已就绪条目原地不动。
+                # 正在跑的那条不受影响（worker 正阻塞在 _run_entry 里）。
+                if self._paused:
+                    self._worker_alive = False
+                    self.thread = None
+                    return
+                # 只消费 ready（用户已点启动）的条目；queued = 待手动启动
                 nxt = next((it for it in self.items
-                            if it['status'] == 'queued'), None)
+                            if it['status'] == 'ready'), None)
                 if not nxt:
                     # 取件与退出标志清除必须在同一把锁内：否则「worker 判空
-                    # 退出」与「add() 入队后发现线程还活着不再起新 worker」
+                    # 退出」与「start() 启动后发现线程还活着不再起新 worker」
                     # 交错时，新条目会永远没人消费（队列假死）
                     self._worker_alive = False
                     self.thread = None
@@ -109,6 +155,19 @@ class SampleQueue:
                 nxt['status'] = 'failed'
                 nxt['error'] = str(e)
             self._persist()
+
+    def pause(self):
+        """暂停队列：正在跑的条目继续跑完，已就绪（ready）条目暂不开跑，
+        直到恢复或再次点启动。"""
+        with self.lock:
+            self._paused = True
+        self._persist()
+
+    def resume(self):
+        with self.lock:
+            self._paused = False
+        self._persist()
+        self._ensure_worker()
 
     def _run_entry(self, it):
         from Virus_Platform_Core.pipeline import (load_sample_input, run_analysis,
@@ -178,8 +237,9 @@ class SampleQueue:
     def snapshot(self):
         with self.lock:
             items = [dict(it) for it in self.items]
+            paused = self._paused
         running = any(it['status'] == 'running' for it in items)
-        return {'running': running, 'items': items}
+        return {'running': running, 'paused': paused, 'items': items}
 
     def remove(self, entry_id):
         with self.lock:
@@ -298,12 +358,13 @@ def api_queue_add():
 
 
 def bind_queue_entry(it):
-    """把「排队中」的样品挂进任务中心（外部任务）。
+    """把「待启动 / 排队中」的样品挂进任务中心（外部任务）。
 
     为什么需要：队列条目只有在**真正开跑**时才在 samples.py 里 tm.start
     出「队列·<样品>」任务，排队期间在任务中心完全看不见 —— 用户点了入队
-    却以为没生效。这里给排队态挂一张卡；一旦开跑/结束，provider 返回
-    None，卡片自动让位给真任务卡（不会重复两张）。
+    却以为没生效。这里给未开跑的条目挂一张卡（queued=待手动启动，
+    ready=等待名额）；一旦开跑/结束，provider 返回 None，卡片自动让位给
+    真任务卡（不会重复两张）。
     """
     from Virus_Platform_Core.web.tasks import tm
     eid = it.get('id')
@@ -314,15 +375,21 @@ def bind_queue_entry(it):
     def prov(eid=eid, sample=sample):
         with sample_queue.lock:
             cur = next((x for x in sample_queue.items if x['id'] == eid), None)
-            if not cur or cur.get('status') != 'queued':
+            if not cur or cur.get('status') not in ('queued', 'ready'):
                 return None          # 已开跑或已结束 → 交给 tm 的真任务卡
             ahead = sum(1 for x in sample_queue.items
                         if x['status'] == 'running')
+            if cur.get('status') == 'queued':
+                msg = cfg.tr(
+                    f'样品 {sample} 已入队，待手动启动'
+                    '（分析流程页队列点「▶ 启动」或「▶ 全部启动」）',
+                    f'Sample {sample} queued (manual start required)')
+            else:
+                msg = cfg.tr(f'样品 {sample} 等待批处理名额'
+                             + (f'（前面有 {ahead} 个在跑）' if ahead else ''),
+                             f'Sample {sample} queued')
         return {'status': 'running', 'pct': 0.0, 'stage': '排队中',
-                'msg': cfg.tr(f'样品 {sample} 等待批处理名额'
-                              + (f'（前面有 {ahead} 个在跑）' if ahead else ''),
-                              f'Sample {sample} queued'),
-                'log': []}
+                'msg': msg, 'log': []}
 
     tm.attach(f'排队·{sample}', prov,
               on_cancel=lambda eid=eid: sample_queue.remove(eid),
@@ -341,6 +408,34 @@ def api_queue_remove(entry_id):
 def api_queue_clear():
     sample_queue.clear_finished()
     return jsonify({'ok': True})
+
+
+@bp.route('/api/queue/pause', methods=['POST'])
+def api_queue_pause():
+    """暂停队列：正在跑的条目跑完后，已就绪条目暂不开跑，等手动恢复。"""
+    sample_queue.pause()
+    return jsonify({'ok': True, 'paused': True})
+
+
+@bp.route('/api/queue/resume', methods=['POST'])
+def api_queue_resume():
+    sample_queue.resume()
+    return jsonify({'ok': True, 'paused': False})
+
+
+@bp.route('/api/queue/<entry_id>/start', methods=['POST'])
+def api_queue_start(entry_id):
+    """手动启动一条队列项（待启动/已就绪 → 排队中，由 worker 依序执行）。"""
+    if not sample_queue.start(entry_id):
+        abort(400, '条目不存在或状态不可启动（仅「待启动」可启动）')
+    return jsonify({'ok': True})
+
+
+@bp.route('/api/queue/start_all', methods=['POST'])
+def api_queue_start_all():
+    """全部「待启动」→「排队中」。空参数 POST 就会真启动任务，已登记
+    巡检跳过表（tests/_audit_routes.py DESTRUCTIVE_POST）。"""
+    return jsonify({'ok': True, 'started': sample_queue.start_all()})
 
 
 def _analysis_kwargs(body):
@@ -379,6 +474,10 @@ def _analysis_kwargs(body):
     return dict(
         db_host=_norm_db(body.get('db_host')) or cfg.databases['host'],
         db_virus=_norm_db(body.get('db_virus')) or cfg.databases['virus'],
+        # ②b 鉴定库：平台内库名或库目录绝对路径，空 = 默认 kv_index。
+        # 不能走 _norm_db（它会把库名误拼成平台根下的路径），原样透传，
+        # 由 kv_stage.resolve_kv_lib 统一解析。
+        kv_lib=(str(body.get('kv_lib') or '').strip() or None),
         chunk_dir=_norm_db(body.get('chunk_dir')),
         fastp_dedup=_chk('fastp_dedup'),
         do_fq2fa=_chk('do_fq2fa', True),
@@ -388,7 +487,7 @@ def _analysis_kwargs(body):
         plot_engine=_val('plot_engine', 'auto'),
         threads=int(body.get('threads') or cfg.threads),
         confidence=float(_val('confidence', 0) or 0),
-        assembly_mode=_val('assembly_mode', 'metaviral'),
+        assembly_mode=_val('assembly_mode', 'rnaviral'),
         assembly_input=_val('assembly_input', 'virus'),
         memory_gb=int(_val('memory', 64) or 64),
         subsample=int(_val('subsample', 0) or 0),

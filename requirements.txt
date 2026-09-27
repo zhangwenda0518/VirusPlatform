@@ -28,6 +28,9 @@ pyrodigal>=2.0
 pyrodigal-rv>=0.1.0; platform_system == "Windows"
 pyrodigal-gv>=0.3
 primer3-py>=2.0
+# dsRNA 设计全链路（dsrna_scoring，dsRIP 效价公式的 self_fold_energy 项）
+# 需要 ViennaRNA 的 Python 绑定（import RNA）；缺失时 dsRNA 工具报数据面错误
+viennarna>=2.6
 tqdm>=4.60
 kaleido>=0.2
 # ⑥b ORF 功能注释 HMM 层（层2；Windows 原生 wheel，自带 HMMER3 实现）
@@ -61,3 +64,7 @@ openpyxl>=3.1
 # python -m pip install adjustText
 # 加速工具（可选，放平台根目录即可被自动探测）：crabz.exe（Rust 多线程 gzip）
 # https://github.com/sstadick/crabz/releases
+# 拖拽代理（scripts/drag_proxy.py，由「启动拖拽代理.bat」启动）专用：
+# 平台本体与打包分发都不需要它；该 .bat 检测到缺失时会自动 pip 安装。
+# 已登记为**可选**依赖（dev_tools/audit_deps.py 的 OPTIONAL），未装不影响自检结论。
+tkinterdnd2

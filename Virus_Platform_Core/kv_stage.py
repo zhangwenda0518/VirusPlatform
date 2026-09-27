@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """②b 已知病毒识别与定量（kvsuite）——管道阶段的封装。
 
-取代原 ② 病毒筛查与提取（kunpeng/kraken2 分类）：把 reads 用 **salmon**
-比对到**已知病毒参考索引**（定量唯一引擎；salmon --writeBam 同步产出映射
-BAM），产出「识别 + 定量」（`identify/` + `filter/`），并用 samtools 把
-比对上的病毒 reads 抽成 `viral_R1/R2.fastq.gz` 供 ③组装
-（`assembly_input='virus'`）。共识段（③c）内部固定 minibwa，与此处无关。
+把 reads 比对到**已知病毒参考索引**做识别与定量（engine 二选一：
+salmon=EM 定量默认 / minibwa=真比对计数，见 kv_engines；salmon
+--writeBam 与 minibwa 真比对都产出映射 BAM），产出「识别 + 定量」
+（`identify/` + `filter/`），并用 samtools 把比对上的病毒 reads 抽成
+`viral_R1/R2.fastq.gz` 供 ③组装（`assembly_input='virus'`）。
+共识段（③c）内部固定 minibwa，与此处的定量引擎无关。
 
 产物（<sample_dir>/02b_kvsuite/）：
     summary.json           本阶段摘要（卡片状态与 GUI 用）
@@ -23,26 +24,32 @@ import os
 import sys
 import time
 
-from .config import DIRS, get_config
+from .config import DIRS, PLATFORM_ROOT, get_config
 from .utils import check_path, run_cmd, run_cmd_redirect
 
 STAGE_DIR = '02b_kvsuite'
 SUMMARY = 'summary.json'
 VIRAL_R1 = 'viral_R1.fastq.gz'
 VIRAL_R2 = 'viral_R2.fastq.gz'
-_ENGINE_MOD = 'Virus_Platform_Core.known_virus_suite.known_virus_suite'
+VIRAL_SE = 'viral_se.fastq.gz'
 _ENGINE_SCRIPT = 'known_virus_suite.py'
 
 
 def engine_cmd():
     """引擎入口：(可执行, 前置参数)。
 
-    源码模式 `python -m <模块>`；冻结分发（exe）走 `--run-engine <脚本名>`
-    （由 Virus_Platform_Core/engine_entry.py 在进程内执行）。
+    源码模式不能走 `python -m 包.模块`：内置绿色版 Python（3rd/python，
+    带 python312._pth）不会把 CWD 加进 sys.path，模块必然找不到
+    （任务日志表现为 "No module named 'Virus_Platform_Core'"）。
+    改用 -c 引导：先注入平台根再进 main，argparse 吃后续参数没有问题。
+    冻结分发（exe）走 `--run-engine <脚本名>`（由 engine_entry 进程内执行）。
     """
     if getattr(sys, 'frozen', False):
         return sys.executable, ['--run-engine', _ENGINE_SCRIPT]
-    return sys.executable, ['-m', _ENGINE_MOD]
+    boot = (f"import sys; sys.path.insert(0, {PLATFORM_ROOT!r}); "
+            "from Virus_Platform_Core.known_virus_suite.known_virus_suite "
+            "import main; main()")
+    return sys.executable, ['-c', boot]
 
 
 def _kv_lib_dir():
@@ -54,7 +61,8 @@ def default_reference():
     """平台默认病毒参考。
 
     参考病毒目录重构后每个库自包含：<库>/reference.fasta +
-    <库>/reference.ref_info.tsv + <库>/salmon_k31/。解析顺序：
+    <库>/reference.ref_info.tsv（引擎索引为派生物：可随库分发，也可在
+    首次运行时按需自建，见 index_dir_for）。解析顺序：
     ① 默认库目录内的 reference.fasta；
     ② 库 manifest.json 登记的 reference（外部来源参考）；
     ③ 旧布局根目录散置的 final.cluster.ref.fasta（未迁移安装的兼容回退）。
@@ -83,22 +91,114 @@ def default_ref_info():
     return None
 
 
-def index_dir_for(ref, engine='salmon'):
-    """预建索引目录（命中才返回）：与平台「鉴定库」同一套布局。
+def resolve_kv_lib(name_or_path):
+    """把「鉴定库」解析成 (reference, ref_info, index_dir) 三件套。
 
-    定量唯一引擎是 salmon：<库>/salmon_k31/info.json。
+    库与引擎正交的"选库"入口：一个库 = 参考真相 + 注释 + 各引擎索引集合，
+    选库即三件套一起定，定量引擎（engine 参数）另行独立选择。
+    接受：平台内库名（databases/virusref_db/<name>，推荐）或库目录绝对路径
+    （含 platform.json 登记的外部库）。
+
+    返回 dict；库不可用（目录不存在/无参考）时抛 ValueError，前端可直接展示。
+    """
+    import json as _json
+    p = str(name_or_path or '').strip()
+    if not p:
+        raise ValueError('鉴定库为空')
+    if os.path.isabs(p):
+        lib = os.path.normpath(p)
+    else:
+        if not re_fullmatch_libname(p):
+            raise ValueError(f'库名仅限字母数字-_: {p}')
+        lib = os.path.normpath(os.path.join(DIRS['virus_src'], p))
+    if not os.path.isdir(lib):
+        raise ValueError(f'鉴定库目录不存在: {lib}')
+
+    # 参考：① 库内 reference.fasta；② manifest.json 登记的路径（外部库）
+    ref = os.path.join(lib, 'reference.fasta')
+    manifest = {}
+    mp = os.path.join(lib, 'manifest.json')
+    if os.path.isfile(mp):
+        try:
+            with open(mp, encoding='utf-8') as fh:
+                manifest = _json.load(fh) or {}
+        except (OSError, ValueError):
+            manifest = {}
+    if not os.path.isfile(ref):
+        ref = manifest.get('reference') or ''
+        if ref and not os.path.isfile(ref):
+            raise ValueError(f'鉴定库参考不存在（manifest 登记为 {ref}）: {lib}')
+    if not ref:
+        raise ValueError(f'鉴定库缺少 reference.fasta: {lib}')
+
+    ref_info = os.path.join(lib, 'reference.ref_info.tsv')
+    if not os.path.isfile(ref_info):
+        ref_info = manifest.get('ref_info') or ''
+        if ref_info and not os.path.isfile(ref_info):
+            ref_info = ''
+    return {'name': os.path.basename(lib), 'path': lib,
+            'reference': ref, 'ref_info': ref_info or '', 'index_dir': lib}
+
+
+def re_fullmatch_libname(name):
+    """库名规则（与 web 建库 API 同一口径）：字母数字-_。"""
+    import re as _re
+    return bool(_re.fullmatch(r'[A-Za-z0-9_\-]+', name))
+
+
+def index_dir_for(ref, engine='salmon'):
+    """鉴定库索引的落点目录（命中即复用，缺失则引擎在该目录现建）。
+
+    库与引擎正交：同一库目录下 salmon 索引在 <库>/salmon_k31/（小RNA 另有
+    <库>/salmon_k15/），minibwa 索引在 <库>/minibwa/reference.mbw。
+
+    平台内库（databases/virusref_db/<库名>/，2026-09-19 起从仅默认库
+    kv_index 推广到所有平台内库）：直接指回库目录——不管引擎索引当前
+    是否在位：已建则引擎「存在即复用」；未建（如分发包不带索引）则首次
+    运行时在库目录内自建一次（k31 约 10s / k15 约 35s），全局复用。
+    此前非默认库一律返回 None，引擎每次运行都在 <out>/index/ 现建索引，
+    库稍大就明显拖慢每个任务。
+
+    平台外库（外部登记，"只读使用"）：仅当库内已带该引擎的现成索引时
+    返回库目录（纯只读复用）；否则返回 None，让引擎在 <out>/index/ 现建，
+    绝不写外部目录。库目录只读（只读介质等）同理。
     （共识段的 minibwa 索引由共识段在运行目录内自建自用，不在这里复用。）
     """
-    kv = os.path.join(DIRS['virus_src'], 'kv_index')
-    if engine != 'salmon':
+    if engine not in ('salmon', 'minibwa'):
         return None
-    hits = (os.path.join(kv, 'salmon_k31', 'info.json'),)
-    if not any(os.path.isfile(h) for h in hits):
-        return None
-    default_ref = default_reference()
-    if default_ref and os.path.abspath(ref) != os.path.abspath(default_ref):
-        return None            # 自定义参考 → 索引不匹配，让引擎自建
-    return kv
+    lib = os.path.dirname(os.path.abspath(str(ref or '')))
+    # 旧布局兜底：参考仍散置在 virusref_db 根（未迁移安装，且确为旧默认
+    # 参考文件名）→ 索引照旧落默认库目录 kv_index（与 2026-09-12 参考
+    # 目录重构前行为一致）；根下其它 FASTA 不认，避免错配 kv_index 索引
+    if os.path.normcase(lib) == os.path.normcase(
+            os.path.abspath(DIRS['virus_src'])) and \
+            os.path.basename(os.path.abspath(str(ref or ''))) in \
+            ('final.cluster.ref.fasta', 'final.cluster.ref.fa'):
+        kv = os.path.join(DIRS['virus_src'], 'kv_index')
+        return kv if os.access(kv, os.W_OK) else None
+    # 平台内库（数据库根之下任意位置的 <库名>/reference.fasta，2026-09-19
+    # 起不再限定 virusref_db 一层）：索引落库目录，缺失就地现建一次后全局复用
+    dbroot = os.path.normcase(os.path.abspath(DIRS['databases']))
+    libn = os.path.normcase(lib)
+    if libn == dbroot or libn.startswith(dbroot + os.sep):
+        # 只认库的"正身"参考（<库>/reference.fasta）：库目录里手放的
+        # 其它 FASTA 不吃，否则会错配到该库的索引
+        if os.path.basename(os.path.abspath(str(ref or ''))) != \
+                'reference.fasta':
+            return None
+        if not os.path.isfile(os.path.join(lib, 'reference.fasta')):
+            return None        # 参考未按库布局归档 → 索引位置无据可依
+        if os.access(lib, os.W_OK):
+            return lib         # 平台内可写库 → 索引落库目录，缺失就地现建
+        return None            # 库目录只读 → 引擎在 <out>/index 现建
+    # 平台外：已有现成索引才复用（只读），否则不写外部目录
+    import os as _os
+    if engine == 'salmon':
+        ready = any(_os.path.isfile(_os.path.join(lib, *p)) for p in (
+            ('salmon_k31', 'info.json'), ('salmon', 'salmon_k31', 'info.json')))
+    else:
+        ready = _os.path.isfile(_os.path.join(lib, 'minibwa', 'reference.mbw'))
+    return lib if ready else None
 
 
 _DTYPES = {'String', 'Int64', 'Int32', 'Float64', 'Float32', 'Boolean',
@@ -139,6 +239,10 @@ def _summarize(out_dir):
       * 物种与 reads 取 `identify/all_viruses.summary.tsv`（识别段全量结果）；
       * 通过/剔除条数取 `filter/filtered.tsv` 与 `filter/discarded.tsv`
         （二次过滤 = 定量口径；多段物种会被节段完整性规则剔除）。
+      * minibwa 的 summary 表对库内**每条参考**都出行（idxstats 口径），
+        0 计数行若也计入 species_detected，会把"库里有、样本里没有"的
+        参考全算成检出物种（实测库内 8464 条参考时物种数虚高上百倍）。
+        故 reads=0 的行只进 reads 求和、不进物种名单。
     """
     ident = os.path.join(out_dir, 'identify', 'all_viruses.summary.tsv')
     head, rows = _read_tsv_rows(ident)
@@ -146,15 +250,19 @@ def _summarize(out_dir):
     rd_i = _col(head, 'Uniq_Reads', 'EM_Reads', 'Reads')
     species, reads = [], 0
     for cols in rows:
-        if sp_i is not None and sp_i < len(cols) and cols[sp_i].strip():
+        n_reads = None
+        if rd_i is not None and rd_i < len(cols):
+            try:
+                n_reads = int(float(cols[rd_i]))
+            except ValueError:
+                n_reads = None          # 读数列缺失/异常 → 不据此判定未检出
+        if (n_reads is None or n_reads > 0) and sp_i is not None \
+                and sp_i < len(cols) and cols[sp_i].strip():
             name = cols[sp_i].strip()
             if name not in species:
                 species.append(name)
-        if rd_i is not None and rd_i < len(cols):
-            try:
-                reads += int(float(cols[rd_i]))
-            except ValueError:
-                pass
+        if n_reads:
+            reads += n_reads
     filtered = os.path.join(out_dir, 'filter', 'filtered.tsv')
     discarded = os.path.join(out_dir, 'filter', 'discarded.tsv')
     # 比对失败的样本：引擎在 identify/（旧布局在阶段根目录）落
@@ -201,14 +309,24 @@ def _input_fingerprint(path):
 
 
 def _extract_viral_reads(out_dir, bam, r2, threads, logger=None):
-    """按名字排序后抽 fastq：比对上的 reads → viral_R1/R2（PE）或 viral_R1（SE）。"""
+    """按名字排序后抽 fastq。
+
+    PE：viral_R1/viral_R2（成对）+ viral_se（单端孤儿——只有一条 mate
+    比中病毒的 reads；不单独落盘的话 samtools 会把它们按 flag 交错写进
+    R1/R2，两文件行数错位，SPAdes -1/-2 按行配对直接崩溃）。
+    SE：全部并入 viral_R1。
+    返回 (r1, r2, se)。
+    """
     st_exe = _samtools()
     name_sorted = os.path.join(out_dir, 'align', 'viral.namesort.bam')
+    se_out = os.path.join(out_dir, VIRAL_SE)
     cmd1 = [st_exe, 'sort', '-n', f'-@{threads}', '-o', name_sorted, bam]
     cmd2 = [st_exe, 'fastq', f'-@{threads}',
             '-1', os.path.join(out_dir, VIRAL_R1)]
     if r2:
-        cmd2 += ['-2', os.path.join(out_dir, VIRAL_R2)]
+        cmd2 += ['-2', os.path.join(out_dir, VIRAL_R2),
+                 '-s', se_out,
+                 '-0', se_out]      # 两个 mate 都没比中的理论上不存在，兜底并入单端
     else:
         cmd2 += ['-0', os.path.join(out_dir, VIRAL_R1)]
     cmd2 += [name_sorted]
@@ -224,23 +342,41 @@ def _extract_viral_reads(out_dir, bam, r2, threads, logger=None):
         pass
     r1_out = os.path.join(out_dir, VIRAL_R1)
     r2_out = os.path.join(out_dir, VIRAL_R2)
-    return (r1_out, r2_out if (r2 and os.path.isfile(r2_out)) else None)
+    # 空 gz（samtools 仍会写出 ~20 字节头）按不存在处理
+    se_exists = False
+    if r2 and os.path.isfile(se_out) and os.path.getsize(se_out) > 24:
+        try:
+            import gzip as _gz
+            with _gz.open(se_out, 'rt', encoding='utf-8',
+                          errors='replace') as f:
+                se_exists = sum(1 for _ in zip(range(4), f)) >= 4
+        except (OSError, EOFError):
+            se_exists = False
+    return (r1_out,
+            r2_out if (r2 and os.path.isfile(r2_out)) else None,
+            se_out if se_exists else None)
 
 
 def run_kvsuite_stage(out_dir, r1, r2=None, sample=None, threads=8,
                       engine='salmon', force=False, need_viral_reads=True,
-                      logger=None, progress=None):
+                      logger=None, progress=None, kv_lib=None):
     """跑 ②b 识别+定量，返回结果字典（同时落 summary.json）。
 
-    引擎固定 salmon（定量唯一引擎；--writeBam 同步出映射 BAM 供抽病毒
-    reads）。断点续跑：summary.json 已存在、不是 force、且输入指纹
-    （r1/r2/参考的 路径+size+mtime）与上次完全一致时才直接复用——
-    换了 FASTQ 或换了鉴定库重跑会真正重跑，绝不拿旧结果冒充新结果。
+    engine 默认 salmon（EM 定量）；minibwa=真比对计数，两引擎共用同一
+    覆盖度后端与 BAM 命名。kv_lib：鉴定库（平台内库名或库目录绝对路径，
+    经 resolve_kv_lib 整体解析参考/注释/索引），缺省用平台默认库——
+    一键分析管道由此与其他模块共用同一套「选库」入口，不再硬编码 kv_index。
+    断点续跑：summary.json 已存在、不是 force、且输入指纹（r1/r2/参考的
+    路径+size+mtime）与上次完全一致时才直接复用——换了 FASTQ 或换了
+    鉴定库重跑会真正重跑，绝不拿旧结果冒充新结果。
     """
     out_dir = check_path(out_dir, must_exist=False, in_platform=True)
     os.makedirs(out_dir, exist_ok=True)
     summary_p = os.path.join(out_dir, SUMMARY)
-    ref = default_reference()
+    lib = None
+    if kv_lib and str(kv_lib).strip():
+        lib = resolve_kv_lib(kv_lib)
+    ref = (lib or {}).get('reference') or default_reference()
     if not ref:
         raise FileNotFoundError(
             '缺少病毒参考：请先在「数据库构建 → 病毒鉴定库」建库'
@@ -282,8 +418,8 @@ def run_kvsuite_stage(out_dir, r1, r2=None, sample=None, threads=8,
             cmd += ['-1', r1]
             if r2:
                 cmd += ['-2', r2]
-        ri = default_ref_info()
-        if ri:
+        ri = (lib or {}).get('ref_info') or default_ref_info()
+        if ri and os.path.isfile(ri):
             cmd += ['--ref-info', ri]
         idx = index_dir_for(ref, engine)
         if idx:
@@ -316,18 +452,27 @@ def run_kvsuite_stage(out_dir, r1, r2=None, sample=None, threads=8,
     bam = os.path.join(out_dir, 'align', f'{sample}_pandepth.sorted.bam')
     if not os.path.isfile(bam):
         bam = os.path.join(out_dir, 'align', f'{sample}.sorted.bam')
-    viral_r1 = viral_r2 = None
+    viral_r1 = viral_r2 = viral_se = None
     if need_viral_reads and os.path.isfile(bam):
         if progress:
             progress(0.9, '抽病毒 reads（供 ③组装）')
-        viral_r1, viral_r2 = _extract_viral_reads(out_dir, bam, r2, threads,
-                                                  logger=logger)
+        viral_r1, viral_r2, viral_se = _extract_viral_reads(
+            out_dir, bam, r2, threads, logger=logger)
 
     reads = stats['viral_reads']
+    # 定量口径归一：salmon 的 NumReads 计**片段**（PE 一对 = 1），minibwa 的
+    # 映射记录数计 **reads**（PE 一对 = 2）。viral_pairs 统一归一到「片段/
+    # 对」——③组装 min_viral_pairs 门槛与前端展示都用它，此前不分引擎一律
+    # `reads//2`，salmon+PE 样本会被腰斩一半（可能误触发"病毒 reads 不足"）。
+    if engine == 'salmon':
+        reads_unit, viral_pairs = 'fragments', int(reads)
+    else:
+        reads_unit, viral_pairs = 'reads', (int(reads) // 2 if r2 else int(reads))
     result = {
         'stage': 'kvsuite',
         'sample': sample,
         'engine': engine,
+        'kv_lib': (lib or {}).get('name', '') if lib else '',
         'reference': ref,
         'index_dir': index_dir_for(ref, engine) or '',
         'identify_tsv': stats['identify_tsv'],
@@ -335,11 +480,13 @@ def run_kvsuite_stage(out_dir, r1, r2=None, sample=None, threads=8,
         'bam': bam if os.path.isfile(bam) else '',
         'species_detected': stats['species_detected'],
         'viral_reads': reads,
-        'viral_pairs': reads // 2 if r2 else reads,
+        'reads_unit': reads_unit,
+        'viral_pairs': viral_pairs,
         'passed': stats['passed'],
         'rejected': stats['rejected'],
         'viral_r1': viral_r1 or '',
         'viral_r2': viral_r2 or '',
+        'viral_se': viral_se or '',
         'failed_samples': stats.get('failed_samples', []),
         'elapsed_sec': round(time.time() - t0, 1),
         # 输入指纹：下次断点续跑时核对，输入变了就重跑而不是复用旧结果
@@ -359,6 +506,7 @@ def run_kvsuite_stage(out_dir, r1, r2=None, sample=None, threads=8,
         logger.log(f'②b 已知病毒识别与定量完成：检出 '
                    f'{len(result["species_detected"])} 个物种（通过 '
                    f'{result["passed"]} / 剔除 {result["rejected"]}），'
-                   f'病毒 reads {result["viral_reads"]}{_fail_tip}，'
+                   f'病毒 {result["viral_reads"]:,} {reads_unit}'
+                   f'（≈{result["viral_pairs"]:,} 片段/对）{_fail_tip}，'
                    f'用时 {result["elapsed_sec"]}s')
     return result

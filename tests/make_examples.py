@@ -174,27 +174,34 @@ def make_synteny_trio():
             out.append(''.join(p))
         return out
 
+    # 基因沿基因组等距、不重叠排布：840bp 编码区 + 60bp 基因间区，首尾各留 150bp。
+    # 旧写法 pos += 500 配 840bp 的 CDS，导致相邻基因互相重叠 340bp，且第 6 个
+    # CDS 收在 3490 而记录只声明 3300bp（越界，按坐标切片时被静默截断）。
+    GENE_LEN, GAP, FLANK = 280 * 3, 60, 150
+    genome_len = 2 * FLANK + len(products) * GENE_LEN + (len(products) - 1) * GAP
+
     spec = [('example_synteny_A', 'Potexvirus example A', derive(0.00)),
             ('example_synteny_B', 'Potexvirus example B', derive(0.08)),
             ('example_synteny_C', 'Potexvirus example C', derive(0.30))]
     for acc, org, prots in spec:
-        rec = SeqRecord(Seq('N' * (300 + len(prots) * 500)), id=acc, name=acc,
+        rec = SeqRecord(Seq('N' * genome_len), id=acc, name=acc,
                         description=f'{org}, complete genome (built-in example)')
         rec.annotations['organism'] = org
         rec.annotations['molecule_type'] = 'DNA'
         rec.annotations['topology'] = 'linear'
         rec.annotations['data_file_division'] = 'VRL'
         rec.annotations['date'] = '01-JAN-2026'
-        pos = 150
+        pos = FLANK
         for i, p in enumerate(prots):
-            f = SeqFeature(FeatureLocation(pos, pos + 280 * 3, strand=1),
+            f = SeqFeature(FeatureLocation(pos, pos + GENE_LEN, strand=1),
                            type='CDS')
             f.qualifiers = {'product': [products[i]], 'gene': [f'ORF{i + 1}'],
                             'translation': [p]}
             rec.features.append(f)
-            pos += 500
+            pos += GENE_LEN + GAP
         SeqIO.write(rec, os.path.join(EX_DIR, f'{acc}.gb'), 'genbank')
-    print('ok example_synteny_A/B/C.gb: 3 records x 6 CDS')
+    print(f'ok example_synteny_A/B/C.gb: 3 records x {len(products)} CDS, '
+          f'{genome_len}bp')
 
 
 def main():

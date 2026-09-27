@@ -479,5 +479,6 @@ try { if (localStorage.getItem('loganFlowCollapsed') === '1') $('flowCard').clas
 loadBatchReady().then(() => { loadSamples(); loadJobs(); refreshBatchTasks().then(loadJobs); });
 pollLoop();
 </script>
+<script src="/static/examples.js?v={{ asset_v }}"></script>
 </body>
 </html>

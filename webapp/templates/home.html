@@ -94,8 +94,19 @@
     <a class="module-card entry" href="/tools?g=annotate">
       <div class="mc-icon">🔬</div>
       <div class="mc-name" data-i18n="nav.g.annotate">病毒注释分析</div>
-      <div class="mc-desc" data-i18n="hm.entry.annotate.d">ORF 预测 · 功能注释 · 保守域/同源复核 · 基因组图谱 · 引物设计</div>
+      <div class="mc-desc" data-i18n="hm.entry.annotate.d">ORF 预测 · 功能注释 · 保守域/同源复核 · 基因组图谱</div>
     </a>
+    <!-- 2026-09-18：引物设计 / dsRNA 设计从注释组拆出，独立成「检测与防治」。
+         注释回答「它是什么」，这两项回答「怎么检出来 / 怎么防住」——
+         产物是引物对与 RNAi 分子，面向下游湿实验，故单列一组。 -->
+    <a class="module-card entry" href="/tools?g=detect">
+      <div class="mc-icon">🎯</div>
+      <div class="mc-name" data-i18n="nav.g.detect">检测与防治</div>
+      <div class="mc-desc" data-i18n="hm.entry.detect.d">引物设计（primer3 分窗/保守区）· dsRNA 设计（选窗 → 效价 → 脱靶 → T7 引物）</div>
+    </a>
+    <!-- 2026-09-17：比较基因组分析入口已恢复（09-15 误与「进化动力学分析」
+         一起撤掉，两者是不同业务对象：不同病毒之间 vs 同一个基因内部）。
+         病毒浏览器入口仍不在本站导航（已迁往独立平台）。 -->
     <a class="module-card entry" href="/tools?g=compare">
       <div class="mc-icon">🧬</div>
       <div class="mc-name" data-i18n="nav.g.compare">比较基因组分析</div>

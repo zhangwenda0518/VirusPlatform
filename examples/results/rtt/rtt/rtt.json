@@ -1,0 +1,87 @@
+{
+ "slope": 0.007978427835051547,
+ "intercept": -15.954519839175259,
+ "r2": 0.6185,
+ "n": 15,
+ "root_branch": [
+  2492428370688,
+  2492428373120
+ ],
+ "points": [
+  {
+   "name": "SIM_Asia_3|Asia|2005",
+   "dist": 0.019093,
+   "year": 2005
+  },
+  {
+   "name": "SIM_Asia_4|Asia|2007",
+   "dist": 0.017982,
+   "year": 2007
+  },
+  {
+   "name": "SIM_Asia_2|Asia|2003",
+   "dist": 0.018139,
+   "year": 2003
+  },
+  {
+   "name": "SIM_Americas_4|Americas|2016",
+   "dist": 0.13083,
+   "year": 2016
+  },
+  {
+   "name": "SIM_Americas_5|Asia|2018",
+   "dist": 0.133865,
+   "year": 2018
+  },
+  {
+   "name": "SIM_Americas_2|Americas|2012",
+   "dist": 0.133852,
+   "year": 2012
+  },
+  {
+   "name": "SIM_Americas_1|Americas|2010",
+   "dist": 0.13412,
+   "year": 2010
+  },
+  {
+   "name": "SIM_Americas_3|Americas|2014",
+   "dist": 0.134696,
+   "year": 2014
+  },
+  {
+   "name": "SIM_Europe_5|Europe|2014",
+   "dist": 0.084286,
+   "year": 2014
+  },
+  {
+   "name": "SIM_Europe_4|Europe|2012",
+   "dist": 0.086085,
+   "year": 2012
+  },
+  {
+   "name": "SIM_Europe_3|Europe|2010",
+   "dist": 0.086751,
+   "year": 2010
+  },
+  {
+   "name": "SIM_Europe_1|Europe|2006",
+   "dist": 0.086676,
+   "year": 2006
+  },
+  {
+   "name": "SIM_Europe_2|Europe|2008",
+   "dist": 0.087139,
+   "year": 2008
+  },
+  {
+   "name": "SIM_Asia_5|Europe|2009",
+   "dist": 0.019197,
+   "year": 2009
+  },
+  {
+   "name": "SIM_Asia_1|Asia|2001",
+   "dist": 0.019197,
+   "year": 2001
+  }
+ ]
+}

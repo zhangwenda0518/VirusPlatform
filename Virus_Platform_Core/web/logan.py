@@ -102,7 +102,10 @@ def api_logan_create():
     if not pasted and not (sample and contigs):
         abort(400, '请勾选样品的病毒 contigs，或粘贴序列')
     try:
-        return jsonify(create_job(name, sample=_safe_sample(sample) or None,
+        # ⚠️ sample 为空时必须给 None：_safe_sample('') 会回退成默认名
+        # 'sample'（truthy），`or None` 兜不住，粘贴模式也会被拽去读
+        # results/sample/03_assembly/virus_contigs.tsv → 必 400。
+        return jsonify(create_job(name, sample=_safe_sample(sample) if sample else None,
                                   contig_ids=contigs or None,
                                   pasted=pasted or None,
                                   n_seg=int(body.get('n_seg') or 2)))

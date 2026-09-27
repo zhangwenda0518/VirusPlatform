@@ -303,14 +303,26 @@ function pasteSeq(inputId, ext) {
 const EXAMPLE_FASTA = 'examples/example_viral_contigs.fasta';
 // 6 条同属近缘基因组（3 参考 + 3 受控突变衍生株）：MSA / 结构比较 / SDT 等多序列示例
 const EXAMPLE_SET_FASTA = 'examples/example_virus_set.fasta';
+// 10 条**同种病毒**（黄瓜花叶病毒 CMV）RNA3 完整基因组流系，已 MAFFT 比对（2292 列，gap 4.6%）：
+// 专供 RDP5 重组检测（同种比较）。实测 13.7s 报 2 个事件（OQ514051.1 印度株，RDP/GENECONV/
+// Maxchi/3Seq 四法支持 p=4.7e-3；PP942736.1 中国株，SiScan p=5.3e-26）。
+// ⚠ 别拿它当「序列比对」卡的示例——那张卡是跨病毒比较，两者用途不同。
+const EXAMPLE_RECOMB_FASTA = 'examples/example_recomb_set.fasta';
 // 5 条同种近缘序列（≥90% 一致）：保守区引物设计示例（需全表保守区段）
 const EXAMPLE_CONSERVED_FASTA = 'examples/example_conserved_set.fasta';
 // 示例树（上集建树产物）：进化树查看器「✨ 示例」
 const EXAMPLE_TREE_NWK = 'examples/example_tree.nwk';
+// 示例树 + 基因组叠加：3 条共线性基因组的 NJ 树 + 基因轨道 / 同源连线
+// （叠加来自与树同名的 example_synteny_tree.overlay.json，由后端按名自动带上）
+const EXAMPLE_SYNTENY_TREE_NWK = 'examples/example_synteny_tree.nwk';
 // 示例 GenBank（含 CDS 注释）：基因组图谱 GenBank 模式「✨ 示例」
 const EXAMPLE_GENBANK_GB = 'examples/example_genome.gb';
 // 共线性比较离线示例（3 条同属小基因组 .gb，逗号分隔供 s_files 导入）
 const EXAMPLE_GB_TRIO = 'examples/example_synteny_A.gb,examples/example_synteny_B.gb,examples/example_synteny_C.gb';
+// 时间与地理推断·本地全链（t-phylodyn）的三个示例：树 / 比对 / 元数据
+const EXAMPLE_DATING_TREE = 'examples/example_treedater.nwk';
+const EXAMPLE_PHYLOGEO_FASTA = 'examples/example_phylogeo.fasta';
+const EXAMPLE_PHYLOGEO_META = 'examples/example_phylogeo.meta.csv';
 // 示例数据的**实际绝对路径**表（服务端给出）：示例目录可能位于程序目录
 // 之外（程序/数据库/示例三分离打包），此时下面这些相对路径不成立，
 // fillExample 会用 /api/example_paths 换成真实绝对路径。
@@ -1684,6 +1696,47 @@ function wirePathInput(input) {
   });
 }
 
+
+// 找成对输入框：id 含 _r1/_r2、_R1/_R2 等成对标记时返回另一半个
+function _pairSibling(input) {
+  const id = input.id || '';
+  const m = id.match(/^(.*_)([rR])(1|2)$/);
+  if (!m) return null;
+  const other = m[1] + m[2] + (m[3] === '1' ? '2' : '1');
+  const el = $(other);
+  return (el && el.tagName === 'INPUT') ? el : null;
+}
+
+// ── 桌面拖拽代理（scripts/drag_proxy.py 悬浮窗）轮询 ──
+// 代理悬浮窗收到资源管理器拖入的真实路径后 POST 到平台；此轮询取走
+// 并填入「最后点过的输入框」。仅在本页有输入行且窗口聚焦时轮询。
+let _dropPollTs = 0;
+function fillInputWithPaths(input, paths) {
+  const sib = (typeof _pairSibling === 'function') ? _pairSibling(input) : null;
+  if (paths.length >= 2 && sib) {
+    input.value = paths[0]; sib.value = paths[1];
+    pushPathHist(input.id, paths[0]); pushPathHist(sib.id, paths[1]);
+  } else {
+    input.value = paths.join(',');
+    pushPathHist(input.id, input.value);
+  }
+  toast(t('dz.ok', '已导入上传文件'),
+    '经拖拽代理填入: ' + paths.map(p => p.split(/[\/]/).pop()).join(', '),
+    { ttl: 4000 });
+}
+
+setInterval(async () => {
+  if (!document.hasFocus() || !document.querySelector('.filerow')) return;
+  if (!window._lastFilerowInput) return;
+  try {
+    const d = await (await fetch('/api/dropped_paths/last?since=' + _dropPollTs)).json();
+    if (d.ts) _dropPollTs = d.ts;
+    if (d.fresh && d.paths && d.paths.length && window._lastFilerowInput) {
+      fillInputWithPaths(window._lastFilerowInput, d.paths);
+    }
+  } catch (e) {}
+}, 3000);
+
 function wireDropzones() {
   document.querySelectorAll('.filerow').forEach(row => {
     if (row.dataset.dropWired) return;
@@ -1692,6 +1745,7 @@ function wireDropzones() {
     row.classList.add('drop-able');
     row.dataset.dropWired = '1';
     wirePathInput(input);
+    input.addEventListener('focus', () => { window._lastFilerowInput = input; });
     row.addEventListener('dragover', e => {
       if ([...(e.dataTransfer.types || [])].includes('Files')) {
         e.preventDefault();
@@ -1701,21 +1755,59 @@ function wireDropzones() {
     row.addEventListener('dragleave', () => row.classList.remove('dragover'));
     row.addEventListener('drop', async e => {
       row.classList.remove('dragover');
-      const file = [...(e.dataTransfer.files || [])][0];
-      if (!file) return;                       // 非文件拖放（如文本）不接管
       e.preventDefault();
+      // 文件夹拖放：浏览器拿不到本机文件夹路径，指引到 📂 按钮
+      const entries = [...(e.dataTransfer.items || [])]
+        .map(it => { try { return it.webkitGetAsEntry && it.webkitGetAsEntry(); }
+                     catch (err) { return null; } })
+        .filter(Boolean);
+      if (entries.some(en => en.isDirectory)) {
+        toast(t('dz.isDir', '拖入的是文件夹'),
+          t('dz.isDirHint', '浏览器无法获取文件夹本机路径——请用行尾 📂 按钮选择目录'),
+          { ttl: 6000 });
+        return;
+      }
+      const files = [...(e.dataTransfer.files || [])];
+      if (!files.length) return;               // 非文件拖放（如文本）不接管
+      // R1/R2 成对输入框：拖 2 个文件时自动分装
+      const sib = _pairSibling(input);
+      if (files.length >= 2 && sib) {
+        const up = async f => {
+          const fd = new FormData(); fd.append('file', f);
+          const r = await fetch('/api/upload', { method: 'POST', body: fd });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'upload failed');
+          return d.path;
+        };
+        const old = input.placeholder;
+        try {
+          input.value = await up(files[0]);
+          sib.value = await up(files[1]);
+          pushPathHist(input.id, input.value);
+          pushPathHist(sib.id, sib.value);
+          input.placeholder = old;
+          toast(t('dz.pair', 'R1/R2 已分别填入'), `${files[0].name} + ${files[1].name}`,
+            { ttl: 4000 });
+        } catch (err) { input.placeholder = old; toast(t('dz.fail', '上传失败'), String(err), {kind: 'failed', ttl: 6000}); }
+        return;
+      }
+      // 常规：多文件全部上传，逗号拼接（供吃逗号列表的字段）
       const old = input.placeholder;
-      input.placeholder = t('dz.uploading', '⬆ 上传中…') + ' ' + file.name;
+      input.placeholder = t('dz.uploading', '⬆ 上传中…') + ' ' + files[0].name;
       try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || 'upload failed');
-        input.value = d.path;
-        pushPathHist(input.id, d.path);
+        const paths = [];
+        for (const f of files) {
+          const fd = new FormData();
+          fd.append('file', f);
+          const r = await fetch('/api/upload', { method: 'POST', body: fd });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'upload failed');
+          paths.push(d.path);
+        }
+        input.value = paths.join(',');
+        pushPathHist(input.id, input.value);
         input.placeholder = old;
-        toast(t('dz.ok', '已导入上传文件'), `${file.name} → ${d.path}`, {ttl: 4000});
+        toast(t('dz.ok', '已导入上传文件'), paths.map(p => p.split(/[\/]/).pop()).join(', '), {ttl: 4000});
       } catch (err) {
         input.placeholder = old;
         toast(t('dz.fail', '上传失败'), String(err), {kind: 'failed', ttl: 6000});

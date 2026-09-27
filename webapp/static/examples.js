@@ -30,8 +30,15 @@
     CONSERVED: DIR + 'example_conserved_set.fasta',
     GENOME: DIR + 'example_genome.gb',
     TMV: DIR + 'example_tmv.fasta',
+    CMV: DIR + 'example_cmv.fasta',
     MIX: DIR + 'example_mix.fasta',
-    TREE: DIR + 'example_tree.nwk'
+    TREE: DIR + 'example_tree.nwk',
+    PHYLOGEO: DIR + 'example_phylogeo.fasta',
+    PHYLOGEO_META: DIR + 'example_phylogeo.meta.csv',
+    PDPREP_FASTA: DIR + 'example_pdprep.fasta',
+    ACMV: DIR + 'example_acmv.fasta',
+    RENAME_MAP: DIR + 'example_rename_map.tsv',
+    MIRNA: DIR + 'example_mirna.fasta'
   };
 
   /* 工具卡（tools.html 里 <section class="card" id="t-xxx">）→ 字段映射。
@@ -48,6 +55,14 @@
     't-hom':       { homSeqText: 'CONTIGS_TEXT' },
     't-consensus': { cs_fa: 'CONTIGS', cs_reads: 'R1' },
     't-variant':   { vr_ref: 'CONTIGS' },
+    't-dsrna':     { ds_input: 'CMV' },
+    /* 进化动力学 5 张数据准备/下游卡 + miRNA：之前没有任何示例入口 */
+    't-rtt':       { rtt_input: 'PHYLOGEO', rtt_meta: 'PHYLOGEO_META' },
+    't-phylogeo':  { pg_input: 'PHYLOGEO', pg_meta: 'PHYLOGEO_META' },
+    't-pdprep':    { pd_src: 'files', pd_fa: 'PDPREP_FASTA', pd_meta: 'PHYLOGEO_META' },
+    't-pdrename':  { pdren_input: 'PHYLOGEO', pdren_map: 'RENAME_MAP' },
+    't-pdgroup':   { pdgrp_collection: 'EXAMPLE_SET', pdgrp_col: 'Geo Location' },
+    't-mirna':     { mirna_fasta: 'MIRNA', virus_fasta: 'ACMV' },
     't-seqprep':   null,      /* 已有自带示例按钮，保持原样 */
     't-align':     null,
     't-treebuild': null,
@@ -58,11 +73,10 @@
   /* 独立页面（按 location.pathname 匹配）→ 字段映射 */
   var PAGE_MAP = {
     '/hostremoval': { hr_r1: 'R1', hr_r2: 'R2' },
-    '/hostpredict': { hp_fa: 'CONTIGS' },
     '/orf':         { of_fa: 'CONTIGS' },
     '/annotation':  { oa_fa_text: 'CONTIGS_TEXT' },
     '/genome':      { gp_ann: 'GENOME' },
-    '/primer':      { pd_fa: 'CONSERVED' },  /* 字段名为 primer.html 的 pd_fa */
+    '/primer':      { pd_fa: 'CONTIGS' },  /* primer3 页（PCR 引物设计）示例=2 条病毒 contig，与页内自带 ✨ 一致 */
     '/logan':       { pasteSeq: 'TMV_TEXT' },  /* 文本域：填序列内容 */
     '/samples':     { sample: 'example_reads', r1: 'R1', r2: 'R2' },
     /* 该框是「物种拉丁名」= 检索**宿主/物种**的测序数据，不是病毒名：
@@ -218,12 +232,14 @@
           function () { showExampleResult(mod); }));
       }
     });
-    /* 独立页面：在页面主标题旁注入 */
+    /* 独立页面：在页面主标题旁注入。独立页标题可能是 h1（如 /orf /hostremoval
+       改版后用 h1），故 h1/h2 都要认；只看标题里有没有按钮，避免页面自带
+       示例按钮时全局 .vp-ex-btn 判断把注入整体跳过。 */
     var pm = PAGE_MAP[location.pathname];
     var pmod = resultModule(location.pathname);
-    if ((pm || pmod) && !document.querySelector('.vp-ex-btn')) {
-      var h = document.querySelector('main h2, .card h2');
-      if (h) {
+    if (pm || pmod) {
+      var h = document.querySelector('main h1, main h2, .card h2');
+      if (h && !h.querySelector('.vp-ex-btn')) {
         if (pm) {
           h.appendChild(mkBtn('✨ 示例', '一键填入内置示例数据', function () {
             var n = applyFor('page');
@@ -247,14 +263,25 @@
     var off = false;
     try { off = localStorage.getItem(AUTO_KEY) === '0'; } catch (e) {}
     if (off) return;
-    var sec = document.querySelector('section.card[id^="t-"]:not([style*="display: none"])');
+    /* 独立页面优先走 PAGE_MAP：有的独立页里也藏着 section.card[id^="t-"]（比如
+       class 控制显隐的残留卡），`:not([style*=...])` 过滤不掉它们，先匹配会
+       抢走填充且 MAP 无对应项 → 什么都不填（/hostremoval 之前就是这样）。 */
+    var pm = PAGE_MAP[location.pathname];
+    var sec = pm ? null
+                 : document.querySelector('section.card[id^="t-"]:not([style*="display: none"])');
     var mod = null;
     if (sec) {
       applyFor(sec);
       mod = resultModule(sec.id);
-    } else if (PAGE_MAP[location.pathname]) {
-      applyFor('page');
+    } else if (pm) {
+      var n = applyFor('page');
       mod = resultModule(location.pathname);
+      /* /logan /primer 等页主体由页内 JS 异步渲染，字段可能晚于本次执行出现；
+         一次没填上（n=0）就按轮次重试，与工具卡的等待逻辑对齐。 */
+      if (!n && (tries || 0) < 8) {
+        setTimeout(function () { autoFill((tries || 0) + 1); }, 400);
+        return;
+      }
     } else if ((tries || 0) < 8) {
       /* /tools 的模块卡由 renderModuleTree() 按 ?g=#hash 异步渲染，
          可能晚于本函数首次执行；重试几轮等卡片出现再填。 */
@@ -274,6 +301,19 @@
     injectButtons();
     injectIndexButton();
     setTimeout(autoFill, 400);
+    /* 独立页主体可能由页内 JS 异步渲染（/logan /primer 实测）：
+       标题晚出现 → 首轮 injectButtons 找不到挂点。定时补注入，
+       直到标题上出现按钮（或超时放弃）。 */
+    if (PAGE_MAP[location.pathname]) {
+      var tries = 0;
+      var iv = setInterval(function () {
+        tries++;
+        var h = document.querySelector('main h1, main h2, .card h2');
+        var done = h && h.querySelector('.vp-ex-btn');
+        if (!done) injectButtons();
+        if (done || tries > 12) clearInterval(iv);
+      }, 400);
+    }
   }
 
   if (document.readyState === 'loading') {
@@ -304,8 +344,11 @@
     't-kvsuite': 'kvsuite', 't-consensus': 'consensus', 't-variant': 'variant',
     '/orf': 'orf', '/annotation': 'orfa', '/genome': 'genoplot',
     '/primer': 'primer', '/hostremoval': 'hostremoval',
-    '/hostpredict': 'hostpredict',
-    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan'
+    't-cdd': 'cdd', 't-hom': 'hom', '/logan': 'logan',
+    't-dsrna': 'dsrna', 't-mirna': 'mirna',
+    't-rdp': 'rdp', 't-rtt': 'rtt', 't-phylogeo': 'phylogeo',
+    't-pdprep': 'pdprep', 't-pdrename': 'pdrename', 't-pdgroup': 'pdgroup',
+    't-phylodyn': 'phylodyn', 't-seqprep': 'seqprep'
   };
 
   function resultModule(idOrPath) {

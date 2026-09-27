@@ -1,0 +1,26 @@
+Character to attribute mapping:
+  D: ?
+  A: Americas
+  B: Asia
+  C: Europe
+
+
+Substitution rate (mu): 36.033338
+
+Equilibrium frequencies (pi_i):
+  A: 0.2505
+  B: 0.4086
+  C: 0.3409
+
+Symmetrized rates from j->i (W_ij):
+	A	B	C
+  A	0	1.6679	1.017
+  B	1.6679	0	1.7405
+  C	1.017	1.7405	0
+
+Actual rates from j->i (Q_ij):
+	A	B	C
+  A	0	0.4178	0.2548
+  B	0.6816	0	0.7112
+  C	0.3467	0.5933	0
+

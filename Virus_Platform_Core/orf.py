@@ -136,10 +136,13 @@ def _translate(seq_str, begin, end, strand):
 
 
 def run_pyrodigal(in_fasta, out_prefix, tag='pyrodigal', logger=None,
-                  progress=None):
+                  progress=None, min_aa=None):
     """pyrodigal(meta 模式) 基因预测。tag 用于区分 pyrodigal / pyrodigal_rv。
 
-    返回 {'faa', 'ffn', 'gff', 'genes': n}；依赖不可用时返回 None。
+    min_aa：最小 ORF 长度（氨基酸，与界面「最小 ORF 长度」同口径）。
+    传给 pyrodigal 的 min_gene（等价 bp 数），并在结果侧二次过滤——
+    此前该设置只作用于 orfipy，pyrodigal 路径忽略它，界面上调了没用。
+    返回 {'faa', 'ffn', 'gff', 'genes': n, 'dropped': n}；依赖不可用时返回 None。
     """
     try:
         if tag == 'pyrodigal':
@@ -162,11 +165,19 @@ def run_pyrodigal(in_fasta, out_prefix, tag='pyrodigal', logger=None,
     else:
         finder_cls = (getattr(pdlib, 'GeneFinder', None)
                       or getattr(pdlib, 'OrfFinder', None))
-    orf_finder = finder_cls(meta=True)
+    _kw = {'meta': True}
+    if min_aa:
+        _kw['min_gene'] = int(min_aa) * 3
+    try:
+        orf_finder = finder_cls(**_kw)
+    except TypeError:
+        # 老版本 finder 无 min_gene 参数：退回默认构造，靠下方长度过滤兜底
+        orf_finder = finder_cls(meta=True)
     faa = out_prefix + '.faa'
     ffn = out_prefix + '.ffn'
     gff = out_prefix + '.gff'
     n_genes = 0
+    n_dropped = 0
     n_seqs = 0
     # 先数序列总数供进度分母（FASTA 很小，代价可忽略）
     try:
@@ -185,6 +196,9 @@ def run_pyrodigal(in_fasta, out_prefix, tag='pyrodigal', logger=None,
                 # pyrodigal v2/v3 坐标均为 1-based closed（Prodigal 口径）：
                 # Python 切片须换算 [begin-1:end]，否则正链基因整体移码
                 begin0 = begin - 1
+                if min_aa and (end - begin + 1) < int(min_aa) * 3:
+                    n_dropped += 1
+                    continue
                 gid = f"{cid}_{n_genes + 1}"
                 prot = _translate(seq_str, begin0, end, strand)
                 nt = seq_str[begin0:end]
@@ -198,8 +212,11 @@ def run_pyrodigal(in_fasta, out_prefix, tag='pyrodigal', logger=None,
             if progress:
                 progress(i / n_seqs * 0.95, f'{tag}: {i}/{n_seqs} 条 contigs')
     if logger:
-        logger.log(f"{tag} 预测: {n_genes} 个基因")
-    return {'faa': faa, 'ffn': ffn, 'gff': gff, 'genes': n_genes}
+        logger.log(f"{tag} 预测: {n_genes} 个基因"
+                   + (f"（另有 {n_dropped} 个短于 {min_aa}aa 已过滤）"
+                      if n_dropped else ""))
+    return {'faa': faa, 'ffn': ffn, 'gff': gff, 'genes': n_genes,
+            'dropped': n_dropped}
 
 
 # ------------------------------------------------------------------
@@ -253,13 +270,18 @@ def predict_orfs(sample_dir, min_aa=100, threads=None, logger=None, force=False,
             '03_assembly 中没有病毒 contigs（viral_contigs 列表为空且无 '
             'contigs.filtered.fasta 兜底）——请先完成 ③组装/分类 阶段')
     summary = {'stage': step, 'input': os.path.basename(viral_fa),
-               'n_contigs': len(ids)}
+               'n_contigs': len(ids), 'min_aa': min_aa}
     # 工具选择：默认 pyrodigal + pyrodigal_rv（orfipy 已默认去除，仅显式指定时跑）
     if tools is None:
         tools = ['pyrodigal', 'pyrodigal_rv']
     elif isinstance(tools, str):
         tools = [t.strip() for t in tools.split(',') if t.strip()]
-    tools = [t for t in tools if t in ('orfipy', 'pyrodigal', 'pyrodigal_rv')]
+    _known = ('orfipy', 'pyrodigal', 'pyrodigal_rv')
+    _unknown = [t for t in tools if t not in _known]
+    if _unknown and logger:
+        logger.log(f"忽略未知 ORF 工具名：{', '.join(_unknown)}"
+                   f"（可用：{', '.join(_known)}）", 'WARN')
+    tools = [t for t in tools if t in _known]
 
     if 'orfipy' in tools:
         if progress:
@@ -278,20 +300,24 @@ def predict_orfs(sample_dir, min_aa=100, threads=None, logger=None, force=False,
     if 'pyrodigal' in tools:
         pyro = run_pyrodigal(viral_fa, os.path.join(out_dir, 'pyrodigal'),
                              tag='pyrodigal', logger=logger,
-                             progress=_sp(0.45, 0.75))
+                             progress=_sp(0.45, 0.75), min_aa=min_aa)
         summary['pyrodigal'] = ({'faa': os.path.basename(pyro['faa']),
                                  'ffn': os.path.basename(pyro['ffn']),
                                  'gff': os.path.basename(pyro['gff']),
-                                 'genes': pyro['genes']} if pyro else None)
+                                 'genes': pyro['genes'],
+                                 'dropped_short': pyro.get('dropped', 0)}
+                                if pyro else None)
 
     if 'pyrodigal_rv' in tools:
         pyro_rv = run_pyrodigal(viral_fa, os.path.join(out_dir, 'pyrodigal_rv'),
                                 tag='pyrodigal_rv', logger=logger,
-                                progress=_sp(0.75, 0.95))
+                                progress=_sp(0.75, 0.95), min_aa=min_aa)
         summary['pyrodigal_rv'] = ({'faa': os.path.basename(pyro_rv['faa']),
                                     'ffn': os.path.basename(pyro_rv['ffn']),
                                     'gff': os.path.basename(pyro_rv['gff']),
-                                    'genes': pyro_rv['genes']} if pyro_rv else None)
+                                    'genes': pyro_rv['genes'],
+                                    'dropped_short': pyro_rv.get('dropped', 0)}
+                                   if pyro_rv else None)
     if progress:
         progress(1.0, 'ORF 预测完成')
 

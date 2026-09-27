@@ -290,6 +290,10 @@ def load_ref_info(ref_info_tsv, logger=None):
                     'acc': find(ACC_SYNONYMS), 'tax': find(TAX_SYNONYMS),
                     'sp': find(SP_SYNONYMS), 'seg': find(SEG_SYNONYMS),
                     'mol': find(['Molecule_type2', 'Molecule_Type2', 'Molecule_type']),
+                    'host': find(['Host', 'host']),
+                    'geo': find(['Geo_Location', 'Geo_Location/Year', 'geo']),
+                    'gbtitle': find(['GenBank_Title', 'GenBank Title']),
+                    'mol1': find(['Molecule_type', 'Molecule_Type']),
                 }
                 if idx['acc'] == -1:
                     if logger:
@@ -312,6 +316,12 @@ def load_ref_info(ref_info_tsv, logger=None):
                 'species': get('sp') or acc,
                 'segment': get('seg'),
                 'molecule': get('mol'),
+                # 宿主/地理/GenBank 标题：识别表一并提供（此前只导出 4 列，
+                # 用户反馈「提取信息不全」——库里 26 列注释大多被丢掉）
+                'host': get('host'),
+                'geo': get('geo'),
+                'genbank_title': get('gbtitle'),
+                'molecule_type': get('mol1'),
             }
             info[acc] = rec
             # 去版本号别名：同一 accession 多版本时后写入者胜出，

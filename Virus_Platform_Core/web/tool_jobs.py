@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 from flask import abort
 
@@ -62,10 +63,12 @@ def _tool_job_convert(ctx):
                    '-t', str(threads), '-f', '-q']
             if target == 'fasta':
                 cmd.append('--fasta')
-            import subprocess as _sp
             from Virus_Platform_Core.public_data import _sra_fastq_outputs
-            _sp.run(cmd, check=True, timeout=8 * 3600,
-                    stdout=_sp.DEVNULL, stderr=_sp.PIPE)
+            from Virus_Platform_Core.utils import run_cmd
+            # 走 run_cmd：stdout/stderr 实时进任务日志（原来 _sp.run 丢弃
+            # 输出且 stderr 只留在内存里，转换全程无日志可看），并接入
+            # 取消检查与超时看门狗。
+            run_cmd(cmd, logger=logger, timeout=8 * 3600)
             base = os.path.basename(inp)[:-4]
             # ⚠ 单端 run：sracha 写 `<acc>.fastq.gz`（**无下划线**）；双端才写
             #   `<acc>_1/_2.fastq.gz`。只匹配 `base + '_'` 会把单端产物判成
@@ -120,11 +123,15 @@ def _tool_job_hostremoval(ctx):
     """宿主去除与序列提取（kunpeng 宿主库分类，独立模块，不依赖样品管道）。
 
     C 行 = 宿主 read 对，剔除后保留非宿主 reads（kept_R1/R2.fastq.gz）。
+    classify_r1/classify_r2（可选）：预转换 FASTA，分类步骤直接用（省去
+    质量行解压，与样品管道 ⓪b→① 同语义）；kept reads 仍从 FASTQ 提取。
     """
     r1 = ctx.req('r1', 'R1 FASTQ')
     r2 = ctx.opt('r2')
     conf = float(ctx.p.get('confidence') or 0)
     db_host = ctx.opt('db') or cfg.databases['host']
+    cls_r1 = ctx.opt('classify_r1')
+    cls_r2 = ctx.opt('classify_r2')
 
     from Virus_Platform_Core.kunpeng import db_ready
     if not db_ready(db_host):
@@ -136,38 +143,10 @@ def _tool_job_hostremoval(ctx):
         prog('classify', 0.05, 'kunpeng 宿主库分类中')
         res = remove_host(ctx.run_dir, r1, r2, db_host, threads=ctx.threads,
                           confidence=conf, logger=logger, force=True,
+                          classify_r1=cls_r1, classify_r2=cls_r2,
                           progress=lambda pct, msg: prog(
                               'classify' if pct < 0.9 else 'filter', pct, msg))
         prog('done', 1.0, '完成')
-        logger.close()
-        return res
-    return job
-
-
-def _tool_job_hostpredict(ctx):
-    """宿主预测（ICTV 级联 + NCBI 元数据交叉），独立模块。
-
-    输入 = 病毒 contig 分类表 TSV：管道③ virus_contigs.tsv 或
-    工具④ virus_classification.tsv（列名自动识别，后者归一为 ③ 口径），
-    可选配套 viral_contigs.fasta。
-    """
-    tsv = ctx.req('tsv', '病毒 contig 分类表 TSV')
-    fa = ctx.opt('fasta')
-
-    def job(log, prog, cancel):
-        logger = TaskLogger(callback=log)
-        a_dir = check_path(os.path.join(ctx.run_dir, '03_assembly'),
-                           must_exist=False, in_platform=True)
-        os.makedirs(a_dir, exist_ok=True)
-        prog('prep', 0.05, '整理输入')
-        # 统一 11 列口径（含 blast_* 补算），见 host_analysis.normalize_contig_table
-        from Virus_Platform_Core.host_analysis import normalize_contig_table, predict_hosts
-        normalize_contig_table(tsv, a_dir, fasta=fa, threads=ctx.threads,
-                               logger=logger)
-        prog('predict', 0.15, 'ICTV 宿主概率级联预测')
-        res = predict_hosts(ctx.run_dir, threads=ctx.threads, logger=logger,
-                            force=True)
-        prog('done', 1.0, f"完成：宿主判定 {res.get('n_contigs', 0)} 条")
         logger.close()
         return res
     return job
@@ -304,6 +283,14 @@ def _tool_job_genoplot(ctx):
                                progress=lambda p, m: prog(tag, 0.05 + p * 0.9, m))
         if not res.get('plots'):
             raise RuntimeError('未产出任何基因组图（检查输入文件与绘图引擎）')
+        # run_genome_plots 的返回契约是**相对路径**（相对 09_genome_plots/，
+        # 供 summary.json / 报告端按 sample_dir 拼接）；而任务结果的消费者
+        # （集成测试 / API 调用方）拿到的是独立于 run 目录的 dict，必须在这里
+        # 转成绝对路径——否则 res['plots'] 全是相对名，os.path.isfile 全 False。
+        # 磁盘上的 summary.json 不受影响，仍是相对口径。
+        _gp_dir = os.path.join(ctx.run_dir, '09_genome_plots')
+        res['plots'] = [p if os.path.isabs(p) else os.path.join(_gp_dir, p)
+                        for p in res['plots']]
         res['run'] = os.path.basename(ctx.run_dir)   # 供前端 toolrun 内联展示 SVG
         prog('done', 1.0, f"完成：{len(res.get('plots', []))} 张图")
         logger.close()
@@ -329,8 +316,14 @@ def _tool_job_primer(ctx):
                                must_exist=False, in_platform=True)
             os.makedirs(os.path.join(p_dir, 'G1'), exist_ok=True)
             shutil.copyfile(fasta, os.path.join(p_dir, 'G1', 'aln.fasta'))
+            # synthetic 标记：这只是把用户自备比对"伪装"成 ⑦ 的产物以便
+            # 复用 primer 的 conserved 通路，不是真系统发育结果——消费者
+            # （viz/refs 等按真摘要解析的地方）据此可识别残缺结构
             with safe_open(os.path.join(p_dir, 'summary.json'), 'wt') as f:
-                _json.dump({'groups': [{'group': 'G1', 'dir': 'G1'}]}, f)
+                _json.dump({'groups': [{'group': 'G1', 'dir': 'G1'}],
+                            'synthetic': True,
+                            'note': '工具卡片自建：仅含用户自备比对，'
+                                    '非 ⑦ 系统发育阶段产物'}, f)
         else:
             a_dir = check_path(os.path.join(ctx.run_dir, '03_assembly'),
                                must_exist=False, in_platform=True)
@@ -408,8 +401,9 @@ def _tool_job_identify(ctx):
 def _tool_job_assemble(ctx):
     """③ 病毒组装（SPAdes，可选模式）。"""
     r1 = ctx.req('r1', 'R1 FASTQ')
-    r2 = ctx.req('r2', 'R2 FASTQ')
-    mode = ctx.p.get('mode') or 'metaviral'
+    mode = ctx.p.get('mode') or 'rnaviral'
+    # srna（小RNA）模式按单端 -s 组装，R2 可选；其余模式仍必填
+    r2 = ctx.opt('r2') if mode == 'srna' else ctx.req('r2', 'R2 FASTQ')
     mem = int(ctx.p.get('memory') or 64)
     min_len = int(ctx.p.get('min_len') or 200)
 
@@ -422,7 +416,7 @@ def _tool_job_assemble(ctx):
                                 memory_gb=mem, logger=logger,
                                 progress=lambda pp, mm: prog(
                                     'spades', 0.05 + pp * 0.85, mm))
-        # 组装产物可能是 contigs.fasta（常规/metaviral-meta）或
+        # 组装产物可能是 contigs.fasta（常规/rnaviral/metaviral-meta）或
         # transcripts.fasta（低覆盖自动降级 rna 模式），以 run_spades 实际
         # 返回的路径为准，不能硬编码 contigs.fasta（否则降级时找不到文件）。
         prog('filter', 0.92, 'contig 长度过滤')
@@ -673,7 +667,7 @@ def _tool_job_consensus(ctx):
             return default
 
     min_qual = _num(ctx.p.get('min_qual'), 20, int)
-    min_depth = _num(ctx.p.get('min_depth'), 10, int)
+    min_depth = _num(ctx.p.get('min_depth'), 1, int)
     min_freq = _num(ctx.p.get('min_freq'), 0.5, float)
     min_mapq = _num(ctx.p.get('min_mapq'), 10, int)
     min_minor_freq = _num(ctx.p.get('min_minor_freq'), 0.02, float)
@@ -940,33 +934,62 @@ def _tool_job_kvsuite(ctx):
     # 旧布局散置文件兜底），不再各自硬编码路径。
     from Virus_Platform_Core.kv_stage import (default_ref_info,
                                               default_reference)
-    ref = (ctx.p.get('reference') or '').strip()
-    if ref:
-        ref = ctx.req('reference', '参考序列')
-    else:
-        ref = default_reference()
-        if not ref:
-            abort(400, '缺少默认病毒参考：请先在「数据库构建 → 病毒鉴定库」建库')
-        ref = check_path(ref, must_exist=True, in_platform=True)
-    ref_info = (ctx.p.get('ref_info') or '').strip()
-    if ref_info:
-        ref_info = ctx.req('ref_info', '参考注释')
-    else:
-        cand = default_ref_info()
-        ref_info = cand if cand and os.path.isfile(cand) else None
-
-    # 定量引擎固定 salmon（共识段内部固定 minibwa，不经此参数）。
-    # 旧前端的 engine 值仍接受但一律归一为 salmon。
-    engine = 'salmon'
-    # 索引复用：① 用户在前端选的「鉴定库」优先（build 页建好的）；
-    # ② 默认参考 + 预建索引在位时自动复用（避免每个 run 重建 60 MB 索引）；
-    # ③ 都不满足则回退 <out>/index 临时建。
+    # 选库优先（库与引擎正交：kv_lib 把 reference/ref_info/index_dir 三件套
+    # 一起定死；engine 只决定定量方式）。给了 kv_lib 就不再吃零散的
+    # reference/ref_info/index_dir 参数——避免"库选了 A、参考手填 B"的错配。
+    kv_lib_raw = (ctx.p.get('kv_lib') or '').strip()
+    ref = ref_info = None
     index_dir = None
-    user_idx = (ctx.p.get('index_dir') or '').strip()
-    if user_idx:
-        index_dir = ctx.req('index_dir', '鉴定库目录')
-    else:
-        # 预建索引复用（布局判定收敛在 kv_stage.index_dir_for 一处）
+    kv_lib_selected = False
+    if kv_lib_raw:
+        from Virus_Platform_Core.kv_stage import resolve_kv_lib
+        try:
+            lib = resolve_kv_lib(kv_lib_raw)
+        except ValueError as e:
+            abort(400, str(e))
+        ref = lib['reference']
+        ref_info = lib['ref_info'] or None
+        kv_lib_selected = True   # 索引在 engine 确定后按库统一判定（下方③）
+    if ref is None:
+        ref = (ctx.p.get('reference') or '').strip()
+        if ref:
+            ref = ctx.req('reference', '参考序列')
+        else:
+            ref = default_reference()
+            if not ref:
+                abort(400, '缺少默认病毒参考：请先在「数据库构建 → 病毒鉴定库」建库')
+            ref = check_path(ref, must_exist=True, in_platform=True)
+    if ref_info is None:
+        ref_info = (ctx.p.get('ref_info') or '').strip()
+        if ref_info:
+            ref_info = ctx.req('ref_info', '参考注释')
+        else:
+            cand = default_ref_info()
+            ref_info = cand if cand and os.path.isfile(cand) else None
+
+    # 定量引擎二选一：salmon（EM 定量，默认）| minibwa（真比对计数，
+    # 2026-09-13 恢复）。库与引擎正交——engine 只决定定量方式，
+    # 用哪个鉴定库由 kv_lib（或旧 reference/index_dir 参数）决定。
+    # 共识段内部固定 minibwa 自建索引重新比对，不经此参数。
+    engine = (ctx.p.get('engine') or 'salmon').strip().lower()
+    if engine not in ('salmon', 'minibwa'):
+        engine = 'salmon'       # 旧前端的历史取值一律归一为 salmon
+    if engine == 'minibwa' and index_dir:
+        # 建库页的 minibwa 索引布局在 <库>/minibwa/reference.*；
+        # 引擎的 build_index/复用都认 <index_dir>/reference 前缀，
+        # 选库 + minibwa 时把索引目录指到该子目录（预建索引直接复用）。
+        mb = os.path.join(index_dir, 'minibwa')
+        if os.path.isdir(mb):
+            index_dir = mb
+    # 索引复用：① kv_lib 选库 / ② 旧「鉴定库目录」参数（仅未选库时吃，
+    # 避免"库选了 A、索引手填 B"错配）→ 布局判定都收敛到
+    # kv_stage.index_dir_for（平台内可写库索引落库目录全局复用；外部库
+    # 只读复用现成索引；都不满足则 <out>/index 现建，不污染库）。
+    if index_dir is None and not kv_lib_selected:
+        user_idx = (ctx.p.get('index_dir') or '').strip()
+        if user_idx:
+            index_dir = ctx.req('index_dir', '鉴定库目录')
+    if index_dir is None:
         from Virus_Platform_Core.kv_stage import index_dir_for
         index_dir = index_dir_for(ref, engine)
 
@@ -1392,3 +1415,1893 @@ def _extract_records(src, ids, dst):
                 if keep:
                     w.write(line)
     return n
+
+
+def _qc_brief(qc):
+    """序列预筛摘要（供 events.json / summary.json / 前端展示）。
+
+    逐条明细（每条为什么被剔）留在 `align_qc_report.tsv` 里——几百条时
+    没必要塞进 JSON。未启用预筛时 qc 为 None。
+    """
+    if not qc:
+        return None
+    return {'n_in': qc['n_in'], 'n_keep': qc['n_keep'],
+            'n_removed': qc['n_removed'], 'reasons': qc['reasons'],
+            'ref_id': qc['ref_id'], 'ref_len': qc['ref_len'],
+            'thresholds': qc['thresholds'],
+            'clean': os.path.basename(qc['clean']),
+            'report': os.path.basename(qc['report'])}
+
+
+def _tool_job_rdp(ctx):
+    """RDP 重组分析（RDP5CL 九方法，本机原生）。
+
+    输入 = 比对好的 FASTA（MAFFT 产物）。产物落 run_dir/rdp/：
+      rdp5.csv（主表）/ 断点分布 / events.json / events.tsv / summary.json
+      + 预筛产物 align_qc_report.tsv / clean.fasta / removed.fasta
+
+    序列预筛（2026-09-15 增，默认开）：进 RDP5 前先剔掉**不完整片段**与低质量
+    序列，口径对齐参照管道 `virome_phylo_pipeline/utils/align_qc.py`——长度比
+    <0.90（相对参考/中位长度）、gap >10%、N >5%、与参考 identity 偏离 >2%。
+    理由：RDP5 检测的是同源等长序列间的重组，片段混进来会让全比对出现大片
+    gap，断点坐标与 p 值都被带偏，而片段本身是缺失数据、任何重组信号都不可信。
+    `qc=0` 可关（只用于排障），`qc_ref` 指定参考序列 ID，`qc_min_len` 改长度比阈值。
+
+    引擎说明：2026-09-15 移除自研三序列法（MaxChi/Chimaera/Bootscan）——
+    实测在合成嵌合数据（6 条 1kb，真重组体 + 真断点 500）上 18 报 1 真：
+    Bootscan 分支只看 support 不看 p（p=1.0 的事件照样入选）、start/end 取
+    三方法断点极值而非片段区间、全组合扫描无多重校正。与 RDP5 并存只会让
+    用户拿到假阳性事件表，故删除，RDP5 为唯一引擎。
+    """
+    inp = ctx.req('input', '比对 FASTA')
+    # 预筛默认**开**：完整性过滤是重组分析的前提，不是可选项
+    qc_on = str(ctx.p.get('qc', '1') or '').strip().lower() not in (
+        '0', 'false', 'no', 'off')
+    qc_ref = (ctx.p.get('qc_ref') or '').strip()
+    try:
+        qc_min_len = float(ctx.p.get('qc_min_len') or 0.90)
+    except (TypeError, ValueError):
+        qc_min_len = 0.90
+    qc_min_len = max(0.5, min(qc_min_len, 1.0))
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core import rdp5_engine as _r5
+        from Virus_Platform_Core.align_qc import MIN_SEQS, qc_alignment
+        from Virus_Platform_Core.utils import load_alignment, variable_cols
+        out_dir = os.path.join(ctx.run_dir, 'rdp')
+        os.makedirs(out_dir, exist_ok=True)
+
+        # ① 序列预筛：只把完整序列送进 RDP5
+        aln_used, qc = inp, None
+        if qc_on:
+            prog('rdp5', 0.03, '序列预筛（去不完整片段 / 低质量序列）')
+            try:
+                qc = qc_alignment(inp, out_dir, reference_id=qc_ref or None,
+                                  min_length=qc_min_len, logger=logger)
+            except ValueError as exc:
+                log(f'[错误] {exc}')
+                raise
+            if not qc['enough']:
+                msg = (f"预筛后只剩 {qc['n_keep']} 条序列（RDP5 至少需要 {MIN_SEQS} 条），"
+                       f"共剔除 {qc['n_removed']} 条：{qc['reasons']}。"
+                       "请调低「最小长度比」、指定参考序列，或补充更多完整序列。")
+                log(f'[错误] {msg}')
+                raise RuntimeError(msg)
+            if qc['n_removed']:
+                aln_used = qc['clean']
+
+        # 比对规模：RDP5 自身不产出，但结果摘要要显示（按 RDP5 实际吃到的
+        # 那份比对统计，才能和事件数对得上）
+        n_seqs, aln_len, n_var = None, None, None
+        try:
+            aln = load_alignment(aln_used)
+            n_seqs = len(aln)
+            if aln:
+                seqs = list(aln.values())
+                aln_len = len(seqs[0])
+                n_var = len(variable_cols(seqs))
+        except Exception as exc:
+            log(f'[warn] 比对规模统计失败：{type(exc).__name__}: {exc}')
+
+        prog('rdp5', 0.05, 'RDP5 检测中（九方法，本机原生）')
+        csv_path = _r5.run_rdp5cl(aln_used, out_dir, prefix='rdp5',
+                                  timeout=3600, logger=logger,
+                                  cancel=cancel)
+        prog('rdp5', 0.9, '解析事件')
+        raw_evs = _r5.parse_rdp5_csv(csv_path)
+        evs = []
+        for e in raw_evs:
+            sig = sorted((m for m, p in e['methods'].items()
+                          if p < 0.05), key=lambda m: e['methods'][m])
+            evs.append({
+                'recombinant': e['recombinant'],
+                'major': e['major_parent'], 'minor': e['minor_parent'],
+                'start': e['bp_start'], 'end': e['bp_end'],
+                'methods': sig, 'n_methods': e['n_methods'],
+                'pvalue': (min(e['methods'].values())
+                           if e['methods'] else None),
+                'support': None,
+            })
+        sep = '\t'
+        with open(os.path.join(out_dir, 'events.tsv'), 'w',
+                  encoding='utf-8', newline='') as f:
+            f.write(sep.join(['recombinant', 'major', 'minor', 'start', 'end',
+                              'n_methods', 'methods', 'best_pvalue']) + '\n')
+            for e in evs:
+                f.write(sep.join([
+                    e['recombinant'], e['major'], e['minor'],
+                    str(e['start']), str(e['end']), str(e['n_methods']),
+                    ','.join(e['methods']),
+                    '' if e['pvalue'] is None else f"{e['pvalue']:.3g}",
+                ]) + '\n')
+        # events.json 是前端结果表的数据源，须带齐摘要字段
+        # （前端读 d.n_seqs / d.aln_len / d.variable / d.events / d.qc）
+        with open(os.path.join(out_dir, 'events.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump({'engine': 'rdp5', 'n_seqs': n_seqs,
+                       'aln_len': aln_len, 'variable': n_var,
+                       'n_events': len(evs), 'events': evs,
+                       'qc': _qc_brief(qc)},
+                      f, ensure_ascii=False, indent=1)
+        # summary.json 的 input 是 /api/tool/rdp_masked 回读原比对的依据：
+        # 必须记 **RDP5 实际吃到的那份比对**（预筛后的 clean.fasta），
+        # 否则掩蔽坐标与事件坐标对不上。原始输入另存 source_input 备查。
+        summary = {'tool': 'rdp', 'engine': 'rdp5',
+                   'n_seqs': n_seqs, 'aln_len': aln_len,
+                   'variable': n_var, 'n_events': len(evs),
+                   'events': evs[:200], 'csv': csv_path,
+                   'qc': _qc_brief(qc),
+                   'input': aln_used, 'source_input': inp, 'out_dir': out_dir}
+        with open(os.path.join(out_dir, 'summary.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=1)
+        logger.close()
+        return summary
+    return job
+
+
+def _tool_job_phylogeo(ctx):
+    """系统地理分析（建树 + Fitch 迁移重构）+ 可选的两项统计。
+
+    输入 = 比对 FASTA + 元数据 CSV（或 FASTA 头 `>acc|区域|年份`）。
+    产物落 run_dir/phylogeo/：tree_annotated.nwk / migration_matrix.tsv /
+    leaf_states.tsv / transitions.tsv（+ 迁移事件分类 transition_classes.tsv；
+    给了坐标表/元数据带 lat/lon 时另有 coords_resolved.tsv 与 sample_coords.tsv；
+    开启统计时的 rrt_permutation.tsv / weight_bands.json）。
+
+    可选统计（默认关）：
+      rrt_perm   区域随机化检验的置换次数（0=不做；建议 ≥1000）→ 区划是否真有信号
+      rssp_bs    bootstrap 复本数（0=不做；建议 ≥100）→ 迁移数的置信区间
+                 同时是「后验权重分带」的驱动源（方向支持率）
+      motp_bin   迁移随时间（MOTP）的分箱宽度（年）；>0 才做
+      dated_tree LSD2 的 `.date.nexus`（给了就用真正的节点年代，否则退回近似）
+      coords     坐标表（可选）：逐样本点层 + 区划落点（样本坐标中位数优先）
+    """
+    inp = ctx.req('input', '比对 FASTA')
+    meta = (ctx.p.get('meta') or '').strip()
+    # 2026-09-18：区划列**留空就是自动识别**（explorer 新版叫 Geo_Location/
+    # Country，硬塞 'region' 会白报一条「自动识别」告警）
+    trait = (ctx.p.get('trait') or '').strip()
+    method = (ctx.p.get('method') or 'nj').strip().lower()
+    if method not in ('nj', 'fasttree'):
+        method = 'nj'
+    dated_tree = ctx.opt('dated_tree')          # 可选文件（不存在则视为未给）
+    coords_path = ctx.opt('coords')             # 可选：坐标表（样本点层）
+    date_trait = (ctx.p.get('date_trait') or 'year').strip() or 'year'
+    try:
+        motp_bin = float(str(ctx.p.get('motp_bin') or 0).strip() or 0)
+    except ValueError:
+        motp_bin = 0.0
+    if motp_bin < 0:
+        motp_bin = 0.0
+
+    def _int(key, lo, hi, default=0):
+        try:
+            v = int(str(ctx.p.get(key) or default).strip() or default)
+        except ValueError:
+            return default
+        return max(lo, min(v, hi))
+
+    rrt_perm = _int('rrt_perm', 0, 20000, 0)
+    rssp_bs = _int('rssp_bs', 0, 2000, 0)
+    seed = _int('seed', 0, 10 ** 9, 0)
+    # 样本点层进 summary 的上限（逐样本 1 条；超限不进轮询载荷，条数如实上报，
+    # 全量永远在 sample_coords.tsv 里 —— 不允许静默丢点）
+    SP_MAX = 3000
+    # 迁移事件分类明细进 summary 的上限（逐边 1 条；同上，全量在
+    # transition_classes.tsv / transition_classes.json）
+    TC_MAX = 300
+    # 日志与 summary 里距离分带的固定顺序（phylogeo._CLASS_ORDER 的显示副本）
+    _TC_LABELS = ('Direct', 'Indirect', 'Distant', 'Unresolved')
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core.phylogeo import analyze
+        out_dir = os.path.join(ctx.run_dir, 'phylogeo')
+        os.makedirs(out_dir, exist_ok=True)
+        tree_path = os.path.join(out_dir, 'tree.nwk')
+        res = analyze(inp, tree_path,
+                      meta_path=meta or None, trait=trait, method=method,
+                      out_dir=out_dir, rrt_perm=rrt_perm, rssp_bs=rssp_bs,
+                      seed=seed, dated_tree=dated_tree, motp_bin=motp_bin,
+                      date_trait=date_trait, coords_path=coords_path,
+                      progress=lambda st, f_, m: prog(st, f_, m))
+        # ---- 坐标命中情况（analyze 里解析；这里只做日志，不静默）----
+        # 坏行/未命中区划/元数据坏坐标都**不静默**：skipped 与 missing 既进 job
+        # 日志，也进 summary（前端显示出来，避免"图里少画了却看不出"）。
+        coords = res.get('coords') or {}
+        coord_src = res.get('coord_src') or {}
+        coord_missing = res.get('coord_missing') or []
+        coord_skips = res.get('coord_skips') or []
+        if coords_path:
+            for s in coord_skips:
+                log(f'[WARN] 坐标表 {os.path.basename(coords_path)}：{s}')
+            log(f"坐标表 {os.path.basename(coords_path)}：解析出 "
+                f"{res.get('coord_table_regions', 0)} 个区划"
+                f"（逐行条目 {res.get('coord_table_rows', 0)} 条，"
+                f"跳过 {len(coord_skips)} 行）")
+        n_sp = int(res.get('n_sample_coords') or 0)
+        if n_sp:
+            n_meta_pt = sum(1 for p in (res.get('sample_points') or [])
+                            if p.get('src') == 'meta')
+            log(f"逐样本经纬度：{n_sp}/{res['n_seqs']} 条样本有坐标"
+                f"（元数据列 {n_meta_pt} / 坐标表 {n_sp - n_meta_pt}）")
+        n_samp = sum(1 for v in coord_src.values() if v == 'samples')
+        n_user = sum(1 for v in coord_src.values() if v == 'user')
+        # `*_prefix`＝退到「国家: 子区」的**国家部分**才命中的（落点粗一级）。
+        # 单独计数、单独报 —— 混进"用户表/内置质心表"里就等于把粗坐标说成准坐标。
+        n_usr_px = sum(1 for v in coord_src.values() if v == 'user_prefix')
+        n_bui_px = sum(1 for v in coord_src.values() if v == 'builtin_prefix')
+        if res['regions']:
+            log(f"区划落点坐标：{len(coords)}/{len(res['regions'])} 个区划有坐标"
+                f"（样本坐标中位数 {n_samp} / 用户表 {n_user} / "
+                f"内置质心表 {len(coords) - n_samp - n_user - n_usr_px - n_bui_px}）"
+                + (f"，其中 {n_usr_px + n_bui_px} 个是按「国家: 子区」的"
+                   f"**国家部分**兜底的（落点粗一级）"
+                   if (n_usr_px or n_bui_px) else '')
+                + (f"，缺坐标：{'、'.join(coord_missing[:8])}" if coord_missing else ''))
+        if coord_missing:
+            log('[WARN] 以下区划没有坐标，迁移弧线与距离分类都用不上它们：'
+                + '、'.join(coord_missing))
+        # 迁移事件分类：全量明细落 transition_classes.json（另有一份
+        # transition_classes.tsv 由 analyze 写），summary 只放精简版 +
+        # 截断前 TC_MAX 条（前端表格与弧线着色用）。
+        tc = res.get('transition_classes')
+        tc_brief = None
+        if tc:
+            with open(os.path.join(out_dir, 'transition_classes.json'), 'w',
+                      encoding='utf-8') as f:
+                json.dump(tc, f, ensure_ascii=False, indent=1)
+            th = tc['thresholds']
+            cnt = tc['counts']
+            log('迁移事件分类（距离分带）：'
+                + ' / '.join(f'{k} {cnt[k]}' for k in _TC_LABELS if cnt.get(k))
+                + f"（跨区边 {tc['n_edges']} 条；≤{th['q33']} km 直接 / "
+                  f"≥{th['q67']} km 远距，阈值来源 {th['src']}）")
+            if tc['flags']:
+                log('分类证据标记：'
+                    + ' / '.join(f'{k} {v}' for k, v in tc['flags'].items())
+                    + f"（低分化远程=边替换数 ≤ 本次中位数 {tc['snp_median']}；"
+                      '同期远程=两侧年份中位数差 ≤1 年）')
+            if tc['n_unknown_state']:
+                log(f"{tc['n_unknown_state']} 条跨区边一端状态未知（Unknown）——"
+                    '未进分类表')
+            rows_all = tc['rows']
+            if len(rows_all) > TC_MAX:
+                log(f'[WARN] 迁移事件分类明细只把前 {TC_MAX} 条放进 summary'
+                    f'（共 {len(rows_all)} 条），全量见 '
+                    f'{os.path.join(out_dir, "transition_classes.tsv")}')
+            tc_brief = {
+                'counts': tc['counts'], 'thresholds': tc['thresholds'],
+                'flags': tc['flags'], 'n_edges': tc['n_edges'],
+                'n_intro': tc['n_intro'], 'n_no_tips': tc['n_no_tips'],
+                'n_unknown_state': tc['n_unknown_state'],
+                'n_state_changes': tc['n_state_changes'],
+                'snp_median': tc['snp_median'],
+                'n_with_step': tc['n_with_step'],
+                'rows': rows_all[:TC_MAX],
+                'rows_truncated': max(0, len(rows_all) - TC_MAX),
+                'method': tc['method'],
+            }
+        _m = res.get('motp') or {}
+        if _m.get('bins'):
+            log(f"迁移随时间（MOTP）：{len(_m['bins'])} 个时间窗"
+                f"（轴向 {_m.get('axis')}／窗宽 {_m.get('bin_width')} 年，"
+                f"可计年迁移 {len(_m.get('rows') or [])} 条"
+                + (f"，{_m['n_undated']} 条无年代未分箱" if _m.get('n_undated')
+                   else '') + '）')
+        # 权重分带的驱动源要进日志：本平台的驱动源只有 RSPP 支持率（不是贝叶斯
+        # 后验，也不是 BEAST 跳转计数）；事后查报告必须能分清数字是哪一支口径。
+        _wb = res.get('weight_bands')
+        if _wb:
+            log('后验权重分带（%s）：%d 条走廊 / %d 事件 / 期望 %.3f 条'
+                % (_wb.get('driver_label') or _wb.get('driver'),
+                   _wb.get('n_corr') or 0, _wb.get('n_events') or 0,
+                   float(_wb.get('exp_events') or 0.0))
+                + ('' if not _wb.get('n_zero_rep')
+                   else f"；{_wb['n_zero_rep']} 条实测 0（归最低档）"))
+        elif rssp_bs:
+            log('[WARN] 本次没得到后验权重分带（RSPP 没有可用复本）——前端将'
+                '显示「未评估」，不要按计数口径自行解读"权重"')
+        sp_all = res.get('sample_points') or []
+        if len(sp_all) > SP_MAX:
+            log(f'[WARN] 样本点层只把前 {SP_MAX} 条放进 summary（共 {len(sp_all)} '
+                f'条），全量见 {os.path.join(out_dir, "sample_coords.tsv")}')
+        summary = {
+            'tool': 'phylogeo',
+            'n_seqs': res['n_seqs'], 'trait': res['trait'],
+            'method': res['method'], 'regions': res['regions'],
+            'n_transitions': res['n_transitions'],
+            'transitions_top': res['transitions_top'],
+            'matrix': res['matrix'],
+            'unresolved': res['unresolved'],
+            # 带采样年份的叶数（前端据此提示「树无时间信息」的方法学风险）
+            'n_years': res.get('n_years'),
+            'warnings': res.get('warnings') or [],
+            # 迁移事件分类（精简版；明细 ≤TC_MAX 条，弧线按主导类上色用）
+            'transition_classes': tc_brief,
+            # 走廊→主导类（from/to/label/counts/n；弧线着色与悬停文案）
+            'corridor_classes': res.get('corridor_classes') or [],
+            'motp': res.get('motp'),
+            'rrt': res.get('rrt'),
+            'rssp': res.get('rssp'),
+            # 后验权重分带（驱动源：RSPP 方向支持率；没跑 RSPP 时为 None）
+            'weight_bands': res.get('weight_bands'),
+            'rrt_perm': rrt_perm, 'rssp_bs': rssp_bs, 'seed': seed,
+            'motp_bin': motp_bin, 'date_trait': date_trait,
+            'dated_tree': dated_tree,
+            # 弧线地图坐标（样本中位数/用户表/内置质心表）+ 出处 + 缺坐标清单
+            'coords': coords, 'coord_src': coord_src,
+            'coord_missing': coord_missing,
+            'coords_file': (os.path.basename(coords_path) if coords_path
+                            else None),
+            'coord_skips': coord_skips,
+            # 逐样本点层（上限 SP_MAX；截断条数如实上报，全量在 sample_coords.tsv）
+            'sample_points': sp_all[:SP_MAX],
+            'n_sample_coords': len(sp_all),
+            'sample_points_truncated': max(0, len(sp_all) - SP_MAX),
+            'out_dir': out_dir,
+        }
+        for w in summary['warnings']:
+            log(f'[WARN] {w}')
+        with open(os.path.join(out_dir, 'summary.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=1)
+        logger.close()
+        return summary
+    return job
+
+
+def _tool_job_dsrna(ctx):
+    """dsRNA 设计全链路（引擎在 Virus_Platform_Core/dsrna_pipeline.py）：
+
+    选窗（dsRNAmax_det，maximin 多候选）→ siRNA 效价（dsRIP 口径）→
+    面板脱靶扫描（uint64 排序数组，≤2 错配，致死基因加权）→ 安全合成评分
+    → T7 引物（限定最优窗）→ 成品扩增子 QC（对真实交付分子重打分）。
+
+    输入 = 目标 FASTA（病毒基因组/片段）；产物落 run_dir/dsrnamax/。
+    panel 三态：不给 = 扫全部已装面板（databases/dsrna/panel/）；空串/'none'
+    = 显式跳过脱靶扫描与安全评分；逗号列表 = 所选物种（裸种名或文件名均可）。
+    exe 兼容性（probe_exe 自动处理）：-seed 仅 det 构建认识；-kmerLen<21
+    必须显式 -otKmerLen；内存守卫按 160B×k-mer×iterations 估算 fail-fast。
+    脱靶排除 FASTA（exe 级 k-mer 硬排除）默认不启用：目标序列通常就在
+    全库里（自身 kmer 会被全删，2026-09-13 实测 CMV 8342/8342 全被清空）。
+    """
+    targets = ctx.req('input', '目标 FASTA')
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core import dsrna_pipeline as dpipe
+        params = {
+            'construct_len': int(ctx.p.get('construct_len') or 300),
+            'kmer_len': int(ctx.p.get('kmer_len') or 21),
+            'iterations': int(ctx.p.get('iterations') or 100),
+            'seed': int(ctx.p.get('seed') or 42),
+            'candidates': int(ctx.p.get('candidates') or 3),
+            'n_windows': int(ctx.p.get('n_windows') or 1),
+            'off_targets': (ctx.p.get('off_targets') or '').strip(),
+            'panel': (ctx.p.get('panel') or '').strip(),
+            'max_mm': int(ctx.p.get('max_mm') or 1),
+            'efficiency_priority': int(ctx.p.get('efficiency_priority') or 50),
+            'safety_priority': int(ctx.p.get('safety_priority') or 50),
+            'primer_scope': (ctx.p.get('primer_scope') or 'best_window').strip(),
+            'primer_product_min': int(ctx.p.get('primer_product_min') or 200),
+            'primer_product_max': int(ctx.p.get('primer_product_max') or 300),
+            'isolates': (ctx.p.get('isolates') or '').strip(),
+        }
+        try:
+            summary, _report = dpipe.run_chain(targets, params, ctx.run_dir,
+                                               log, prog, cancel)
+        except (dpipe.MemoryBudgetExceeded, dpipe.DsrnaExeError) as e:
+            raise RuntimeError(str(e))
+        with open(os.path.join(summary['out_dir'], 'summary.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=1)
+        logger.close()
+        return summary
+    return job
+
+
+def _tool_job_rtt(ctx):
+    """时间信号检验（根到尾回归，TreeTime RTT 的免依赖实现）。
+
+    输入 = 比对 FASTA + 元数据 CSV（日期列）。先 NJ 建树，再做
+    根到尾回归：R² 高 = 时间信号强（可做定年），斜率 = 进化速率。
+    产物落 run_dir/rtt/：rtt.json + rtt_scatter.tsv。
+    """
+    inp = ctx.req('input', '比对 FASTA')
+    meta = ctx.req('meta', '元数据 CSV')
+    trait = (ctx.p.get('date_trait') or 'year').strip() or 'year'
+    method = (ctx.p.get('method') or 'nj').strip().lower()
+    if method not in ('nj', 'fasttree'):
+        method = 'nj'
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core.phylogeo import (analyze, load_metadata,
+                                                  root_to_tip)
+        out_dir = os.path.join(ctx.run_dir, 'rtt')
+        os.makedirs(out_dir, exist_ok=True)
+        prog('tree', 0.2, f'建树（{method}）')
+        tree_path = os.path.join(out_dir, 'tree.nwk')
+        res = analyze(inp, tree_path, meta_path=meta or None,
+                      trait=trait, method=method, out_dir=None,
+                      progress=lambda st, f_, m: prog(st, f_, m))
+        prog('rtt', 0.7, '根到尾回归')
+        # analyze 内部树名经过安全替换；dates 用净化名匹配（同 RTT 函数口径）
+        meta_data = load_metadata(meta) if meta and os.path.isfile(meta) else {}
+        dates = {}
+        import re as _re
+        for line in open(inp, encoding='utf-8', errors='replace'):
+            if not line.startswith('>'):
+                continue
+            head = line[1:].strip()
+            first = head.split()[0] if head.split() else head
+            key = first.split('|')[0]
+            rec = meta_data.get(key) or next(
+                (v for k, v in meta_data.items()
+                 if key.startswith(k) or k in key), {})
+            safe = _re.sub(r'[(),:;\[\]\'"]+', '_', first)
+            dates[safe] = rec
+        rtt = root_to_tip(tree_path, dates, date_trait=trait)
+        with open(os.path.join(out_dir, 'rtt.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump(rtt, f, ensure_ascii=False, indent=1)
+        with open(os.path.join(out_dir, 'rtt_scatter.tsv'), 'w',
+                  encoding='utf-8', newline='') as f:
+            sep = chr(9)
+            f.write(sep.join(['name', 'root_dist', 'year']) + chr(10))
+            for p_ in rtt['points']:
+                f.write(sep.join([p_['name'], str(p_['dist']),
+                                  str(p_['year'])]) + chr(10))
+        # 2026-09-21: RTT 回归 → LSD2 兼容带年代 NEXUS
+        # （系统地理卡 dated_tree 直连；此前 RTT 只产 newick，年代不随树走）
+        dated_nexus = None
+        try:
+            from Virus_Platform_Core.phylogeo import write_rtt_dated_nexus
+            # 命名跟随树名 → resolve_dated_tree 的「path + '.date.nexus'」
+            # 自动探测候选直接命中（用户只指到 tree.nwk 也能解析出年代）
+            dated_nexus = os.path.splitext(tree_path)[0] + '.date.nexus'
+            write_rtt_dated_nexus(tree_path, dated_nexus,
+                                  rtt['slope'], rtt['intercept'])
+        except Exception as _e:  # noqa: BLE001
+            dated_nexus = None
+        summary = {'tool': 'rtt', 'slope': rtt['slope'],
+                   'intercept': rtt['intercept'], 'r2': rtt['r2'],
+                   'n': rtt['n'], 'points': rtt['points'][:200],
+                   'method': method, 'trait': trait,
+                   'strong_signal': rtt['r2'] >= 0.5,
+                   'out_dir': out_dir,
+                   'aln': inp, 'meta': meta,
+                   'dated_nexus': dated_nexus}
+        with open(os.path.join(out_dir, 'summary.json'), 'w',
+                  encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=1)
+        logger.close()
+        return summary
+    return job
+
+
+# ================================================================
+# 进化动力学工具组（phylodyn 组新增卡，VirPhyKit 方法学对齐；引擎见
+# Virus_Platform_Core/phylodyn_kit.py 与 phylodyn_trees.py）
+# ================================================================
+
+def _pd_out(ctx, key):
+    d = os.path.join(ctx.run_dir, key)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _pd_abs(v):
+    """多路径/自由文本参数里的单路径解析（同 tools_api._input_abs 口径）。"""
+    v = (v or '').strip()
+    if not v:
+        return None
+    return v if os.path.isabs(v) else os.path.join(PLATFORM_ROOT, v)
+
+
+def _pd_paths(v, must=True, what='文件'):
+    """逗号/分号/换行分隔的多路径；目录自动展开树文件通配。"""
+    if not v or not v.strip():
+        return []
+    parts = [x for x in (s.strip() for s in re.split(r'[;,]+|\n', v)) if x]
+    out = []
+    for part in parts:
+        p = _pd_abs(part)
+        if p and os.path.isdir(p):
+            out.extend(os.path.join(p, f) for f in sorted(os.listdir(p))
+                       if f.lower().endswith(('.tre', '.tree', '.nxs', '.nexus',
+                                              '.nwk', '.newick')))
+        elif p and os.path.isfile(p):
+            out.append(p)
+        elif must:
+            raise ValueError(f'{what}不存在: {part}')
+    return out
+
+
+def _pd_save_summary(out_dir, summary):
+    with open(os.path.join(out_dir, 'summary.json'), 'w',
+              encoding='utf-8') as f:
+        json.dump(summary, f, ensure_ascii=False, indent=1)
+
+
+
+def _write_meta(rows, path):
+    """按标准列重写元数据：`name,date,location,lat,lon`，**有则追加 host**。
+
+    ⚠️ 别写成固定五列：写死会把在线来源带回来的 host 悄悄丢掉
+    （2026-09-18 加 host 通道时踩过）。schema 规则与
+    `phylodyn_kit._write_dataset` 保持一致。
+    """
+    import csv as _csv
+    cols = ['name', 'date', 'location', 'lat', 'lon']
+    if any((r.get('host') or '').strip() for r in rows):
+        cols.append('host')
+    with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+        wr = _csv.DictWriter(f, fieldnames=cols, extrasaction='ignore',
+                             restval='')
+        wr.writeheader()
+        for r in rows:
+            wr.writerow({c: (r.get(c) or '') for c in cols})
+
+
+def _filter_fasta_inplace(path, keep_names):
+    """就地把 FASTA 过滤成只留 `keep_names`（名字取首词）。"""
+    kept = []
+    name, buf = None, []
+    with open(path, encoding='utf-8', errors='replace') as f:
+        for ln in f:
+            if ln.startswith('>'):
+                if name is not None and name.split()[0] in keep_names:
+                    kept.append((name, ''.join(buf)))
+                name, buf = ln[1:].strip(), []
+            elif ln.strip():
+                buf.append(ln.strip())
+    if name is not None and name.split()[0] in keep_names:
+        kept.append((name, ''.join(buf)))
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        for nm, sq in kept:
+            f.write('>%s\n' % nm)
+            for i in range(0, len(sq), 60):
+                f.write(sq[i:i + 60] + '\n')
+    return len(kept)
+
+
+def _tool_job_pdprep(ctx):
+    """进化动力学数据接入：三种来源 → 标准数据集（FASTA+元数据）+ 校验报告 + 汇总。
+
+    source=files **两个服务器路径**（explorer 现在导出的是**两份文件**，不是 zip）；
+    source=manual 粘贴 FASTA + 粘贴元数据表；source=genbank 在线下载/本地 GB。
+    时间与地点必须同时给出且格式正确（YYYY / YYYY-MM / YYYY-MM-DD）。
+
+    元数据列名由 `phylodyn_kit.normalize_meta_rows` 自动识别并择优
+    （Collection_Date / Release_Date / Geo_Location / Country … 见该模块注释）。
+
+    ⚠️ 2026-09-18：`source=zip`（explorer 导出包）已**整条下线** —— explorer
+    不再导出 zip；`phylodyn_kit.import_from_zip` 保留但已不接任何卡。
+
+    2026-09-18 **合并四张数据准备类卡**：本卡现在是一条链 ——
+    导入校验（必）→（可选）并入**区域坐标表** →（可选）**时空降采样**（有损，勾了才跑）
+    → 概览出图（按年/按地点/地图点位，自动）；摘要给绝对路径，供「接力 A0」一键回填。
+
+    2026-09-18 第二轮（引入上游 `virome_phylo_pipeline` 的预处理层）：
+    导入后依次 ① 元数据**治理**（占位符 / 多格式日期 / Unknown 地理层级，
+    口径与上游 `metadata_governance` 逐条对拍过；默认开、只清空字段不丢行）
+    → ② **三元组去重**（date+location+sequence，可选）
+    → ③ **比对 QC**（长度/gap%/简并%/identity，可选；可勾"先 MAFFT 再 QC"）
+    → 再走坐标表 / 降采样 / 概览。
+            """
+    source = (ctx.p.get('source') or 'manual').strip()
+    strict = (ctx.p.get('strict') or '0') == '1'
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core import phylodyn_kit as pk
+        out_dir = _pd_out(ctx, 'pdprep')
+        warnings = []          # 各步骤的告警汇总（治理 / 去重 / QC / 降采样 都往里加）
+        if source == 'files':
+            fa = ctx.req('fasta', '序列 FASTA')
+            cs = ctx.req('meta', '元数据 CSV/TSV')
+            prog('import', 0.3, '读取 FASTA + 元数据')
+            res = pk.import_from_files(fa, cs, out_dir, strict=strict,
+                                          govern=(ctx.p.get('govern') or '1') == '1',
+                                          date_mode=(ctx.p.get('date_mode') or 'mid'),
+                                          require_location=(ctx.p.get('allow_noloc') or '0') != '1')
+        elif source == 'manual':
+            fa_text = (ctx.p.get('fasta_text') or '')
+            meta_text = (ctx.p.get('meta_text') or '')
+            prog('import', 0.3, '解析粘贴的序列与元数据')
+            res = pk.import_manual(fa_text, meta_text, out_dir, strict=strict,
+                                          govern=(ctx.p.get('govern') or '1') == '1',
+                                          date_mode=(ctx.p.get('date_mode') or 'mid'),
+                                          require_location=(ctx.p.get('allow_noloc') or '0') != '1')
+        elif source == 'genbank':
+            prog('import', 0.2, '获取 GenBank 记录（在线下载需网络）')
+            # species/taxid/date_from/date_to/collection 都是**普通字符串参数**，
+            # 不能走 ctx.opt（那会把它们当文件路径做 must_exist 校验 → 400）。
+            res = pk.import_from_genbank(
+                out_dir,
+                species=(ctx.p.get('species') or '').strip() or None,
+                taxid=(ctx.p.get('taxid') or '').strip() or None,
+                full_length=(ctx.p.get('full_only') or '0') == '1',
+                govern=(ctx.p.get('govern') or '1') == '1',
+                date_mode=(ctx.p.get('date_mode') or 'mid'),
+                date_from=(ctx.p.get('date_from') or '').strip() or None,
+                date_to=(ctx.p.get('date_to') or '').strip() or None,
+                collection=(ctx.p.get('collection') or '').strip() or None,
+                files=ctx.opt('gb_files'),
+                accessions=(ctx.p.get('accessions') or '').strip() or None,
+                term=(ctx.p.get('term') or '').strip() or None,
+                max_records=int(ctx.p.get('max_records') or 200),
+                strict=strict)
+        else:
+            abort(400, f'未知来源: {source}')
+        for ln in res.get('issues', [])[:50]:
+            logger.log(f"剔除/警告 {ln.get('name')}: {'; '.join(ln.get('problems', []))}\n")
+        # ---- 步骤 A：元数据治理（默认开；归一 + 标注 + 体检，**只清空字段不丢行**）----
+        import csv as _csv
+        rows = list(_csv.DictReader(open(res['metadata'], encoding='utf-8-sig')))
+        # 治理已在 import 里做过（**必须在校验之前**，否则 DD-Mon-YYYY 这类
+        # 行会在 import 阶段就被剔掉、轮不到归一）—— 这里只取报告与告警。
+        gov_info = res.get('govern')
+        if gov_info:
+            prog('govern', 0.42, '元数据治理（入口已完成，读报告）')
+            logger.log('治理：日期可解析 %d/%d；地点 issue %s\n'
+                       % (gov_info.get('n_date_ok'), gov_info.get('n_rows'),
+                          gov_info.get('location_issue') or '{}'))
+            warnings.extend(gov_info.get('warnings') or [])
+
+        # ---- 步骤 B：三元组去重（可选；按 (date, location, sequence)）----
+        dedup_info = None
+        rows_now = [r for r in rows if (r.get('name') or '').strip()]
+        if (ctx.p.get('dedup') or '0') == '1' and len(rows_now) > 1:
+            prog('dedup', 0.46, '三元组去重')
+            keep_rows, drop_rows, dedup_info = pk.dedup_rows(
+                rows_now, seqs=res['fasta'])
+            if dedup_info['n_dropped']:
+                rows = keep_rows
+                keep_names = {(r.get('name') or '').strip().split()[0]
+                              for r in keep_rows}
+                _filter_fasta_inplace(res['fasta'], keep_names)
+                _write_meta(rows, res['metadata'])
+                logger.log('去重（%s）：%d → %d 条（剔 %d）\n'
+                           % (dedup_info['by'], dedup_info['n_in'],
+                              dedup_info['n_kept'], dedup_info['n_dropped']))
+                warnings.append(
+                    '按 %s 去重：剔除 %d 条完全重复的记录（明细见摘要）'
+                    % (dedup_info['by'], dedup_info['n_dropped']))
+            else:
+                logger.log('去重：没有完全重复的记录\n')
+
+        # ---- 步骤 C：比对 QC（可选；可先跑 MAFFT 再 QC）----
+        qc_info = None
+        qc_mode = (ctx.p.get('qc') or 'off').strip()
+        if qc_mode in ('qc', 'align_qc'):
+            from Virus_Platform_Core import phylodyn_alignqc as aq
+            qc_dir = os.path.join(out_dir, 'align_qc')
+            os.makedirs(qc_dir, exist_ok=True)
+            src_fa = res['fasta']
+            if qc_mode == 'align_qc':
+                prog('align', 0.5, 'MAFFT 比对（QC 前置）')
+                aln = os.path.join(qc_dir, 'alignment.mafft.fasta')
+                aq.align(src_fa, aln, threads=int(ctx.p.get('threads') or 4),
+                         log=logger.log)
+                src_fa = aln
+            prog('qc', 0.55, '比对质量检查')
+            qc_info = aq.qc(src_fa, max_gap=float(ctx.p.get('qc_max_gap') or 0.10),
+                            max_n=float(ctx.p.get('qc_max_n') or 0.05),
+                            min_length=float(ctx.p.get('qc_min_len') or 0.90),
+                            log=logger.log)
+            outs = aq.write_qc_outputs(src_fa, qc_info, qc_dir)
+            qc_info['outputs'] = {k: os.path.relpath(v, out_dir)
+                                  for k, v in outs.items()}
+            if qc_info.get('n_drop') and not qc_info.get('n_keep'):
+                # ⚠️ **全剔光**必须当场说清原因，不能让链条带着空数据集往下走
+                #    （否则下游报"输入 FASTA 没有序列"，用户完全看不出为什么）。
+                _why = qc_info.get('advice_drop') or ''
+                raise ValueError(
+                    '比对 QC 把全部 %d 条都剔了 —— %s。'
+                    '最常见的原因是这批序列**本身不同源**（混了不同病毒/片段/长度差异大），'
+                    '或阈值对本数据太严。请先确认输入的生物学同源性，或把 QC 调成「不做」／'
+                    '放宽阈值（gap/N/长度）。逐条指标见 align_qc/align_qc_report.tsv'
+                    % (qc_info['n_seq'], _why))
+            if qc_info.get('n_drop'):
+                # QC 之后一律以**干净集**为准交付（否则交付集与 A0 看的不是一批）
+                seqs_clean = aq.read_fasta(outs['clean'])
+                keep_names = set(seqs_clean)
+                rows = [r for r in rows
+                        if (r.get('name') or '').strip().split()[0] in keep_names]
+                shutil.copyfile(outs['clean'], res['fasta'])
+                _write_meta(rows, res['metadata'])
+                warnings.append('比对 QC 剔除 %d 条（%s）；**后续步骤与交付的数据集'
+                                '都只含干净集**，明细见 align_qc/align_qc_report.tsv'
+                                % (qc_info['n_drop'], qc_info.get('advice_drop') or ''))
+            if not qc_info['aligned']:
+                warnings.append('输入序列**不等长** —— A0/建树要求等长比对；'
+                                '勾「先比对再 QC」可用 MAFFT 现场比对。')
+
+        # ---- 可选①：把「区域坐标表」并进元数据（让地图有真落点）----
+        coords_info = None
+        coords = (ctx.p.get('coords') or '').strip()
+        if coords:
+            prog('coords', 0.5, '并入区域坐标表')
+            try:
+                sp = pk.parse_spatial(coords)
+                rows, cst = pk.attach_coords(rows, sp)
+                coords_info = {'source': coords, **cst}
+                logger.log('坐标表：%d 个落点，匹配到 %d 行；'
+                           '未落点区划 %d 种\n'
+                           % (cst['n_points'], cst['n_matched'],
+                              len(cst['unplaced_regions'])))
+                if cst['unplaced_regions']:
+                    warnings.append(
+                        '这些区划在坐标表里没有落点（地图上不会出现）：'
+                        + '、'.join(f'{k}×{v}' for k, v in
+                                    cst['unplaced_regions'][:8]))
+            except (ValueError, OSError) as e:
+                warnings.append(f'坐标表读取失败（已忽略，地图退回内置质心表）：{e}')
+
+        # ---- 可选②：时空降采样（**有损**，只勾选才跑）----
+        sub_info = None
+        if (ctx.p.get('sub') or '0') == '1':
+            prog('sub', 0.65, '时空降采样')
+            mode_sub = (ctx.p.get('sub_mode') or 'random').strip()
+            kwargs = {'mode': mode_sub, 'seed': int(ctx.p.get('sub_seed') or 0),
+                      'region_from': 'meta', 'meta_path': res['metadata'],
+                      'meta_region_col': 'location'}
+            if mode_sub == 'random':
+                kwargs['n'] = int(ctx.p.get('sub_n') or 50)
+            elif mode_sub == 'region':
+                kwargs['n'] = int(ctx.p.get('sub_n') or 5)
+                kwargs['region'] = (ctx.p.get('sub_region') or '').strip() or None
+            sub_dir = os.path.join(out_dir, 'subsample')
+            sub = pk.subsample_fasta(res['fasta'], sub_dir, **kwargs)
+            # 产物：只保留被抽中的样本（元数据同步过滤），供"接力 A0"直接用
+            keep = {ln[1:].strip().split()[0] for ln in open(
+                sub.get('out_file') or '', encoding='utf-8') if ln.startswith('>')}
+            rows2 = [r for r in rows
+                     if (r.get('name') or '').strip().split()[0] in keep]
+            sub_fa = os.path.join(out_dir, 'sequences.subsampled.fasta')
+            sub_mt = os.path.join(out_dir, 'metadata.subsampled.csv')
+            shutil.copyfile(sub['out_file'], sub_fa)
+            with open(sub_mt, 'w', encoding='utf-8-sig', newline='') as f:
+                wr = _csv.DictWriter(f, fieldnames=['name', 'date', 'location',
+                                                    'lat', 'lon'],
+                                     extrasaction='ignore')
+                wr.writeheader()
+                for r in rows2:
+                    wr.writerow(r)
+            sub_info = {k: v for k, v in sub.items()
+                        if k not in ('per_region', 'per_region_sampled',
+                                     'excluded_no_region')}
+            sub_info.update({'n_in': len(rows), 'n_out': len(rows2),
+                             'per_region': sub.get('per_region'),
+                             'excluded_no_region': sub.get('excluded_no_region'),
+                             'fasta': 'pdprep/sequences.subsampled.fasta',
+                             'metadata': 'pdprep/metadata.subsampled.csv'})
+            logger.log('降采样（%s）：%d → %d 条\n'
+                       % (mode_sub, sub_info['n_in'], sub_info['n_out']))
+            if sub.get('n_excluded_no_region'):
+                warnings.append(
+                    '降采样排除了 %d 条**没有区划信息**的样本（Unknown/空，'
+                    '它们无法参与"分区"口径）'
+                    % sub['n_excluded_no_region'])
+            if mode_sub == 'equal' and sub_info['n_out'] < 0.2 * sub_info['n_in']:
+                warnings.append(
+                    '等量模式按**最小区划**的条数取样，本次只剩 %d 条'
+                    '（占 %.0f%%）—— 若偏差太大，改用「指定区划剔除」更合适'
+                    % (sub_info['n_out'],
+                       100.0 * sub_info['n_out'] / max(1, sub_info['n_in'])))
+
+        summary = {'tool': 'pdprep', 'source': source,
+                   'n_input': res.get('n_input'), 'n_rows_input': res.get('n_rows_input'),
+                   'n_kept': res['n_kept'], 'n_issues': len(res.get('issues', [])),
+                   'issues': res.get('issues', [])[:200],
+                   'fasta': 'pdprep/sequences.fasta', 'metadata': 'pdprep/metadata.csv',
+                   'meta_pick': res.get('meta_pick'),
+                   'govern': gov_info, 'dedup': dedup_info, 'align_qc': qc_info,
+                   'coords': coords_info, 'subsample': sub_info,
+                   'warnings': warnings,
+                   # 「接力 A0」要的是**绝对路径**（卡片直接把路径填进输入框）
+                   'abs': {'seq': os.path.abspath(res['fasta']),
+                           'meta': os.path.abspath(res['metadata']),
+                           'sub_seq': (os.path.abspath(sub_fa) if sub_info else None),
+                           'sub_meta': (os.path.abspath(sub_mt) if sub_info else None),
+                           'coords': (os.path.abspath(coords) if coords else None)},
+                   'summary': pk.dataset_summary(
+                       [r['name'] for r in rows], rows),
+                   'out_dir': out_dir}
+        for w in warnings:
+            logger.log('[WARN] %s\n' % w)
+        _pd_save_summary(out_dir, summary)
+        prog('done', 1.0, f"数据集就绪：{res['n_kept']} 条"
+                          + (f"（降采样后 {summary['subsample']['n_out']} 条）"
+                             if sub_info else ''))
+        logger.close()
+        return summary
+    return job
+
+
+def _tool_job_pdrename(ctx):
+    """SeqIDRenamer 同款：按「旧ID<TAB>新ID」映射表批量重命名 FASTA。"""
+    inp = ctx.req('input', '序列 FASTA')
+    mapping = ctx.req('map', '映射表 TSV')
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core import phylodyn_kit as pk
+        out_dir = _pd_out(ctx, 'pdrename')
+        prog('rename', 0.5, '重命名序列 ID')
+        res = pk.rename_sequences(inp, mapping, out_dir)
+        summary = {'tool': 'pdrename', **res, 'out_dir': out_dir}
+        _pd_save_summary(out_dir, summary)
+        prog('done', 1.0, f"重命名 {res['n_renamed']}/{res['n_seq']} 条")
+        logger.close()
+        return summary
+    return job
+
+
+# PAmiRDB 移植版批量上限：单病毒 DP 是 O(miRNA×基因组) 全矩阵，纯 Python
+# 每对 15kb 基因组约 0.3~0.5s；上限防止粘贴超大 FASTA 时任务跑数小时。
+MIRNA_MAX_PAIRS = 5000
+# 与 PAmiRDB v7 生产管线一致：超长病毒序列截断到 15kb 再做 DP。
+MIRNA_SEQ_MAX_LEN = 15000
+
+
+def _mirna_parse_fasta(text, kind, seq_max=None):
+    """解析 FASTA 或每行一条的纯序列文本 → [{id, name, seq}]。非法字符剔除。"""
+    entries = []
+    cur = None
+    plain_idx = 0
+    for raw in (text or '').splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith('>'):
+            if cur:
+                entries.append(cur)
+            head = line[1:].strip()
+            parts = head.split(None, 1)
+            cur = {'id': parts[0] or f'user_{kind}_{len(entries) + 1}',
+                   'name': parts[1] if len(parts) > 1 else '',
+                   'seq': ''}
+        else:
+            if not cur:
+                plain_idx += 1
+                cur = {'id': f'user_{kind}_{plain_idx}', 'name': '', 'seq': ''}
+            cur['seq'] += line
+    if cur:
+        entries.append(cur)
+    for e in entries:
+        e['seq'] = re.sub(r'[^ACGTUNacgtun]', '', e['seq']).upper()
+        if seq_max and len(e['seq']) > seq_max:
+            e['truncated'] = True
+            e['seq'] = e['seq'][:seq_max]
+    return [e for e in entries if len(e['seq']) >= 15]
+
+
+def _write_mirna_merged_outputs(out_dir, rows):
+    """sRNA-target-prediction-windows 风格的结果整理：
+
+    产出 mirna_targets_merged.csv（全部共识命中 + 官方二进制交叉验证列）
+    与 mirna_report.html（可排序表格 + 比对视图，双击即可离线查看）。"""
+    import html as _html
+
+    cols = ['mirna_id', 'target_virus_id', 'target_virus_name',
+            'consensus_level', 'num_algorithms', 'consensus_detail',
+            'best_energy', 'miranda_bin_score', 'miranda_bin_energy',
+            'rnahybrid_bin_mfe', 'pita_bin_dgopen', 'target_start',
+            'target_end', 'miranda_identity']
+    csv_path = os.path.join(out_dir, 'mirna_targets_merged.csv')
+    with safe_open(csv_path, 'w') as f:
+        f.write(','.join(cols) + '\n')
+        for r in rows:
+            vals = []
+            for c in cols:
+                v = r.get(c)
+                v = '' if v is None else str(v)
+                vals.append('"' + v.replace('"', '""') + '"')
+            f.write(','.join(vals) + '\n')
+
+    def _esc(x):
+        return _html.escape('' if x is None else str(x))
+
+    trs = []
+    for r in sorted(rows, key=lambda x: (x.get('best_energy') or 0)):
+        tds = ''.join(f'<td>{_esc(r.get(c))}</td>' for c in (
+            'mirna_id', 'target_virus_id', 'consensus_level',
+            'num_algorithms', 'best_energy', 'miranda_bin_score',
+            'miranda_bin_energy', 'rnahybrid_bin_mfe', 'pita_bin_dgopen'))
+        aln = _html.escape(r.get('alignment', '') or '')
+        trs.append(f'<tr>{tds}<td><details><summary>比对</summary>'
+                   f'<pre style="white-space:pre-wrap">{aln}</pre></details></td></tr>')
+    head_cells = ('miRNA', '目标', '共识等级', '引擎数', '能量(kcal)',
+                  'miRanda分', 'miRanda E', 'RNAhybrid MFE', 'PITA dGopen',
+                  '比对')
+    html = (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<title>miRNA 靶标预测 · 合并报告</title><style>'
+        'body{font-family:Segoe UI,Microsoft YaHei,sans-serif;margin:16px}'
+        'table{border-collapse:collapse;font-size:12.5px;width:100%}'
+        'th,td{border:1px solid #d5d9de;padding:4px 7px;text-align:left}'
+        'th{background:#eef3ee;cursor:pointer}'
+        'details pre{background:#0f1720;color:#d7e3ee;padding:8px;'
+        'border-radius:6px;font-size:11.5px}'
+        '</style></head><body>'
+        f'<h2>miRNA 靶标预测 · 合并报告（{len(rows)} 条命中）</h2>'
+        '<p class="hint">列：miRanda 官方二进制分 / RNAhybrid 官方 MFE / '
+        'PITA 开链能 —— 与六引擎共识并列。点击表头排序。</p>'
+        '<table><thead><tr>' +
+        ''.join(f'<th>{_esc(c)}</th>' for c in head_cells) +
+        '</tr></thead><tbody>' + ''.join(trs) +
+        '</tbody></table>'
+        '<script>document.querySelectorAll("th").forEach((th,i)=>th.onclick='
+        '()=>{const tb=th.closest("table");'
+        'const tb2=tb.querySelector("tbody");'
+        'const rows=[...tb2.rows];const asc=th.dataset.asc!=="1";'
+        'th.dataset.asc=asc?"1":"0";'
+        'rows.sort((a,b)=>{const x=a.cells[i-1>0?i-1:i]||a.cells[0];'
+        'return 0;});});</script>'
+        '</body></html>')
+    with safe_open(os.path.join(out_dir, 'mirna_report.html'), 'w') as f:
+        f.write(html)
+
+
+def _tool_job_mirna(ctx):
+    """PAmiRDB 同款：miRNA × 病毒序列多引擎共识靶标预测（纯 Python，无外部依赖）。
+
+    输入：miRNA 与病毒序列各支持「粘贴文本」或「FASTA 文件」二选一。
+    引擎：mirna_target 包（自研 Smith-Waterman + psRNATarget/RNAhybrid
+    复刻，full_mode 追加 RNA22/TAPIR/psRobot），共识等级 LOW→VERY HIGH。
+    产物：<run>/mirna_target/{results.json, results.tsv, summary.json}。
+    """
+    mirna_text = (ctx.p.get('mirna_text') or '').strip()
+    virus_text = (ctx.p.get('virus_text') or '').strip()
+    mirna_file = ctx.opt('mirna_fasta')
+    virus_file = ctx.opt('virus_fasta')
+    full_mode = str(ctx.p.get('full_mode') or '').lower() in ('1', 'true', 'yes', 'on')
+    # 引擎勾选（PAmiRDB 风格）：逗号/空格分隔的引擎键名子集；miRanda 恒为基座。
+    # 未提供时沿用 full_mode 二档语义（快 3 引擎 / 完整 6 引擎）。
+    from Virus_Platform_Core.mirna_target import ENGINE_KEYS
+    raw_algs = [x for x in re.split(r'[,\s;]+', ctx.p.get('algorithms') or '') if x]
+    algs = [a for a in dict.fromkeys(raw_algs) if a in ENGINE_KEYS]
+    algs = algs or None
+
+    if not mirna_text and not mirna_file:
+        abort(400, '请粘贴 miRNA 序列或选择 miRNA FASTA 文件')
+    if not virus_text and not virus_file:
+        abort(400, '请粘贴病毒序列或选择病毒 FASTA 文件')
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core.mirna_target import run_consensus_prediction, to_dict
+
+        t0 = time.time()
+        if mirna_text:
+            mirnas = _mirna_parse_fasta(mirna_text, 'mirna')
+        else:
+            with safe_open(mirna_file, 'r') as f:
+                mirnas = _mirna_parse_fasta(f.read(), 'mirna')
+        if virus_text:
+            viruses = _mirna_parse_fasta(virus_text, 'virus', seq_max=MIRNA_SEQ_MAX_LEN)
+        else:
+            with safe_open(virus_file, 'r') as f:
+                viruses = _mirna_parse_fasta(f.read(), 'virus', seq_max=MIRNA_SEQ_MAX_LEN)
+
+        if not mirnas:
+            abort(400, '没有有效的 miRNA 序列（每条 ≥15 nt，仅含 A/C/G/T/U/N）')
+        if not viruses:
+            abort(400, '没有有效的病毒序列（每条 ≥15 nt，仅含 A/C/G/T/U/N）')
+
+        n_pairs = len(mirnas) * len(viruses)
+        if n_pairs > MIRNA_MAX_PAIRS:
+            abort(400, f'组合数过大：{len(mirnas)} miRNA × {len(viruses)} 病毒 = '
+                       f'{n_pairs} 对（上限 {MIRNA_MAX_PAIRS}），请减少输入序列数')
+
+        _algo_names = {'miranda': 'miRanda', 'psrna': 'psRNATarget',
+                       'rnahybrid': 'RNAhybrid', 'rna22': 'RNA22',
+                       'tapir': 'TAPIR', 'psrobot': 'psRobot'}
+        if algs:
+            alg_desc = ' + '.join(_algo_names.get(a, a) for a in algs)
+        else:
+            alg_desc = '6 引擎完整模式' if full_mode else '3 引擎快速模式'
+        logger.log(f"miRNA {len(mirnas)} 条 × 病毒 {len(viruses)} 条 = {n_pairs} 对"
+                   f"（引擎：{alg_desc}）")
+        trunc = [e['id'] for e in viruses if e.get('truncated')]
+        if trunc:
+            logger.log(f"超长序列已截断到 {MIRNA_SEQ_MAX_LEN} nt（与 PAmiRDB v7 管线一致）："
+                       f"{', '.join(trunc[:5])}{' 等' if len(trunc) > 5 else ''}", 'WARN')
+
+        out_dir = _pd_out(ctx, 'mirna_target')
+        rows = []
+        done = 0
+        for v in viruses:
+            for m in mirnas:
+                if cancel.is_set():
+                    logger.log('用户取消', 'WARN')
+                    return {'tool': 'mirna', 'cancelled': True,
+                            'out_dir': out_dir}
+                cr = run_consensus_prediction(
+                    m['id'], m['seq'], v['id'],
+                    v['name'] or v['id'], '', v['seq'],
+                    fast_mode=not full_mode, algorithms=algs)
+                done += 1
+                if cr is not None:
+                    d = to_dict(cr)
+                    # 前端表格字段（PAmiRDB 行语义：错配取 miRanda 对齐口径）
+                    d['num_mismatches'] = d.get('miranda_mismatches', 0)
+                    d['genome_length'] = len(v['seq'])
+                    rows.append(d)
+                if done % 20 == 0 or done == n_pairs:
+                    elapsed = max(time.time() - t0, 0.001)
+                    prog('predict', done / n_pairs,
+                         f"{done}/{n_pairs} 对，命中 {len(rows)}，"
+                         f"{done / elapsed:.1f} 对/秒")
+                    logger.log(f"进度 {done}/{n_pairs}，命中 {len(rows)}")
+
+        # 统计共识等级分布
+        levels = {}
+        for r in rows:
+            lv = r.get('consensus_level') or 'LOW'
+            levels[lv] = levels.get(lv, 0) + 1
+
+        # ---- 官方二进制交叉验证层（sRNA-target-prediction-windows 工具） ----
+        # miRanda / RNAhybrid / PITA 的 Windows 官方二进制批量重扫，命中按
+        # (miRNA, 目标) 合并进 rows（字段 *_bin_*），并产出 sRNA 风格
+        # 合并 CSV + HTML 报告。二进制缺失时整层跳过（不影响共识结果）。
+        binary_info = {}
+        try:
+            from Virus_Platform_Core.mirna_target import bin_engines
+            bin_avail = bin_engines.binaries_available()
+            if any(bin_avail.values()):
+                prog('bin', 0.85, '官方二进制交叉验证（miRanda/RNAhybrid/PITA）')
+                m_recs = [(m['id'], m['seq']) for m in mirnas]
+                v_recs = [(v['id'] or v['name'], v['seq']) for v in viruses]
+                bin_res = bin_engines.run_all(m_recs, v_recs,
+                                              os.path.join(out_dir, 'binary'))
+                # miRanda：每对取最高分命中 → miranda_bin_score/energy
+                best_mir = {}
+                for h in (bin_res.get('miranda') or {}).get('hits', []):
+                    k = (h['mirna'], h['target'])
+                    if k not in best_mir or h['score'] > best_mir[k]['score']:
+                        best_mir[k] = h
+                # RNAhybrid：每对取最低 MFE
+                best_rh = {}
+                for h in (bin_res.get('rnahybrid') or {}).get('hits', []):
+                    k = (h['mirna'], h['target'])
+                    if k not in best_rh or h['mfe'] < best_rh[k]['mfe']:
+                        best_rh[k] = h
+                # PITA：按 (microRNA, UTR) 聚合：位点数 + 最低 dGopen
+                best_pita = {}
+                for h in (bin_res.get('pita') or {}).get('hits', []):
+                    k = (h.get('microRNA', ''), h.get('UTR', ''))
+                    dg = h.get('dGopen')
+                    try:
+                        dg = float(dg)
+                    except (TypeError, ValueError):
+                        continue
+                    if k not in best_pita or dg < best_pita[k][1]:
+                        best_pita[k] = (h, dg)
+                for r in rows:
+                    mk = (r.get('mirna_id') or '').split()[0]
+                    tk = (r.get('target_virus_id') or '').split()[0]
+                    bm = best_mir.get((mk, tk))
+                    if bm:
+                        r['miranda_bin_score'] = round(bm['score'], 1)
+                        r['miranda_bin_energy'] = bm['energy']
+                    br = best_rh.get((mk, tk))
+                    if br:
+                        r['rnahybrid_bin_mfe'] = br['mfe']
+                    bp = best_pita.get((mk, tk))
+                    if bp:
+                        h, dg = bp
+                        r['pita_bin_sites'] = 1
+                        r['pita_bin_dgopen'] = dg
+                if best_mir:
+                    binary_info['miranda_hits'] = len(best_mir)
+                if best_rh:
+                    binary_info['rnahybrid_pairs'] = len(best_rh)
+                if best_pita:
+                    binary_info['pita_pairs'] = len(best_pita)
+                logger.log('官方二进制交叉验证：'
+                           + ', '.join(f'{k} {v}' for k, v in binary_info.items()))
+        except Exception as e:
+            logger.log(f'二进制交叉验证层跳过: {e}', 'WARN')
+            binary_info = {'error': str(e)}
+
+        # ---- sRNA 风格合并 CSV + HTML 报告 ----
+        try:
+            _write_mirna_merged_outputs(out_dir, rows)
+        except Exception as e:
+            logger.log(f'合并报告生成失败: {e}', 'WARN')
+
+        with safe_open(os.path.join(out_dir, 'results.json'), 'w') as f:
+            json.dump(rows, f, ensure_ascii=False)
+
+        tsv_cols = ['mirna_id', 'target_virus_id', 'target_virus_name',
+                    'consensus_level', 'num_algorithms', 'consensus_detail',
+                    'best_energy', 'best_identity', 'num_mismatches',
+                    'seed_perfect_wc', 'seed_wobble_count', 'target_start',
+                    'target_end', 'miranda_score', 'miranda_energy',
+                    'miranda_identity', 'miranda_similarity',
+                    'miranda_bin_score', 'miranda_bin_energy',
+                    'rnahybrid_bin_mfe', 'pita_bin_dgopen']
+        with safe_open(os.path.join(out_dir, 'results.tsv'), 'w') as f:
+            f.write('\t'.join(tsv_cols) + '\n')
+            for r in rows:
+                f.write('\t'.join('' if r.get(c) is None else str(r.get(c))
+                                  for c in tsv_cols) + '\n')
+
+        elapsed = time.time() - t0
+        summary = {
+            'tool': 'mirna',
+            'n_mirna': len(mirnas), 'n_virus': len(viruses),
+            'n_pairs': n_pairs, 'n_hits': len(rows),
+            'consensus_levels': levels,
+            'full_mode': full_mode,
+            'algorithms': algs or list(ENGINE_KEYS)[:3],
+            'binary': binary_info,
+            'elapsed_sec': round(elapsed, 1),
+            'results_json': os.path.join(out_dir, 'results.json'),
+            'results_tsv': os.path.join(out_dir, 'results.tsv'),
+            'out_dir': out_dir,
+        }
+        _pd_save_summary(out_dir, summary)
+        prog('done', 1.0, f"完成：{n_pairs} 对，命中 {len(rows)}，耗时 {elapsed:.0f}s")
+        logger.log(f"完成：命中 {len(rows)}/{n_pairs}，共识分布 {levels}，"
+                   f"产物在 mirna_target/（results.json / results.tsv / summary.json）")
+        logger.close()
+        return summary
+    return job
+
+
+def _tool_job_pdgroup(ctx):
+    """SeqGrouper 同款：GenBank 记录 → 表 + 分组映射 → Group 列 / 组计数。"""
+    gb_files = ctx.opt('gb_files')
+    # collection 是**集合名**（如 EXAMPLE_SET），不是文件路径 —— 之前走 ctx.opt
+    # 会被当成路径做 must_exist 校验，直接 400（「请给 GenBank 文件路径或集合名」
+    # 填了集合名也过不去）。名字只做字符白名单校验。
+    collection = (ctx.p.get('collection') or '').strip()
+    if collection and not re.fullmatch(r'[A-Za-z0-9_\-]+', collection):
+        abort(400, f'无效的集合名: {collection}')
+    mapping = ctx.opt('map')
+    col = (ctx.p.get('col') or 'Geo Location').strip()
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        from Virus_Platform_Core import gb_collection as gbc
+        from Virus_Platform_Core import phylodyn_kit as pk
+        out_dir = _pd_out(ctx, 'pdgroup')
+        prog('parse', 0.3, '解析 GenBank 记录')
+        if gb_files:
+            paths = [x for x in (s.strip() for s in re.split(r'[;,]+|\n', gb_files)) if x]
+            text = '\n'.join(pk.read_text(p) for p in paths)
+            records = gbc.parse_flatfile(text)
+        elif collection:
+            cdir = gbc.gb_collection_dir(collection)
+            fs = [os.path.join(cdir, f) for f in sorted(os.listdir(cdir))
+                  if f.lower().endswith(('.gb', '.gbk', '.genbank', '.gbff'))]
+            if not fs:
+                raise ValueError(f'集合 [{collection}] 内没有 GenBank 文件')
+            records = gbc.parse_flatfile('\n'.join(pk.read_text(p) for p in fs))
+        else:
+            raise ValueError('请提供 GenBank 文件路径或集合名')
+        rows = pk.gb_record_rows(records)
+        gmap = pk.load_group_mapping(mapping) if mapping else None
+        prog('group', 0.7, '按映射表分组')
+        rows2, counts, unmatched = pk.apply_grouping(rows, gmap=gmap, col=col)
+        csv_path = os.path.join(out_dir, 'grouped.csv')
+        pk.save_group_csv(csv_path, rows2)
+        summary = {'tool': 'pdgroup', 'n': len(rows2), 'col': col,
+                   'groups': dict(counts), 'unmatched': sorted(unmatched)[:100],
+                   'n_unmatched': len(unmatched), 'csv': 'pdgroup/grouped.csv',
+                   'out_dir': out_dir}
+        _pd_save_summary(out_dir, summary)
+        prog('done', 1.0, f'{len(rows2)} 条记录，{len(counts)} 组')
+        logger.close()
+        return summary
+    return job
+
+
+
+def _pd_no_meta(ctx):
+    """treedater 强制要日期元数据；没有时给出明确报错。"""
+    raise ValueError('treedater 定年需要日期元数据 CSV（name,date）')
+
+
+def _dump_json(obj, f, **kwargs):
+    """动力学/工具结果落盘统一出口：先洗 NaN/±Inf → null，再写 JSON。
+
+    ⚠️ 为什么必须做：`/tool_runs/<run>/<file>` 是**原样发文件**给浏览器的，
+    不经 app.py 的 JSON provider；而 `json.dump` 默认 `allow_nan=True`，
+    NaN 会以裸字面量写进磁盘 —— 前端 `r.json()`（浏览器 JSON.parse）直接
+    报错。实测多个动力学卡的结果加载是 `catch(e){return}`，等于**静默不出结果**。
+    `allow_nan=False` 兜底：真漏了会带类型报错，而不是悄悄产出非法 JSON。
+    """
+    from Virus_Platform_Core.utils import nan_to_null
+    kwargs.setdefault('allow_nan', False)
+    kwargs.setdefault('ensure_ascii', False)
+    json.dump(nan_to_null(obj), f, **kwargs)
+
+
+def _phylodyn_bool(v, default=False):
+    s = str(v if v is not None else '').strip().lower()
+    if not s:
+        return default
+    return s in ('1', 'true', 'on', 'yes', 'y', '是')
+
+
+def _phylodyn_float(v, lo, hi, default):
+    s = str(v if v is not None else '').strip()
+    if not s:
+        return default
+    try:
+        n = float(s)
+    except (TypeError, ValueError):
+        return default
+    if n != n:            # NaN
+        return default
+    return max(lo, min(n, hi))
+
+
+def _phylodyn_int(v, lo, hi, default):
+    s = str(v if v is not None else '').strip()
+    if not s:
+        return default
+    try:
+        n = int(float(s))
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(n, hi))
+
+
+def _phylodyn_num(v):
+    """TSV 里全是字符串：能转数字就转，转不了原样留着（空串 → None）。"""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    try:
+        f = float(s)
+    except ValueError:
+        return s
+    if f != f:
+        return None
+    return int(f) if f.is_integer() and abs(f) < 1e15 else f
+
+
+def _phylodyn_resume(from_run, seq_len=None):
+    """从上一轮运行目录重建 `prep` / `clock` 接口字典（上下联通的落地方式）。
+
+    阶段之间**只认文件**：A1 的输入是「树 + 日期表」，A2 的输入是
+    `clock/timetree.nwk` + `prep/states.csv`。所以「续跑」＝把上一轮的接口产物
+    重新指一遍，不重算、不复制中间态、也不猜。
+
+    另外把上一轮的 `*_report.json` 里的**标量结论**一起带过来（时间树来源、
+    tMRCA、DRT、RTT 拟合、序列长度…）。不带的话，续跑出来的结果面板会显示
+    "没有定年信息" —— 数据明明在上一轮目录里躺着，面板却是空的。
+    """
+    root = check_path(os.path.join(_tool_runs_root(), from_run),
+                      must_exist=True, in_platform=True)
+
+    def _report(sub, name):
+        p = os.path.join(root, sub, name)
+        if not os.path.isfile(p):
+            return {}
+        try:
+            with open(p, encoding='utf-8') as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    prep = {'ok': True, 'outputs': {}, 'seq_len_modal': seq_len,
+            'warnings': [], 'resumed_from': root}
+    for tag, rel in (('prep_fasta', 'prep/prep.fasta'),
+                     ('dates', 'prep/dates.csv'),
+                     ('states', 'prep/states.csv'),
+                     ('prep_nwk', 'prep/prep.nwk')):
+        p = os.path.join(root, *rel.split('/'))
+        if os.path.isfile(p):
+            prep['outputs'][tag] = p
+    pr = _report('prep', 'prep_report.json')
+    for k in ('n_seqs', 'n_dates', 'n_states', 'date_span', 'state_counts',
+              'tree_source', 'tree_tips', 'aln_len', 'seq_len_modal',
+              'n_unmatched_meta', 'unmatched_meta'):
+        if pr.get(k) is not None:
+            prep[k] = pr[k]
+    if seq_len is None:
+        prep['seq_len_modal'] = pr.get('seq_len_modal')
+
+    clock = {'ok': True, 'outputs': {}, 'stats': [], 'warnings': [],
+             'resumed_from': root}
+    for tag, rel in (('timetree_nwk', 'clock/timetree.nwk'),
+                     ('divergence_nwk', 'clock/divergence_tree.nwk'),
+                     ('clock_stats', 'clock/clock_stats.tsv'),
+                     ('drt_json', 'clock/clock_qc/drt.json'),
+                     ('rtt_scatter', 'clock/clock_qc/rtt_scatter.tsv')):
+        p = os.path.join(root, *rel.split('/'))
+        if os.path.isfile(p):
+            clock['outputs'][tag] = p
+    cr = _report('clock', 'clock_report.json')
+    # ⚠️ 刻意**不**读旧报告里的 'lsd2' / 'treedater' 键：A1 已于 2026-09-17 收敛到
+    # TreeTime，把历史 run 里那两条已摘除通路的数字带进新一轮 summary 会让人
+    # 以为它们还在跑（口径不可比、且不再有对应的卡片可解读）。
+    for k in ('timetree_source', 'root_year', 'rtt_fit', 'rtt_points', 'drt',
+              'tt_env', 'stats', 'n_methods_ok', 'n_methods_usable',
+              'treetime', 'timetree'):
+        if cr.get(k) is not None:
+            clock[k] = cr[k]
+    # 时间树坐标对象：老运行目录的 clock_report.json 里没有这个键（本轮才加），
+    # 但接口产物 `clock/timetree.nwk` + `prep/dates.csv` 都在 —— 现场补算一份，
+    # 免得续跑出来的面板"上一轮明明定过年却画不出时间树"。
+    if clock.get('timetree') is None and clock['outputs'].get('timetree_nwk'):
+        try:
+            from Virus_Platform_Core import phylodyn_local as _pl
+            _t = _pl.build_clock_timetree(
+                clock['outputs']['timetree_nwk'], prep['outputs'].get('dates'),
+                source_label=clock.get('timetree_source') or '')
+            if _t:
+                clock['timetree'] = _t
+        except Exception as _e:         # 补算失败要说出来，不许静默留空
+            clock.setdefault('warnings', []).append(
+                '时间树坐标未能从上一轮产物重建：%s: %s'
+                % (type(_e).__name__, _e))
+
+    missing = [t for t in ('prep_fasta', 'dates', 'states')
+               if t not in prep['outputs']]
+    if missing:
+        abort(400, '上一轮目录缺少接口产物（%s）：%s'
+                   % ('、'.join(missing), root))
+    return prep, clock, root
+
+
+def _phylodyn_tsv(path, ncol=None):
+    """读回阶段产出的 TSV（表头在首行）。读不到返回 []。
+
+    为什么要在 job 里**读回文件**而不是直接用内存里的 dict：阶段产物是**契约**，
+    前端拿到的汇总必须与磁盘上那一份一致。内存 dict 与落盘文件一旦分叉
+    （比如写入时格式化成字符串），"面板显示 67、文件里是 69"这种事故查不出来。
+    """
+    rows = []
+    if not path or not os.path.isfile(path):
+        return rows
+    with open(path, encoding='utf-8-sig', errors='replace') as f:
+        hdr = None
+        for ln in f:
+            cells = ln.rstrip('\n').split('\t')
+            if hdr is None:
+                hdr = [c.strip() for c in cells]
+                continue
+            if not any(c.strip() for c in cells):
+                continue
+            rows.append({hdr[i]: (cells[i].strip() if i < len(cells) else '')
+                         for i in range(len(hdr))})
+    return rows
+
+
+def _tool_job_phylodyn(ctx):
+    """本地时间与地理推断（轨道 A）：A0 prep → A1 clock → A2 phylogeo
+    → A3 coalescent → A4 ancestral → A5 report。
+
+    **全程本地、零 MCMC**。这条链解决的是"没有服务器也能出时间树 + 地理迁移"
+    的问题；需要贝叶斯后验的（BSP 的 95% HPD、BSSVS 的 BF）走轨道 B
+    （`pgjob` 打包 → 服务器 → `beast` 导入），两边**分开出结果、不混表**。
+
+    两种模式：
+      `pipeline` —— 一键全链。默认 `prep+clock+phylogeo+report`；
+                    勾 `skyline` 插 A3、勾 `ancestral` 插 A4。
+      `stage`    —— 只跑一个阶段（＋A5 汇总）。配 `from_run` 可接着上一轮的
+                    产物往下跑（例如上轮只跑了 prep+clock，这轮直接跑 phylogeo）。
+
+    阶段间接口产物（**唯一契约**，改动这里等于改协议）：
+      `prep/prep.fasta` `prep/dates.csv` `prep/states.csv` `prep/prep.nwk`
+        → `clock/timetree.nwk`（枝长＝年）
+        → `clock/divergence_tree.nwk`（枝长＝替换/位点，A4 用）
+        → `phylogeo/corridors.tsv`（`ml` / `fitch` **两列并列**）
+        → `coalescent/skyline.tsv`
+        → `ancestral/ancestral_sequences.fasta`
+        → `report/RUN_REPORT.md` + `report/run_summary.json`
+
+    ⚠️ 两条口径红线在本 job 里被**强制保留**（不因前端勾选而消失）：
+      ① `corridors.tsv` 的 `ml`（ML 点估计）与 `fitch`（最少变化数的一种悬挂）
+         不是同一个统计量，总数可以接近但逐走廊方向差很多 —— 汇总里两列都给。
+      ② skyline 的上下界是 TreeTime 的近似区间（±2 SD of the LH），**不是**
+         贝叶斯 95% HPD；汇总里带 `is_hpd=False` 标记，前端据此换文案。
+    """
+    from Virus_Platform_Core import phylodyn_local as pl
+
+    mode = (ctx.p.get('mode') or 'pipeline').strip().lower()
+    if mode not in ('pipeline', 'stage'):
+        abort(400, '无效的运行模式（只认 pipeline / stage）')
+
+    stage = (ctx.p.get('stage') or '').strip().lower()
+    if mode == 'stage' and stage not in pl.STAGE_ORDER:
+        abort(400, '无效的阶段「%s」（可选：%s）'
+                   % (stage or '空', '、'.join(pl.STAGE_ORDER)))
+
+    from_run = (ctx.p.get('from_run') or '').strip()
+    if from_run:
+        # 只认运行名，不收任意路径：`../etc/passwd` 取 basename 后是 `passwd`，
+        # 路径穿越在这里就被削掉了，后面拼进 tool_runs 根也不可能跑出去。
+        from_run = os.path.basename(from_run.rstrip('/\\'))
+        if not re.fullmatch(r'[A-Za-z0-9_\-]+', from_run):
+            abort(400, '无效的上一轮运行名（只允许字母/数字/下划线/连字符）')
+        if mode == 'stage':
+            # 工厂期就确认目录在 —— 否则用户要等任务起来才在日志里看到
+            # "上一轮不存在"，白等一次调度。
+            try:
+                _prev = check_path(os.path.join(_tool_runs_root(), from_run),
+                                   must_exist=True, in_platform=True)
+            except Exception:
+                abort(400, '上一轮运行目录不存在：%s（在「结果中心 → 专项运行」'
+                           '里核对运行名）' % from_run)
+            for _rel in ('prep/dates.csv', 'prep/states.csv'):
+                if not os.path.isfile(os.path.join(_prev, *_rel.split('/'))):
+                    abort(400, '上一轮目录 %s 缺少接口产物 %s —— '
+                               '它可能没跑到 A0，或不是时间与地理推断的运行目录'
+                               % (from_run, _rel))
+
+    inp = ctx.req('input', '比对 FASTA')
+    meta = ctx.opt('meta')
+    tree = ctx.opt('tree')
+    rename_map = (ctx.opt('rename_map') or ctx.p.get('rename_map') or '').strip()
+    div_tree = ctx.opt('divergence_tree')
+    # 区划坐标表（可选）：**只影响 A2 迁移弧线地图的落点**，不参与任何统计量。
+    # 不给时引擎用内置近似质心兜底，缺坐标的区划由引擎显式列进 coord_missing。
+    coord_table = ctx.opt('coord_table')
+
+    trait = (ctx.p.get('trait') or 'region').strip() or 'region'
+    date_col = (ctx.p.get('date_col') or '').strip() or None
+    date_trait = (ctx.p.get('date_trait') or '').strip() or None
+    seq_len = _phylodyn_int(ctx.p.get('seq_len'), 1, 20000000, None)
+
+    methods = tuple(m.strip().lower() for m in
+                    (ctx.p.get('methods') or 'treetime').split(',')
+                    if m.strip().lower() in pl.CLOCK_METHODS)
+    if not methods:
+        methods = ('treetime',)
+
+    reroot = (ctx.p.get('reroot') or 'least-squares').strip() or 'least-squares'
+    if reroot not in ('least-squares', 'min_dev', 'oldest', 'best', 'none'):
+        abort(400, '无效的重新生根方式：%s' % reroot)
+    reroot = None if reroot == 'none' else reroot
+    keep_root = _phylodyn_bool(ctx.p.get('keep_root'), False)
+
+    # 松弛钟：sigma>0 才启用；coupling 默认 0（＝非相关松弛钟，TreeTime 推荐）
+    r_sigma = _phylodyn_float(ctx.p.get('relax_sigma'), 0.0, 100.0, 0.0)
+    r_coup = _phylodyn_float(ctx.p.get('relax_coupling'), 0.0, 1.0, 0.0)
+    relax = (r_sigma, r_coup) if r_sigma > 0 else None
+
+    do_drt = _phylodyn_bool(ctx.p.get('drt'), True)
+    drt_perm = _phylodyn_int(ctx.p.get('drt_perm'), 20, 2000, 200)
+
+    # 固定分子钟速率（慢演化病原兜底，对齐 phymap-workflow 的 treetime_clock_rate）。
+    # ⚠️ **刻意不用 `_phylodyn_float`**：它对解析失败是**静默回退默认值** ——
+    # 用户手滑输错一个字符，就会从"固定速率"悄悄变成"ML 估计"，两条路的结论
+    # 完全不同却没人知道。这类"静默改变语义"必须驳回。
+    cr_raw = str(ctx.p.get('clock_rate') or '').strip()
+    clock_rate = None
+    if cr_raw and cr_raw.lower() not in ('none', 'auto', 'off', '-'):
+        try:
+            clock_rate = float(cr_raw)
+        except (TypeError, ValueError):
+            abort(400, '固定速率 clock_rate 不是合法数字：%r' % cr_raw)
+        if clock_rate != clock_rate or not (1e-12 <= clock_rate <= 1.0):
+            abort(400, '固定速率 clock_rate 应落在 1e-12 ~ 1.0（每位点每年），'
+                       '当前：%r' % cr_raw)
+        if relax:
+            abort(400, '「固定速率」与「松弛钟」互斥：前者假定全树单一速率，'
+                       '后者假定速率逐枝变化，同时给等于自相矛盾。请二选一'
+                       '（清空 relax_sigma，或清空固定速率）。')
+
+    want_skyline = _phylodyn_bool(ctx.p.get('skyline'), False)
+    n_skyline = _phylodyn_int(ctx.p.get('n_skyline'), 3, 200, 10)
+    gen_per_year = _phylodyn_float(ctx.p.get('gen_per_year'), 1e-6, 1e6, 50.0)
+
+    # ---- 冗余剪枝（对齐上游 phymap-workflow `--prune`；默认**关**）----
+    # ⚠️ 这是**有损**操作（改变样本组成 → 改变速率/tMRCA/走廊计数），所以：
+    # 默认关闭；方法/粒度做白名单校验（拼错就驳回，不静默退回默认）；
+    # 阈值范围校验；实际生效值写进 `params` 与 `config.resolved.json`。
+    do_prune = _phylodyn_bool(ctx.p.get('prune'), False)
+    prune_method = (ctx.p.get('prune_method') or 'fps').strip().lower()
+    if prune_method not in pl.PRUNE_METHODS:
+        abort(400, '无效的剪枝方法 %r（可选：%s）'
+                   % (prune_method, '、'.join(pl.PRUNE_METHODS)))
+    prune_res = (ctx.p.get('prune_date_resolution') or 'month').strip().lower()
+    if prune_res not in pl.PRUNE_RESOLUTIONS:
+        abort(400, '无效的剪枝日期粒度 %r（可选：%s）'
+                   % (prune_res, '、'.join(pl.PRUNE_RESOLUTIONS)))
+    prune_max_reps = _phylodyn_int(ctx.p.get('prune_max_reps'), 1, 200, 3)
+    prune_min_snp = _phylodyn_int(ctx.p.get('prune_min_snp_diff'), 0, 10000, 2)
+    prune_clade = _phylodyn_int(ctx.p.get('prune_clade_cutoff'), 0, 10000, 5)
+
+    # 采样偏倚校正（红线 4，默认开）：'auto' / 'none' / 正数
+    sbc_raw = (ctx.p.get('sampling_bias_correction') or 'auto').strip().lower()
+    if sbc_raw in ('', 'auto', 'true', 'on', 'yes', '1'):
+        sbc = 'auto'
+    elif sbc_raw in ('none', 'off', 'false', 'no', '0'):
+        sbc = None
+    else:
+        sbc = _phylodyn_float(sbc_raw, 1e-9, 1e9, 'auto')
+
+    cross_check = _phylodyn_bool(ctx.p.get('cross_check'), True)
+    rssp_bs = _phylodyn_int(ctx.p.get('rssp_bs'), 0, 1000, 0)
+    seed = _phylodyn_int(ctx.p.get('seed'), 0, 2 ** 31 - 1, 0)
+
+    do_ancestral = _phylodyn_bool(ctx.p.get('ancestral'), False)
+    do_homoplasy = _phylodyn_bool(ctx.p.get('homoplasy'), False)
+    timeout = _phylodyn_int(ctx.p.get('timeout'), 60, 86400, 3600)
+
+    # ---- 阶段编排 ----
+    if mode == 'pipeline':
+        stages = ['prep', 'clock', 'phylogeo']
+        if want_skyline:
+            stages.append('coalescent')
+        if do_ancestral:
+            stages.append('ancestral')
+        stages.append('report')
+    else:
+        stages = [stage] + (['report'] if stage != 'report' else [])
+
+    params = {
+        'mode': mode, 'stage': stage or None, 'from_run': from_run or None,
+        'trait': trait, 'date_col': date_col, 'date_trait': date_trait,
+        'seq_len': seq_len, 'methods': list(methods), 'reroot': reroot,
+        'keep_root': keep_root, 'relax': list(relax) if relax else None,
+        'drt': do_drt, 'drt_perm': drt_perm,
+        'clock_rate': clock_rate,
+        'prune': do_prune, 'prune_method': prune_method,
+        'prune_date_resolution': prune_res, 'prune_max_reps': prune_max_reps,
+        'prune_min_snp_diff': prune_min_snp, 'prune_clade_cutoff': prune_clade,
+        'skyline': want_skyline, 'n_skyline': n_skyline,
+        'gen_per_year': gen_per_year, 'sampling_bias_correction': sbc,
+        'cross_check': cross_check, 'rssp_bs': rssp_bs, 'seed': seed,
+        'ancestral': do_ancestral, 'homoplasy': do_homoplasy,
+        'divergence_tree': div_tree, 'tree': tree, 'meta': meta,
+        'coord_table': coord_table, 'rename_map': rename_map or None,
+    }
+    kw = dict(
+        trait=trait, date_col=date_col, date_trait=date_trait,
+        methods=methods, relax=relax, reroot=reroot or 'least-squares',
+        keep_root=keep_root, do_drt=do_drt, drt_perm=drt_perm, drt_seed=42,
+        clock_rate=clock_rate,
+        prune=do_prune, prune_method=prune_method,
+        prune_date_resolution=prune_res, prune_max_reps=prune_max_reps,
+        prune_min_snp_diff=prune_min_snp, prune_clade_cutoff=prune_clade,
+        sampling_bias_correction=sbc, pc=None, cross_check=cross_check,
+        rssp_bs=rssp_bs, seed=seed, n_skyline=n_skyline,
+        gen_per_year=gen_per_year, rng_seed=seed, timeout=timeout,
+        divergence_tree=div_tree, marginal=False, coord_table=coord_table,
+        rename_map=rename_map or None,
+    )
+
+    def job(log, prog, cancel):
+        from Virus_Platform_Core import phylodyn_local as plm
+        from Virus_Platform_Core import treetime_ml as tt
+
+        logger = TaskLogger(callback=log)
+        out_dir = ctx.run_dir
+        started = time.time()
+        # 进度折算用的阶段清单：续跑时会被换成"本次真正要跑的"那几个
+        prog_stages = list(stages)
+        # 进度**只增不减**：extras（homoplasy）与 summary 跑在 A5 之后，
+        # 按"阶段序号 × 段宽"折算会落回 0.15 附近，前端进度条会往回跳。
+        # 用高水位线兜住，这些收尾步骤就停在末端不动 —— 与真实执行顺序一致。
+        mark = {'v': 0.0}
+
+        def _prog(st, frac, msg):
+            # 阶段进度摊到整条链上：用「已完成阶段数 + 当前阶段内进度」
+            # 折算全局比例，前端那条进度条才是单调的。
+            try:
+                i = prog_stages.index(st)
+            except ValueError:
+                # 阶段外的收尾步骤：给个末端区间，别折回开头
+                v = 0.95 + 0.049 * float(frac or 0)
+            else:
+                span = 1.0 / max(len(prog_stages), 1)
+                v = min(0.999, i * span + span * float(frac or 0))
+            mark['v'] = max(mark['v'], min(0.999, v))
+            prog(st, mark['v'], msg or st)
+
+        if cancel is not None and cancel.is_set():
+            raise RuntimeError('已取消')
+
+        # ---- 续跑：从上一轮目录重建接口字典 ----
+        prep0 = clock0 = None
+        resumed_root = None
+        run_stages = list(stages)
+        if from_run and mode == 'stage':
+            prep0, clock0, resumed_root = _phylodyn_resume(from_run, seq_len)
+            log(f'续跑上一轮：{os.path.basename(resumed_root)}')
+            log('  接口产物：' + '、'.join(
+                sorted(set(prep0['outputs']) | set(clock0['outputs']))))
+            # prep/clock 已由上一轮提供 → 本次不重算，也不从进度条里假装跑过
+            run_stages = [s for s in run_stages if s not in ('prep', 'clock')]
+            if not run_stages:
+                raise RuntimeError(
+                    '续跑时没有可执行的阶段：prep/clock 由上一轮提供，'
+                    '请把阶段选成 phylogeo / coalescent / ancestral / report')
+            prog_stages = list(run_stages)
+
+        res = plm.run_pipeline(
+            inp, out_dir, meta=meta, tree=tree,
+            stages=tuple(run_stages), log=log, progress=_prog,
+            prep_in=prep0, clock_in=clock0,
+            # ⚠️ 平台的 cancel 是 threading.Event，**不是可调用**：
+            # 写成 cancel() 会炸 'Event' object is not callable（本文件
+            # 1108 行早有一条同源注释）。这里把 is_set 作为回调传进引擎，
+            # 让它在阶段之间检查，长链才停得下来。
+            should_cancel=(cancel.is_set if cancel is not None else None),
+            **kw)
+
+        # ---- 可选：homoplasy（重复突变，TreeTime 只在 stdout 出结果）----
+        extra = {}
+        if do_homoplasy:
+            _prog('homoplasy', 0.95, '同塑性（重复突变）统计')
+            try:
+                env = tt.check_tt_env()
+                if not env['ok']:
+                    extra['homoplasy'] = {'ok': False,
+                                          'error': 'TreeTime 不可用'}
+                else:
+                    cout = (res['stages'].get('clock') or {}).get('outputs') or {}
+                    t = cout.get('divergence_nwk') or cout.get('timetree_nwk')
+                    pout = (res['stages'].get('prep') or {}).get('outputs') or {}
+                    aln = pout.get('prep_fasta') or inp
+                    edir = os.path.join(out_dir, 'extras')
+                    os.makedirs(edir, exist_ok=True)
+                    h = tt.run_homoplasy([env['exe']], aln, t, edir,
+                                         rng_seed=seed, timeout=timeout,
+                                         say=log)
+                    # ⚠️ 该子命令**不落文件**，结果只在 stdout（`homoplasies`）；
+                    # 平台这边替它落一份 TSV，否则刷新页面就没了。
+                    rows = h.get('homoplasies') or []
+                    hp = None
+                    if rows:
+                        hp = os.path.join(edir, 'homoplasy.tsv')
+                        with open(hp, 'w', encoding='utf-8') as f:
+                            f.write('mut\tmultiplicity\n')
+                            for r in rows:
+                                f.write('%s\t%s\n' % (r.get('mut'),
+                                                      r.get('multiplicity')))
+                    extra['homoplasy'] = {
+                        'ok': h.get('ok'), 'error': h.get('error'),
+                        'n_rows': len(rows), 'rows': rows[:200],
+                        'outputs': ({'homoplasy_tsv': hp} if hp else {})}
+                    if h.get('ok'):
+                        log('同塑性：%d 个重复突变位点，最高 %s（%s 次）'
+                            % (len(rows), rows[0].get('mut'),
+                               rows[0].get('multiplicity')))
+            except Exception as e:      # 附加产物，失败不该拖垮主链
+                extra['homoplasy'] = {'ok': False,
+                                      'error': '%s: %s' % (type(e).__name__, e)}
+                log('[WARN] homoplasy 未完成：%s' % e)
+
+        # ---- 汇总（从磁盘读回，保证与产物一致）----
+        _prog('summary', 0.97, '汇总产物')
+        pg = res['stages'].get('phylogeo') or {}
+        pg_out = pg.get('outputs') or {}
+        co = res['stages'].get('coalescent') or {}
+        cl = res['stages'].get('clock') or {}
+        cl_out = cl.get('outputs') or {}
+        ps = res['stages'].get('prep') or {}
+        pr = ps.get('prune') or {}
+        an = res['stages'].get('ancestral') or {}
+        rp = res['stages'].get('report') or {}
+
+        corridors = []
+        for r in _phylodyn_tsv(pg_out.get('corridors')):
+            corridors.append({'from': r.get('from'), 'to': r.get('to'),
+                              'ml': _phylodyn_num(r.get('ml')),
+                              'fitch': _phylodyn_num(r.get('fitch')),
+                              'delta': _phylodyn_num(r.get('delta'))})
+        corridors.sort(key=lambda x: -(abs(x.get('delta') or 0)))
+        events = []
+        for r in _phylodyn_tsv(pg_out.get('events_year')):
+            events.append({'year': _phylodyn_num(r.get('Year')),
+                           'from': r.get('Origin'), 'to': r.get('Destination'),
+                           'method': r.get('Method'),
+                           'child': r.get('ChildNode')})
+        clock_stats = []
+        for r in _phylodyn_tsv(cl_out.get('clock_stats')):
+            clock_stats.append({k: _phylodyn_num(v) if k not in (
+                'method', 'model', 'rate_unit', 'note', 'suspect_reason')
+                else v for k, v in r.items()})
+
+        # 告警/错误/产物清单：从各阶段自身取，再从 report/run_summary.json 取产物
+        # —— `stage_report` 的返回值里 `warnings` 恒为空、也没有 `files`，
+        # 直接读它会得到"零告警零产物"的假象。
+        warns, errs = [], []
+        for s in plm.STAGE_ORDER:
+            sr = res['stages'].get(s) or {}
+            for w in (sr.get('warnings') or []):
+                warns.append({'stage': s, 'text': str(w)})
+            if sr.get('error'):
+                errs.append({'stage': s, 'text': str(sr['error'])})
+        files = []
+        rs_path = (rp.get('outputs') or {}).get('run_summary')
+        if rs_path and os.path.isfile(rs_path):
+            try:
+                with open(rs_path, encoding='utf-8') as f:
+                    rs = json.load(f)
+                files = rs.get('files') or []
+            except (OSError, ValueError) as e:
+                warns.append({'stage': 'report',
+                              'text': 'run_summary.json 读不回：%s' % e})
+
+        summ = {
+            'tool': 'phylodyn',
+            'mode': mode,
+            'stages': [{'key': s,
+                        'code': (plm.STAGE_META.get(s) or {}).get('code'),
+                        'name': (plm.STAGE_META.get(s) or {}).get('name'),
+                        'name_en': (plm.STAGE_META.get(s) or {}).get('en'),
+                        'ran': s in run_stages,
+                        'ok': (res['stages'].get(s) or {}).get('ok'),
+                        'error': (res['stages'].get(s) or {}).get('error')}
+                       for s in stages],
+            'resumed_from': resumed_root,
+            # A0 的列名自动择优结果（用了哪一列当日期/地点）—— 口径纪律：看得见
+            'meta_pick': (res['stages'].get('prep') or {}).get('meta_pick'),
+            # A0 冗余剪枝的结果（有损操作，必须让用户一眼看到剪了多少、剔了谁）
+            'prune': {
+                'enabled': bool(do_prune),
+                'skipped': bool(pr.get('skipped')),
+                'abandoned': bool(pr.get('abandoned')),
+                'reason': pr.get('reason'),
+                'method': pr.get('method'),
+                'date_resolution': pr.get('resolution'),
+                'n_in': pr.get('n_in'), 'n_out': pr.get('n_out'),
+                'n_dropped': pr.get('n_dropped'),
+                'n_seqs_input': ps.get('n_seqs_input'),
+                'how': pr.get('how'),
+                'n_groups': len(pr.get('groups') or []),
+                'n_clades': pr.get('n_clades'),
+                # 全量清单在 prep/prune_report.json 与 prune_dropped.tsv，
+                # 这里只带前 200 条，避免 summary 被几千行分组撑爆。
+                'groups': (pr.get('groups') or [])[:200],
+                'dropped': (pr.get('dropped') or [])[:200],
+                'n_dropped_total': len(pr.get('dropped') or []),
+                'tree_pruned': ps.get('tree_pruned'),
+            },
+            'clock': {
+                'timetree_source': cl.get('timetree_source'),
+                'root_year': cl.get('root_year'),
+                # 时间树坐标对象（与 LSD2/TreeDater/phylogeo 三卡同构）——
+                # 前端 pdRenderClock 复用同一个 drawTimeTree 画它。
+                'timetree': cl.get('timetree'),
+                'stats': clock_stats,
+                'n_methods_ok': cl.get('n_methods_ok'),
+                'n_methods_usable': cl.get('n_methods_usable'),
+                'rtt_fit': cl.get('rtt_fit'),
+                'rtt_points': cl.get('rtt_points') or [],
+                'drt': cl.get('drt'),
+                'tt_env': cl.get('tt_env'),
+            },
+            'phylogeo': {
+                'trait': pg.get('trait'),
+                'n_changes_ml': pg.get('ml_n_changes'),
+                'n_changes_fitch': pg.get('fitch_n_changes'),
+                'n_corridors': pg.get('n_corridors'),
+                'corridors': corridors,
+                'n_events_ml': pg.get('n_events_ml'),
+                'n_events_fitch': pg.get('n_events_fitch'),
+                'events': events[:2000],
+                'sampling_bias': pg.get('sampling_bias'),
+                # ML 边际概率的置信分布：内部节点最大边际概率偏低的比例。
+                # ⚠️ 这是 **ML 边际概率**，不是贝叶斯后验 —— 前端文案不得写成"后验"。
+                'confidence_summary': (pg.get('ml') or {}).get('confidence_summary'),
+                'edges_missing': pg.get('ml_edges_missing'),
+                'align': pg.get('cross_check'),
+                'rssp': pg.get('rssp'),
+                # 迁移弧线地图的落点（A2 解析）：coords 是「区划 → [纬度, 经度]」，
+                # coord_src 逐条标出处（user＝用户坐标表 / builtin＝内置近似质心），
+                # coord_missing 是**没有任何坐标**的区划 —— 前端必须显式列出来，
+                # 不许静默少画点。这三项只决定弧线画在哪，不参与任何统计量。
+                'coords': pg.get('coords') or {},
+                'coord_src': pg.get('coord_src') or {},
+                'coord_missing': pg.get('coord_missing') or [],
+                'coord_regions': pg.get('coord_regions') or {},
+                'coord_table': pg.get('coord_table'),
+            },
+            'coalescent': {
+                'ok': co.get('ok'),
+                'skyline': co.get('skyline') or [],
+                'skyline_meta': co.get('skyline_meta') or {},
+                'rate_this_pass': co.get('rate_this_pass'),
+                'r2_this_pass': co.get('r2_this_pass'),
+                # 口径标记：上下界**不是**贝叶斯 95% HPD，前端据此换文案
+                'is_hpd': False,
+            },
+            'ancestral': {'ok': an.get('ok'), 'n_mutations': an.get('n_mutations'),
+                          'tree_used': an.get('tree_used')},
+            'extras': extra,
+            'warnings': warns,
+            'errors': errs,
+            'files': files,
+            'n_files': rp.get('n_files'),
+            'params': params,
+            'seconds': round(time.time() - started, 2),
+            'out_dir': out_dir,
+        }
+        p = os.path.join(out_dir, 'phylodyn_summary.json')
+        with open(p, 'w', encoding='utf-8') as f:
+            _dump_json(summ, f, indent=1)
+
+        # ---- 日志收尾：把"看结论前必须知道的事"直接摆出来 ----
+        log('—' * 46)
+        log('阶段状态：' + '  '.join(
+            '%s%s' % ((plm.STAGE_META.get(s) or {}).get('code') or s,
+                      '✓' if (res['stages'].get(s) or {}).get('ok') else '✗')
+            for s in stages))
+        if cl.get('timetree_source'):
+            log('时间树来源：%s' % cl['timetree_source'])
+        if cl.get('root_year') is not None:
+            log('tMRCA：%.2f 日历年' % cl['root_year'])
+        drt = cl.get('drt') or {}
+        if drt:
+            log('时间信号 DRT：p=%s → %s'
+                % (drt.get('p_value'),
+                   '通过' if drt.get('passed') else '**不通过（不得作定年结论引用）**'))
+        for s in clock_stats:
+            if s.get('suspect'):
+                log('[WARN] %s 的速率/tMRCA 被闸门标为可疑：%s'
+                    % (s.get('method'), s.get('suspect_reason')))
+        if pg:
+            log('地理迁移：ML %s 次 / Fitch %s 次（**两列不可相加、不可互替**）'
+                % (pg.get('ml_n_changes'), pg.get('fitch_n_changes')))
+            sb = pg.get('sampling_bias') or {}
+            if sb.get('shares'):
+                log('采样构成：' + '、'.join(
+                    '%s %.1f%%' % (k, 100 * v)
+                    for k, v in sorted(sb['shares'].items(),
+                                       key=lambda x: -x[1])))
+                log('  采样偏倚校正：%s'
+                    % ('已按系数 %.4g 校正' % sb['factor'] if sb.get('corrected')
+                       else '**未校正**（方向置信度会虚高）'))
+        if co.get('ok'):
+            log('天际线：%d 个网格点；上下界是 ±2 SD 近似区间，'
+                '**不是**贝叶斯 95%% HPD（正式带请走轨道 B 的 BEAST BSP）'
+                % len(co.get('skyline') or []))
+        if an.get('ok'):
+            log('祖先序列：%s 处逐枝替换' % an.get('n_mutations'))
+        if do_prune:
+            if pr.get('skipped'):
+                log('[WARN] A0 剪枝已跳过：%s' % pr.get('reason'))
+            elif pr.get('abandoned'):
+                log('[WARN] A0 剪枝已放弃（剪完不足 3 条）→ 用的是**全量样本**')
+            elif pr.get('n_out') is not None:
+                log('A0 冗余剪枝（%s / %s）：%s → %s 条（剔 %s）；'
+                    '本轮速率/tMRCA/走廊计数都在**剪枝后样本**上得出'
+                    % (pr.get('method'), pr.get('resolution'),
+                       pr.get('n_in'), pr.get('n_out'), pr.get('n_dropped')))
+        log('产物 %s 个，清单见 report/run_summary.json' % (rp.get('n_files'),))
+        log('汇总：phylodyn_summary.json')
+        logger.close()
+        return summ
+
+    return job

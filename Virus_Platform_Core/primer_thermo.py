@@ -15,11 +15,9 @@
 扣分档位沿用 step3_validate_primers.py 口径，便于与既有结果对拍。
 """
 
-try:
-    import primer3
-    PRIMER3_OK = True
-except ImportError:
-    PRIMER3_OK = False
+# primer3 统一走 primer3_runtime 的子进程探测 + 惰性导入：
+# 模块级 import 在内存不足的机器上会让 pyd 初始化段错误杀掉整个进程。
+from . import primer3_runtime as _p3rt
 
 try:
     from Bio.Seq import Seq
@@ -44,12 +42,17 @@ RECOMMENDED_MIN = 80.0
 USABLE_MIN = 60.0
 
 
-def _safe_call(func, *args, **kwargs):
-    """primer3 个别序列可能抛异常（如超长同聚物），统一兜底为 None。"""
-    if not PRIMER3_OK:
-        return None
+def _safe_call(func_name, *args, **kwargs):
+    """primer3 个别序列可能抛异常（如超长同聚物），统一兜底为 None。
+
+    func_name 是 primer3 模块上的函数名：primer3 不可用（探测失败）
+    时返回 None 降级，不抛异常、更不段错误。
+    """
     try:
-        return func(*args, **kwargs)
+        mod = _p3rt.get_module()
+        return getattr(mod, func_name)(*args, **kwargs)
+    except RuntimeError:
+        return None
     except Exception:
         return None
 
@@ -73,11 +76,11 @@ def dimer_analysis(fwd_seq, rev_seq):
         return round(r.dg / 1000.0, 2), round(r.tm, 1)
 
     if fwd_seq:
-        out['self_fwd_dg'], out['self_fwd_tm'] = _one(primer3.calc_homodimer, fwd_seq)
+        out['self_fwd_dg'], out['self_fwd_tm'] = _one('calc_homodimer', fwd_seq)
     if rev_seq:
-        out['self_rev_dg'], out['self_rev_tm'] = _one(primer3.calc_homodimer, rev_seq)
+        out['self_rev_dg'], out['self_rev_tm'] = _one('calc_homodimer', rev_seq)
     if fwd_seq and rev_seq:
-        out['cross_dg'], out['cross_tm'] = _one(primer3.calc_heterodimer, fwd_seq, rev_seq)
+        out['cross_dg'], out['cross_tm'] = _one('calc_heterodimer', fwd_seq, rev_seq)
     return out
 
 
@@ -88,11 +91,11 @@ def hairpin_analysis(fwd_seq, rev_seq):
     """发夹结构 Tm（来自 primer3 设计输出，此处用于独立复核）。"""
     out = {'self_fwd_hairpin_tm': 0.0, 'self_rev_hairpin_tm': 0.0}
     if fwd_seq:
-        r = _safe_call(primer3.calc_hairpin, fwd_seq)
+        r = _safe_call('calc_hairpin', fwd_seq)
         if r is not None:
             out['self_fwd_hairpin_tm'] = round(r.tm, 1)
     if rev_seq:
-        r = _safe_call(primer3.calc_hairpin, rev_seq)
+        r = _safe_call('calc_hairpin', rev_seq)
         if r is not None:
             out['self_rev_hairpin_tm'] = round(r.tm, 1)
     return out
@@ -110,7 +113,7 @@ def end_stability_analysis(fwd_seq, rev_seq):
     if not (fwd_seq and rev_seq):
         return out
     rc_rev = str(Seq(rev_seq).reverse_complement()) if BIO_OK else rev_seq
-    r = _safe_call(primer3.calc_end_stability, fwd_seq, rc_rev)
+    r = _safe_call('calc_end_stability', fwd_seq, rc_rev)
     if r is not None:
         out['fwd_rev_end_dg'] = round(r.dg / 1000.0, 2)
     return out
@@ -166,26 +169,26 @@ def probe_validation(probe_seq, fwd_seq, rev_seq,
         return out
 
     warns = []
-    r = _safe_call(primer3.calc_hairpin, probe_seq)
+    r = _safe_call('calc_hairpin', probe_seq)
     if r is not None:
         out['probe_hairpin_tm'] = round(r.tm, 1)
         if r.tm > 47:
             warns.append('probe hairpin Tm %.0f C (>47)' % r.tm)
 
-    r = _safe_call(primer3.calc_homodimer, probe_seq)
+    r = _safe_call('calc_homodimer', probe_seq)
     if r is not None:
         out['probe_self_dg'] = round(r.dg / 1000.0, 2)
         if r.dg / 1000.0 < -6.0:
             warns.append('probe self-dimer dG %.1f' % (r.dg / 1000.0))
 
     if fwd_seq:
-        r = _safe_call(primer3.calc_heterodimer, probe_seq, fwd_seq)
+        r = _safe_call('calc_heterodimer', probe_seq, fwd_seq)
         if r is not None:
             out['probe_fwd_dg'] = round(r.dg / 1000.0, 2)
             if r.dg / 1000.0 < -6.0:
                 warns.append('probe-Fwd dimer dG %.1f' % (r.dg / 1000.0))
     if rev_seq:
-        r = _safe_call(primer3.calc_heterodimer, probe_seq, rev_seq)
+        r = _safe_call('calc_heterodimer', probe_seq, rev_seq)
         if r is not None:
             out['probe_rev_dg'] = round(r.dg / 1000.0, 2)
             if r.dg / 1000.0 < -6.0:

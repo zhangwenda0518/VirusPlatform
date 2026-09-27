@@ -64,11 +64,17 @@ def _inject_asset_v():
 NAV_GROUPS = [
     {'id': 'resource', 'label': '数据资源', 'path': '数据资源', 'items': [
         {'href': '/meta', 'title': '公共数据检索', 'desc': '检索公共样本 / 元数据'},
-        {'href': '/explorer', 'title': '病毒浏览器 Explorer', 'desc': '服务器版 7 页签：时空趋势 / 全基因组变异 / 数据浏览 / 引物库 / 宿主范围 / 媒介传播 / 病毒档案（全库 199k 序列）'},
+        # 病毒浏览器（/explorer）已于 2026-09-27 彻底归档
+        # （archive/_retire_20260927/explorer/），路由与页面均已下线。
         {'href': '/virome', 'title': 'Open-Virome', 'desc': '公共病毒组浏览 / 导出'},
         {'href': '/build', 'title': '数据库构建', 'desc': 'Taxonomy / 宿主库 / 病毒库'},
     ]},
     {'id': 'sample', 'label': '样本处理', 'path': '样本处理', 'items': [
+        # 2026-09-20：一键前处理（prepchain）置顶 —— 与定量/识别两组的 ⚡ 卡
+        # 同构的文件级子链：转换 → 质控 → 转换(FASTA) → 宿主去除。
+        {'id': 't-prepchain', 'title': '⚡ 一键前处理',
+         'desc': 'SRA / FASTQ 自适应：转换 → 质控 → 转换(FASTA) → 宿主去除；'
+                 '宿主库未就绪自动跳过宿主去除，kept reads 可直喂 ②→③→④ 一键'},
         {'href': '/download', 'title': '公共数据下载', 'desc': 'Run / URL / SRA → FASTQ，衔接样品与模块'},
         {'href': '/samples', 'title': '样品创建 / 批量导入', 'desc': '样品名 + R1/R2 / TSV 批量'},
         {'id': 't-convert', 'title': '格式转换', 'desc': 'sra2fastq / sra2fasta / fastq2fasta'},
@@ -89,11 +95,17 @@ NAV_GROUPS = [
         {'id': 't-virchain', 'title': '⚡ 一键分析（②→③→④）',
          'desc': '提取序列组装 → 组装结果再鉴定 → 候选序列验证，可选先跑①提取病毒序列'},
         {'id': 't-identify', 'title': '病毒识别分类与提取', 'desc': 'FASTQ / FASTA / 去宿主 → 分类 + 病毒序列提取'},
-        {'id': 't-assemble', 'title': '提取序列组装', 'desc': 'SPAdes metaviral / contigs 过滤'},
+        {'id': 't-assemble', 'title': '提取序列组装', 'desc': 'SPAdes rnaviral / contigs 过滤'},
         {'id': 't-contigs', 'title': '组装结果再鉴定', 'desc': 'contig 二次分类 + 谱系注释'},
         {'id': 't-verify', 'title': '候选序列验证', 'desc': '宿主筛选 → 长度分流 → blastx/CDD 过滤 + 类病毒 blastn'},
     ]},
     {'id': 'annotate', 'label': '病毒注释分析', 'path': '病毒注释分析', 'items': [
+        # 2026-09-21：注释三连（annochain）置顶 —— 与定量/识别/样本三组的 ⚡ 卡
+        # 同构的文件级子链：ORF 预测 → 功能注释 → 基因组图谱，跑完即可在
+        # 「数据提交」页关联生成 featuretable。
+        {'id': 't-annochain', 'title': '⚡ 注释三连（ORF→功能→图谱）',
+         'desc': '输入 FASTA：ORF 预测 → 功能注释 → 基因组图谱，一键跑完；'
+                 '注释产物可在「数据提交」页一键关联、直接生成 featuretable'},
         {'href': '/orf', 'title': 'ORF 预测',
          'desc': 'pyrodigal / pyrodigal-rv 基因预测（独立模块）'},
         {'href': '/annotation', 'title': '功能注释',
@@ -104,10 +116,35 @@ NAV_GROUPS = [
          'desc': 'NCBI nt / nr 同源比对（限病毒）：为 GenBank 提交注释提供依据'},
         {'href': '/genome', 'title': '基因组图谱',
          'desc': 'gbdraw / DFV 圈图 + 线图（独立模块）'},
-        {'href': '/primer', 'title': '引物设计',
-         'desc': 'primer3 全长分窗 / 保守区设计（独立模块）'},
-        {'id': 't-dsrna', 'title': 'dsRNA 设计', 'desc': 'dsRNAmax 确定性臂序列优化：21nt 命中 / SWG 相似度 / GC / 5端偏好，脱靶库默认全库'},
     ]},
+    # 2026-09-18：引物设计 / dsRNA 设计从「病毒注释分析」拆出，独立成组。
+    # 判定口径（用户提出后核过一遍）：注释组回答的是「这条序列是什么」——
+    # ORF / 数据库比对 / 保守域 / 图谱，产物都是**对序列的描述**；
+    # 而引物设计回答「怎么把它检出来」（产物是引物对，服务 PCR/qPCR 检测），
+    # dsRNA 设计回答「怎么把它防住」（产物是 RNAi 分子，服务防治），
+    # 两者产物都是**可下单的实验材料**，且必须真做湿实验才能闭环，
+    # 与注释不是同一条业务线 —— 故并列成组，不再挂在注释组下。
+    {'id': 'detect', 'label': '检测与防治', 'path': '检测与防治', 'items': [
+        {'href': '/primer', 'title': '引物设计',
+         'desc': 'primer3 全长分窗 / 保守区设计（独立模块）；面向 PCR / qPCR 检测'},
+        {'id': 't-dsrna', 'title': 'dsRNA 设计',
+         'desc': '全链路：dsRNAmax 确定性选窗（maximin 多候选）→ dsRIP 效价 → '
+                 '面板脱靶扫描（致死基因加权 + 0 错配一票否决）→ T7 引物（限定最优窗）'
+                 '→ 成品扩增子 QC（脱靶面板 FASTA 放入 databases/dsrna/panel/ 即启用）'},
+        # 2026-09-18：PAmiRDB（12.pamirdb）7 文件移植 → Virus_Platform_Core/mirna_target/。
+        # 归入本组的口径与 dsRNA 相同：miRNA 介导的宿主抗病毒沉默是「天然防治线索」，
+        # 产物回答「宿主哪些 miRNA 能靶向这条病毒基因组、位点在哪」，不是序列描述。
+        {'id': 't-mirna', 'title': '🧬 miRNA 靶标预测（PAmiRDB）',
+         'desc': '输入 miRNA × 病毒序列 → Smith-Waterman 比对 + psRNATarget/RNAhybrid '
+                 '复刻引擎共识投票（完整模式含 RNA22/TAPIR/psRobot）→ 结合位点 / 彩色比对 / '
+                 '双链 SVG / 二级结构弧图；纯 Python 无外部依赖，线上参照 pamirdb'},
+    ]},
+    # 2026-09-17：恢复比较基因组分组。09-15 拆分时把它和「进化动力学分析」
+    # 当成同一件事一起移出了导航，这是错的 —— 两者是不同的业务对象：
+    # 比较基因组 = **不同病毒之间**的比较（跨科/属取参考序列 → 比对 → 建树 / SDT
+    # 同一性）；进化动力学 = **同一个基因/序列集内部**的时间与地理信号。
+    # 09-16 恢复 phylodyn 时用的是「覆盖」而不是「并列」，等于顺手把 compare 的
+    # 一级导航位吞了（有组、有卡、有路由，但界面上到不了）。
     {'id': 'compare', 'label': '比较基因组分析', 'path': '比较基因组分析', 'items': [
         {'id': 't-seqprep', 'title': '参考序列获取', 'desc': 'ICTV 科/属选择 或 accession / 检索式 → 下载整科整属序列（GenBank 集合 + FASTA 参考集）'},
         {'href': '/cds-export', 'title': 'CDS / PEP 提取产物',
@@ -116,13 +153,32 @@ NAV_GROUPS = [
         {'id': 't-treebuild', 'title': '进化树构建（科/属级）', 'desc': 'GenBank 集合（全基因组 / CDS / PEP）或 FASTA → MAFFT 比对 + NJ / FastTree / IQ-TREE 建树；页内树查看'},
         {'id': 't-sdt', 'title': 'SDT 同一性分析（属级）', 'desc': '逐对 MAFFT 精确比对 → identity 矩阵 / 热图 / 分布图；NT+AA 模式同一性表 + 复合热图'},
     ]},
+    # 2026-09-16：本站移植了裁剪版系统地理能力（距离三分类 / MOTP / 权重分带 /
+    # 迁移 GIF，见 docs/主平台同步_裁剪移植_20260916.md），故恢复一个最小分组
+    # 让这三张卡可达。BEAST 产物导入 / 自研贝叶斯 ASR / T3 时间树 / LTT / skyline
+    # 仍只在进化平台。
+    # 2026-09-17：补充 VirPhyKit（Yin et al. 2025）方法学对齐的 12 张卡
+    # （数据接入三来源 + SeqIDRenamer/SeqGrouper/VirSpaceTime/GeoSubsampler/
+    #   RRT/TempMig/BSP-Viz/RSPP-Viz/TreeTime-RTT/TreeDater-LTT/MJRM），
+    # 代码全部自研（GPL-3.0 红线：只对齐方法与 I/O 契约，不复制代码），
+    # 见 Virus_Platform_Core/phylodyn_kit.py / phylodyn_trees.py。
+    # label 与一级导航 `nav.g.phylodyn`、进化平台同名组保持一致（同一业务线一个名字）。
     {'id': 'phylodyn', 'label': '进化动力学分析', 'path': '进化动力学分析', 'items': [
-        {'id': 't-rdp', 'title': '🔁 重组检测',
-         'desc': 'RDP5 九方法（RDP/GENECONV/Bootscan/MaxChi/Chimaera/SiScan 等），比对 FASTA → 重组事件表'},
+        {'id': 't-pdprep', 'title': '🧬 进化动力学数据接入',
+         'desc': '三种来源建标准数据集（比对 FASTA + 元数据）：**文件对**（两份文件直喂）/ 手动输入（时间地点同检）/ 在线下载；元数据列名自动识别并择优（Collection_Date↔Release_Date、Geo_Location↔Country）。附时间轴·地点分布·地图汇总'},
+        {'id': 't-rdp', 'title': '🔁 RDP5 重组分析',
+         'desc': 'RDP5 九方法检测，逐方法 p 值；可导出掩蔽重组区后的干净比对'},
         {'id': 't-rtt', 'title': '⏱ 时间信号与定年',
-         'desc': '根到尾回归：R² 高=时间信号强，斜率=每位点每年替换数'},
-        {'id': 't-phylogeo', 'title': '🌍 系统地理',
-         'desc': 'Fitch 迁移重构：区划间转移矩阵 + 标注树'},
+         'desc': '根到尾回归：R² 高＝时间信号强，斜率＝每位点每年替换数'},
+        {'id': 't-phylogeo', 'title': '🌍 系统地理分析',
+         'desc': 'Fitch 迁移重构 + 距离三分类（haversine）/ MOTP 时间分箱 / 权重分带 / 迁移 GIF 导出'},
+        # 2026-09-21 归档 t-pdrename / t-pdgroup 两卡（导航/section/job 注册已同摘，
+        # 底层 phylodyn_kit 函数保留）：
+        #   🏷 重命名 → 已接进「时间与地理推断·本地全链」可选前置（t-phylodyn 卡的
+        #     「🏷 重命名映射」字段，A0 之前 FASTA/元数据/树 tip 三处同改）；
+        #   🧩 分组 → 属导入/收集阶段职责（online 阶段自动跑，产物进 report）。
+        {'id': 't-phylodyn', 'title': '⚡ 一键分析（定年 → 地理迁移 → 汇总溯源）',
+         'desc': 'A0 数据准备 → A1 定年 → A2 地理迁移 → A3 天际线 → A4 祖先序列 → A5 汇总溯源；可一键全跑，也可只跑单阶段或从上一轮产物续跑。全程本地、不跑 MCMC'},
     ]},
     {'id': 'result', 'label': '结果中心', 'path': '结果中心', 'items': [
         {'href': '/results', 'title': '样品结果 / 专项结果',
@@ -135,13 +191,17 @@ NAV_GROUPS = [
 ]
 
 
+# 2026-09-15：/explorer 已随病毒浏览器迁出（2026-09-27 彻底归档，
+# archive/_retire_20260927/explorer/），不再映射到本站的导航组。
+# 2026-09-17：/cds-export 是 compare 组的子页，映射随 compare 组一起恢复。
+# 2026-09-18：/primer 随「检测与防治」组从 annotate 迁到 detect —— 这行不改，
+# 引物页侧栏仍显示注释组的 7 项、dsRNA 卡入口也会指错组（_group_nav.html 用
+# current_group 拼 `/tools?g=<组id>#<卡id>`）。
 _PATH_TO_GROUP = {'/meta': 'resource', '/virome': 'resource',
-                  '/explorer': 'resource',
                   '/download': 'sample', '/build': 'resource',
                   '/hostremoval': 'sample', '/samples': 'sample',
-                  '/hostpredict': 'virus', '/orf': 'annotate',
-                  '/annotation': 'annotate',
-                  '/genome': 'annotate', '/primer': 'annotate',
+                  '/orf': 'annotate', '/annotation': 'annotate',
+                  '/genome': 'annotate', '/primer': 'detect',
                   '/cds-export': 'compare',
                   '/logan': 'trace', '/submit': 'trace'}
 
@@ -218,11 +278,6 @@ def page_host_removal():
 @bp.route('/samples')
 def page_samples():
     return render_template('samples.html')
-
-
-@bp.route('/hostpredict')
-def page_hostpredict():
-    return render_template('host_predict.html')
 
 
 @bp.route('/orf')

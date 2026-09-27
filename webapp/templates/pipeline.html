@@ -89,7 +89,10 @@
     <h2 data-i18n="pp.queueTitle">⏳ 批处理队列</h2>
     <div id="queueBox"><p class="hint" data-i18n="pp.queueEmpty">队列为空</p></div>
     <div style="margin-top:6px">
+      <button class="btn small primary" id="queueStartAllBtn" onclick="queueStartAll()" data-i18n="pp.qStartAll">▶ 全部启动</button>
+      <button class="btn small" id="queuePauseBtn" onclick="queueTogglePause()" data-i18n="pp.qPause">⏸ 暂停队列</button>
       <button class="btn small" onclick="queueClear()" data-i18n="pp.qClear">🧹 清除已完成</button>
+      <span class="hint" id="queuePauseHint" style="margin-left:6px"></span>
     </div>
   </div>
 

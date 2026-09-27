@@ -10,7 +10,8 @@ import re
 import time
 import uuid
 
-from flask import abort, jsonify, render_template, request, send_file
+from flask import (abort, jsonify, render_template, request, send_file,
+                   Response)
 
 from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT, db_path
 from Virus_Platform_Core.utils import (check_path, fmt_size, safe_open)
@@ -21,7 +22,6 @@ from Virus_Platform_Core.web.tool_jobs import (
     _tool_job_convert,
     _tool_job_fastp,
     _tool_job_hostremoval,
-    _tool_job_hostpredict,
     _tool_job_orf,
     _tool_job_orfa,
     _tool_job_genoplot,
@@ -37,10 +37,19 @@ from Virus_Platform_Core.web.tool_jobs import (
     _tool_job_align,
     _tool_job_sdt,
     _tool_job_identity,
+    _tool_job_rdp,
+    _tool_job_phylogeo,
+    _tool_job_dsrna,
+    _tool_job_rtt,
+    _tool_job_pdprep,
+    _tool_job_phylodyn,
+    _tool_job_mirna,
 )
 from Virus_Platform_Core.web.chains import (
     _tool_job_virchain,
     _tool_job_kvchain,
+    _tool_job_prepchain,
+    _tool_job_annochain,
 )
 from Virus_Platform_Core.web.tasks import tm
 
@@ -54,8 +63,9 @@ TOOL_REGISTRY = {
                  'need_db': False, 'job': _tool_job_fastp},
     'hostremoval': {'title': '宿主去除与序列提取', 'title_en': 'Host removal',
                     'need_db': False, 'job': _tool_job_hostremoval},
-    'hostpredict': {'title': '宿主预测', 'title_en': 'Host prediction',
-                    'need_db': False, 'job': _tool_job_hostpredict},
+    # hostpredict（独立宿主预测工具）已于 2026-09-27 撤出注册表：孤儿页删除，
+    # 功能保留为 contigs 分类后的自动运行（/api/tool/hostpredict_run，见
+    # tool_results.py）与样品管道 ④（hostana）。
     'orf':         {'title': 'ORF 预测', 'title_en': 'ORF predict',
                     'need_db': False, 'job': _tool_job_orf},
     'orfa':        {'title': '功能注释', 'title_en': 'ORF annotate',
@@ -90,10 +100,41 @@ TOOL_REGISTRY = {
                  'need_db': True, 'job': _tool_job_virchain},
     'kvchain':  {'title': '病毒定量与共识·一键', 'title_en': 'KV chain',
                  'need_db': False, 'job': _tool_job_kvchain},
+    'prepchain': {'title': '一键前处理', 'title_en': 'Prep chain',
+                  'need_db': False, 'job': _tool_job_prepchain},
+    'annochain': {'title': '注释三连·一键', 'title_en': 'Annotation chain',
+                  'need_db': False, 'job': _tool_job_annochain},
+    'rdp':      {'title': 'RDP 重组分析', 'title_en': 'RDP recombination',
+                 'need_db': False, 'job': _tool_job_rdp},
+    'phylogeo': {'title': '系统地理分析', 'title_en': 'Phylogeography',
+                 'need_db': False, 'job': _tool_job_phylogeo},
+    'dsrna':    {'title': 'dsRNA 设计', 'title_en': 'dsRNA design',
+                 'need_db': False, 'job': _tool_job_dsrna},
+    'rtt':      {'title': '时间信号检验', 'title_en': 'Root-to-tip',
+                 'need_db': False, 'job': _tool_job_rtt},
+    # ---- 进化动力学（保留 5 张数据准备类卡）----
+    'phylodyn': {'title': '⚡ 一键分析（定年 → 地理迁移 → 汇总溯源）',
+                 'title_en': 'One-click analysis: dating + geographic migration',
+                 'need_db': False, 'job': _tool_job_phylodyn},
+    # 2026-09-18 归档 8 张卡（rand/rrt/tempmig/bsp/rspp/treetime/ltt/mjrm）：
+    # 进化平台已用「时间与地理推断·本地全链」统一覆盖，保留 5 张数据准备类卡。
+    # 底层 phylodyn_kit / phylodyn_trees **未删**（保留卡仍在用）；
+    # 前端 section / 导航 / job 工厂已摘，详见 docs/进化动力学统一方案_20260918.md
+    'pdprep':   {'title': '进化动力学数据接入', 'title_en': 'Phylodyn data prep',
+                 'need_db': False, 'job': _tool_job_pdprep},
+    # 2026-09-21 归档 pdrename / pdgroup 两卡（job 注册已摘）：重命名已接进
+    # phylodyn 全链可选前置（t-phylodyn「🏷 重命名映射」字段，A0 三处同改）；
+    # 分组属导入/收集阶段职责（online 自动跑，产物进 report）。job 函数保留于
+    # tool_jobs.py，底层 phylodyn_kit 未删。
+    'mirna':    {'title': 'miRNA 靶标预测', 'title_en': 'miRNA target',
+                 'need_db': False, 'job': _tool_job_mirna},
 }
 
 
-LIGHT_TOOLS = {'convert', 'genoplot', 'primer'}
+# ⚠️ 这里的键必须**都是 TOOL_REGISTRY 里真实存在的工具**：
+#    `pdspacetime` 已于 2026-09-18 并入数据准备卡 → 已删；
+#    `pdrename` / `pdgroup` 已于 2026-09-21 归档 → 已删
+LIGHT_TOOLS = {'convert', 'genoplot', 'primer', 'mirna'}
 
 
 # 工具②/④的病毒库内置键名。RVDB（databases/virus/rvdb）已于本会话移除，
@@ -221,7 +262,8 @@ def api_tool_open():
         abort(400, '无效的运行名')
     d = check_path(os.path.join(_tool_runs_root(), name), must_exist=True,
                    in_platform=True)
-    os.startfile(d)
+    from Virus_Platform_Core.utils import open_in_explorer
+    open_in_explorer(d)
     return jsonify({'ok': True})
 
 
@@ -447,3 +489,276 @@ def _resolve_virus_db(v=None):
     except (ValueError, FileNotFoundError):
         abort(400, f'病毒库不存在: {v}（可用内置库: '
                    f'{", ".join(VIRUS_DB_PRESETS)} 或填库目录路径）')
+
+
+@bp.route('/api/tool/rdp_masked')
+def api_rdp_masked():
+    """导出掩蔽重组区后的干净比对（N 掩蔽，可直接送建树）。
+
+    run=<rdp run 名>；读 rdp/events.json + summary.json 里的 input 路径。
+    """
+    import json as _json
+    run = (request.args.get('run') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
+        abort(400, '无效的运行名')
+    base = os.path.join(_tool_runs_root(), run, 'rdp')
+    ev_file = os.path.join(base, 'events.json')
+    if not os.path.isfile(ev_file):
+        abort(404, '该运行无重组事件结果')
+    events = _json.load(open(ev_file, encoding='utf-8')).get('events') or []
+    sm_file = os.path.join(base, 'summary.json')
+    inp = ''
+    if os.path.isfile(sm_file):
+        inp = (_json.load(open(sm_file, encoding='utf-8'))
+               or {}).get('input') or ''
+    if not inp or not os.path.isfile(inp):
+        abort(400, '找不到原比对文件（summary.json 缺 input 记录）')
+    from Virus_Platform_Core.rdp5_engine import mask_from_events
+    records, n_masked, merged = mask_from_events(inp, events, mask_char='N')
+    if not records:
+        abort(400, '掩蔽失败：比对为空')
+    nl = chr(10)
+    body = nl.join(f'>{nm}{nl}{seq}' for nm, seq in records) + nl
+    note = (f'; masked {n_masked} columns in {len(merged)} regions' + nl)
+    out_body = body + (nl + note if note else '')
+    return Response(out_body, mimetype='text/plain',
+                    headers={'Content-Disposition':
+                             f'attachment; filename="{run}_masked.fa"'})
+
+
+@bp.route('/api/tool/rdp_masked', methods=['POST'])
+def api_rdp_masked_post():
+    return api_rdp_masked()
+
+
+@bp.route('/api/tool/dsrna_panel')
+def api_dsrna_panel():
+    """dsRNA 脱靶面板清单（物种名 + 大小 + 是否配致死基因表）。"""
+    from Virus_Platform_Core import dsrna_offtarget as dso
+    from Virus_Platform_Core.dsrna_pipeline import _norm_species
+    panel_dir = os.path.join(PLATFORM_ROOT, 'databases', 'dsrna', 'panel')
+    lethal_dir = os.path.join(PLATFORM_ROOT, 'databases', 'dsrna', 'lethal_lists')
+    files = []
+    for f in dso.panel_files(panel_dir):
+        sp = _norm_species(os.path.splitext(os.path.basename(f))[0])
+        try:
+            size = os.path.getsize(f)
+        except OSError:
+            size = 0
+        files.append({'name': sp,
+                      'file': os.path.basename(f),
+                      'size_mb': round(size / 1e6, 1),
+                      'lethal': os.path.isfile(
+                          os.path.join(lethal_dir,
+                                       f'{sp}_all_lethals.tsv'))})
+    return jsonify({'panel_dir': panel_dir, 'files': files})
+
+
+# ---- 迁移弧线动画导出 GIF（plotly + kaleido + Pillow，全离线）----
+# 上限值是**请求参数**的钳制范围（防前端传超大值把渲染拖死），不是数据上限。
+_GIF_MAX_FRAMES = 240
+_GIF_MAX_ARCS = 60
+_GIF_MAX_PX = 2400
+
+
+def _phylogeo_run_dir(run):
+    """校验 run 名并定位 <run>/phylogeo 结果目录。"""
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', run or ''):
+        abort(400, '无效的运行名')
+    d = os.path.join(_tool_runs_root(), run, 'phylogeo')
+    if not os.path.isdir(d):
+        abort(404, '该运行没有系统地理分析结果（phylogeo 目录不存在）')
+    return check_path(d, must_exist=True, in_platform=True)
+
+
+def _gif_int(v, lo, hi, default):
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(v, hi))
+
+
+@bp.route('/api/tool/phylogeo_gif', methods=['POST'])
+def api_phylogeo_gif():
+    """把 MOTP 时间窗动画导出成 GIF（plotly+kaleido+Pillow，全离线）。
+
+    body: {run, force=0, fps=2, max_frames=80, max_arcs=24, width=960,
+           height=520}
+    产物固定落 <run>/phylogeo/migration.gif；summary.json 比它新（说明重跑过
+    分析）或 force=1 时重渲染，否则直接返回缓存 —— 缓存时不占用任务名额。
+    """
+    body = request.get_json(force=True) or {}
+    run = (body.get('run') or '').strip()
+    gdir = _phylogeo_run_dir(run)
+    sm = os.path.join(gdir, 'summary.json')
+    if not os.path.isfile(sm):
+        abort(404, '该运行没有 phylogeo/summary.json（结果不完整）')
+    out = os.path.join(gdir, 'migration.gif')
+    url = '/tool_runs/%s/phylogeo/migration.gif' % run
+    force = str(body.get('force') or '').lower() not in ('', '0', 'false', 'no')
+    if (not force and os.path.isfile(out)
+            and os.path.getmtime(out) >= os.path.getmtime(sm)):
+        st = os.stat(out)
+        return jsonify({'cached': True, 'task': None, 'url': url,
+                        'file': 'migration.gif', 'bytes': st.st_size,
+                        'mtime': st.st_mtime})
+
+    fps = _gif_int(body.get('fps'), 1, 10, 2)
+    max_frames = _gif_int(body.get('max_frames'), 1, _GIF_MAX_FRAMES, 80)
+    max_arcs = _gif_int(body.get('max_arcs'), 1, _GIF_MAX_ARCS, 24)
+    width = _gif_int(body.get('width'), 320, _GIF_MAX_PX, 960)
+    height = _gif_int(body.get('height'), 240, _GIF_MAX_PX, 520)
+
+    def job(log, prog, cancel):
+        from Virus_Platform_Core.phylogeo_gif import build_migration_gif
+        with open(sm, encoding='utf-8') as f:
+            summary = json.load(f)
+        log('读取 summary.json，开始逐帧渲染（kaleido 本地出图）')
+        prog('gif', 2, '准备渲染')
+
+        def _cb(frac, msg):
+            log(msg)
+            prog('gif', 2 + 96 * frac, msg)
+
+        res = build_migration_gif(summary, out, width=width, height=height,
+                                  fps=fps, max_arcs=max_arcs,
+                                  max_frames=max_frames, progress=_cb,
+                                  cancel=cancel)
+        log('GIF 落盘：%s（%d 帧 / %.0f KB / %dx%d）'
+            % (res['file'], res['n_frames'], res['bytes'] / 1024.0,
+               res['width'], res['height']))
+        if res['frames_dropped']:
+            log('窗数 %d 超过帧数上限，每 %d 窗取 1 帧（丢 %d 帧）'
+                % (res['n_bins'], res['every_n_bins'], res['frames_dropped']))
+        if res['n_arcs_skipped']:
+            log('有 %d 条迁移两端缺坐标，未画进 GIF' % res['n_arcs_skipped'])
+        res['url'] = url
+        res['run'] = run
+        res['out_dir'] = gdir
+        return res
+
+    tid = tm.start('导出迁移 GIF·%s' % run, job, weight='light', out_dir=gdir)
+    return jsonify({'cached': False, 'task': tid, 'url': url, 'out_dir': gdir,
+                    'params': {'fps': fps, 'max_frames': max_frames,
+                               'max_arcs': max_arcs, 'width': width,
+                               'height': height}})
+
+
+@bp.route('/api/tool/pdplot_export', methods=['POST'])
+def api_pdplot_export():
+    """交互图一键导出 PNG/PDF（plotly → kaleido，全离线）。
+
+    body: {name, fmt: 'png'|'pdf', data, layout, width?, height?}
+    返回图片字节流（attachment 下载）。
+    """
+    body = request.get_json(force=True) or {}
+    fmt = body.get('fmt') or 'png'
+    if fmt not in ('png', 'pdf', 'svg', 'webp'):
+        abort(400, f'不支持的导出格式: {fmt}')
+    data = body.get('data')
+    layout = body.get('layout') or {}
+    if not data:
+        abort(400, '缺少绘图数据')
+    width = max(320, min(int(body.get('width') or 1280), 4096))
+    height = max(240, min(int(body.get('height') or 800), 4096))
+    import plotly.io as pio
+    fig = {'data': data, 'layout': layout}
+    try:
+        img = pio.to_image(fig, format=fmt, width=width, height=height, scale=2)
+    except Exception as e:
+        abort(500, f'渲染失败（kaleido）: {e}')
+    name = re.sub(r'[^\w.-]+', '_', body.get('name') or 'plot')[:60] or 'plot'
+    from flask import Response
+    mime = {'png': 'image/png', 'pdf': 'application/pdf',
+            'svg': 'image/svg+xml', 'webp': 'image/webp'}[fmt]
+    return Response(img, mimetype=mime, headers={
+        'Content-Disposition': f'attachment; filename="{name}.{fmt}"'})
+
+
+# ── t-mirna 候选 miRNA 库（构建与验证口径见 databases/mirna_lib/README.md）──
+# 数据：服务器 /genes/gene_browser.html 下载区（plantrg + 同源种扩展，80,272 条 /
+# 799 物种），清洗后 TSV；首次请求懒加载，文件 mtime 变化自动重载。
+_MIRNA_LIB_CACHE = {'rows': None, 'mtime': None, 'facets': None}
+
+
+def _mirna_lib_path():
+    return os.path.join(PLATFORM_ROOT, 'databases', 'mirna_lib',
+                        'plant_mirna_library.tsv')
+
+
+def _mirna_lib_rows():
+    path = _mirna_lib_path()
+    if not os.path.exists(path):
+        abort(500, '候选 miRNA 库缺失，请先运行 databases/mirna_lib/build_library.py --build')
+    mt = os.path.getmtime(path)
+    if _MIRNA_LIB_CACHE['rows'] is None or _MIRNA_LIB_CACHE['mtime'] != mt:
+        rows = []
+        with open(path, 'r', encoding='utf-8') as f:
+            header = f.readline().rstrip('\n').split('\t')
+            for line in f:
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) != len(header):
+                    continue
+                r = dict(zip(header, parts))
+                try:
+                    r['len'] = int(r.get('len') or 0)
+                except ValueError:
+                    continue
+                tc = r.get('target_count') or ''
+                r['_tc'] = int(tc) if tc.isdigit() else -1
+                rows.append(r)
+        facets_s = {}
+        facets_src = {}
+        for r in rows:
+            facets_s[r['species']] = facets_s.get(r['species'], 0) + 1
+            facets_src[r['source']] = facets_src.get(r['source'], 0) + 1
+        _MIRNA_LIB_CACHE['rows'] = rows
+        _MIRNA_LIB_CACHE['mtime'] = mt
+        _MIRNA_LIB_CACHE['facets'] = {
+            'total': len(rows),
+            'species': sorted(facets_s.items(), key=lambda kv: (-kv[1], kv[0])),
+            'sources': sorted(facets_src.items(), key=lambda kv: -kv[1]),
+        }
+    return _MIRNA_LIB_CACHE['rows']
+
+
+@bp.route('/api/tool/mirna_lib/facets')
+def api_mirna_lib_facets():
+    _mirna_lib_rows()
+    return jsonify(_MIRNA_LIB_CACHE['facets'])
+
+
+@bp.route('/api/tool/mirna_lib')
+def api_mirna_lib():
+    """检索候选 miRNA：q 子串匹配 id/物种/family；species/source 精确过滤。
+    排序：plantrg 规范命名优先 → 有 target_count 注释者按注释降序 → id。"""
+    rows = _mirna_lib_rows()
+    q = (request.args.get('q') or '').strip().lower()
+    species = (request.args.get('species') or '').strip()
+    source = (request.args.get('source') or '').strip()
+    try:
+        limit = max(1, min(int(request.args.get('limit') or 100), 200))
+    except ValueError:
+        limit = 100
+    out = []
+    total = 0
+    for r in rows:
+        if species and r['species'] != species:
+            continue
+        if source and r['source'] != source:
+            continue
+        if q and (r['mirna_id'].lower().find(q) < 0
+                  and r['species'].lower().find(q) < 0
+                  and (r.get('family') or '').lower().find(q) < 0):
+            continue
+        total += 1
+        if len(out) < limit:
+            out.append({'mirna_id': r['mirna_id'], 'species': r['species'],
+                        'seq': r['seq'], 'len': r['len'], 'source': r['source'],
+                        'family': r.get('family') or '',
+                        'target_count': r.get('target_count') or ''})
+    out.sort(key=lambda r: (0 if r['source'] == 'plantrg' else 1,
+                            -int(r['target_count']) if r['target_count'].isdigit() else 1,
+                            r['mirna_id']))
+    return jsonify({'total': total, 'items': out})

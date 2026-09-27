@@ -1,0 +1,41 @@
+{
+ "params": {
+  "trait": "region",
+  "date_col": null,
+  "date_trait": null,
+  "methods": [
+   "treetime"
+  ],
+  "relax": null,
+  "reroot": "least-squares",
+  "keep_root": false,
+  "do_drt": true,
+  "drt_perm": 200,
+  "drt_seed": 42,
+  "clock_rate": null,
+  "prune": false,
+  "prune_method": "fps",
+  "prune_date_resolution": "month",
+  "prune_max_reps": 3,
+  "prune_min_snp_diff": 2,
+  "prune_clade_cutoff": 5,
+  "sampling_bias_correction": "auto",
+  "pc": null,
+  "cross_check": true,
+  "rssp_bs": 0,
+  "seed": 0,
+  "n_skyline": 10,
+  "gen_per_year": 50.0,
+  "rng_seed": 0,
+  "timeout": 3600,
+  "divergence_tree": null,
+  "marginal": false,
+  "coord_table": null
+ },
+ "stages": [
+  "prep",
+  "clock",
+  "phylogeo"
+ ],
+ "resolved_at": "2026-09-21 03:56:52"
+}

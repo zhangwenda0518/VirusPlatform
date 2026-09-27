@@ -43,19 +43,29 @@ LOCAL = {'Virus_Platform_Core', 'app', 'main', 'dev_tools', 'tests'}
 
 
 def _local_submodules():
-    """扫描平台本地包目录下的模块名（如 known_virus_suite/kv_*.py）。
+    """扫描平台本地包目录下的模块名（含全部一级子包）。
 
     引擎已并入 Virus_Platform_Core/known_virus_suite/（2026-09-10 由顶层
     engines/ 迁入），改用包内相对导入后，此处的顶层名兜底主要用于扫描
-    仍在用裸导入的遗留脚本。
+    仍在用裸导入的遗留脚本。2026-09-20：mirna_target/consensus.py 的
+    「独立脚本方式运行」回退分支用裸名导入 alignment/psrnatarget/rna22/
+    tapir/rnahybrid/psrobot —— 只扫 known_virus_suite 时这些名字会被
+    误判成第三方依赖，selfcheck ⑥ 因此恒红。改为遍历 Virus_Platform_Core
+    下**所有一级子包**（带 __init__.py 的目录），新增子包不必再回来登记。
     """
     names = set()
-    for pkg in ('Virus_Platform_Core',
-                os.path.join('Virus_Platform_Core', 'known_virus_suite')):
-        d = os.path.join(ROOT, pkg)
-        if not os.path.isdir(d):
+    core = os.path.join(ROOT, 'Virus_Platform_Core')
+    pkgs = [core]
+    try:
+        pkgs += [os.path.join(core, d) for d in os.listdir(core)
+                 if os.path.isdir(os.path.join(core, d))
+                 and os.path.isfile(os.path.join(core, d, '__init__.py'))]
+    except OSError:
+        pass
+    for pkg in pkgs:
+        if not os.path.isdir(pkg):
             continue
-        for fn in os.listdir(d):
+        for fn in os.listdir(pkg):
             if fn.endswith('.py'):
                 names.add(fn[:-3])
     return names
@@ -78,12 +88,23 @@ PIP_NAME = {
     'streamlit': 'streamlit', 'pycirclize': 'pycirclize',
     # 模块名 webview ↔ pip 包名 pywebview（app.py 的桌面窗口壳，import 时兜底回退浏览器）
     'webview': 'pywebview',
+    # ViennaRNA 的 Python 绑定顶层模块名是 RNA（requirements.txt 已声明 viennarna）
+    'RNA': 'viennarna',
 }
 
-# 已知可选依赖：缺失时功能降级，不阻断运行
+# 已知可选依赖：缺失时功能降级，不阻断运行。
+# 判定依据是「代码里有 try/except ImportError 兜底或功能可降级」，且
+# requirements.txt 里通常只以注释给出安装命令。本表同时决定
+# 「requirements.txt 未声明」的告警口径：表内的包不再计入。
+# tkinterdnd2 只被 scripts/drag_proxy.py（独立的拖拽代理，非平台本体）使用，
+# 且「启动拖拽代理.bat」检测到缺失时会自动 pip 安装 —— 它没装不该让
+# 环境自检报 ✘（此前它不在本表，导致 selfcheck 恒为「存在未就绪项」）。
 OPTIONAL = {'selenium', 'gbdraw', 'dna_features_viewer', 'pyhmmer',
             'primer3', 'openai', 'psutil', 'pycirclize',
-            'distinctipy', 'taxburst'}
+            'distinctipy', 'taxburst', 'tkinterdnd2', 'adjustText',
+            # treetime：phylodyn_trees.treetime_available() 探测，缺时走
+            # 自研回归兜底（RTT 真引擎降级为本地实现），功能不中断
+            'treetime'}
 
 
 def iter_py_files():
@@ -103,7 +124,12 @@ def iter_py_files():
             'meta_search', 'logan', 'submissions', 'fastq', 'uploads',
             'bin', 'logan', 'docs', 'tests',
             'git-repo', 'vendor', '_archive', '.pytest_cache',
-            '_bioaider_re', '3rd'}
+            '_bioaider_re', '3rd',
+            # 仓库根级临时/基准/备份目录（非平台运行依赖；2026-09-18
+            # _bench_kvs/ 里的本地模块 bench_engines 曾被误报为必需依赖）
+            '_bench_kvs', '_bench_kvs2', '_bench_cons',
+            '_audit_20260916', '_backup_before_raxmlng_20260916',
+            'archive'}
     for cur, dirs, files in os.walk(ROOT):
         dirs[:] = [d for d in dirs if d not in skip and not d.startswith('.')]
         for fn in files:
@@ -135,6 +161,26 @@ def collect_imports():
     return found
 
 
+def _read_req(path):
+    """读取 requirements 文件里的包名（小写、`-` 归一为 `_`）。
+
+    忽略注释行、空行与 `-r other.txt` 这类指令行。
+    """
+    out = set()
+    if not os.path.isfile(path):
+        return out
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            line = line.split('#', 1)[0].strip()
+            if not line or line.startswith('-'):
+                continue
+            name = (line.split('==')[0].split('>=')[0]
+                        .split('<=')[0].split('~=')[0].split('[')[0])
+            if name.strip():
+                out.add(name.strip().lower().replace('-', '_'))
+    return out
+
+
 def analyze():
     """完整分析：返回 {third, missing, uncovered, installed, hard_missing}。"""
     found = collect_imports()
@@ -144,15 +190,12 @@ def analyze():
              and m not in local_sub and not m.startswith('_')}
 
     req_path = os.path.join(ROOT, 'requirements.txt')
-    req = set()
-    if os.path.isfile(req_path):
-        with open(req_path, encoding='utf-8') as f:
-            for line in f:
-                line = line.split('#', 1)[0].strip()
-                if not line:
-                    continue
-                name = line.split('==')[0].split('>=')[0].split('[')[0]
-                req.add(name.strip().lower().replace('-', '_'))
+    req = _read_req(req_path)
+    # 开发/测试依赖另有一份清单（requirements-dev.txt）。dev_tools/ 与
+    # tests/ 里的 import 也会被 collect_imports 扫到（dev_tools 未列入 skip），
+    # 所以 PyInstaller / playwright / psutil 这类只属于开发链的包要按
+    # dev 清单判定，否则会被误报成「requirements.txt 未声明」。
+    dev_req = _read_req(os.path.join(ROOT, 'requirements-dev.txt'))
 
     installed, missing = {}, []
     for m in sorted(third):
@@ -164,7 +207,12 @@ def analyze():
     uncovered = []
     for m in sorted(third):
         pip = PIP_NAME.get(m, m)
-        if pip.lower().replace('-', '_') not in req:
+        key = pip.lower().replace('-', '_')
+        # 可选依赖（OPTIONAL）本就不要求写进 requirements.txt —— 它们的功能
+        # 缺失时自动降级，清单里只用注释给出安装命令。
+        if m in OPTIONAL or key in dev_req:
+            continue
+        if key not in req:
             uncovered.append((m, pip))
 
     hard_missing = [m for m in missing if m not in OPTIONAL]

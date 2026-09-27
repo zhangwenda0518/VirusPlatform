@@ -32,10 +32,13 @@ known_virus_suite.py — 已知病毒五段整合模块 主入口
     python known_virus_suite.py variant --reference ref.fasta --out out_dir \
         --bam-dir out_dir/bam --variant-gbk-dir out_dir/gbk_files
 
-引擎分工（固定，不再提供选项）:
-    salmon —— 定量（identify）：quant.sf 出 EM 定量，--writeBam 出映射位点
-              （排序 BAM + pandepth 覆盖度/深度，命名 <样本>_pandepth.*）
-    minibwa —— 共识（consensus）内部固定使用的真比对引擎，产共识/变异用的 BAM
+引擎分工（定量引擎 --engine 二选一，默认 salmon；共识段固定 minibwa）:
+    salmon  —— 定量（identify）：quant.sf 出 EM 定量，--writeBam 出映射位点
+               （排序 BAM + pandepth 覆盖度/深度，命名 <样本>_pandepth.*）
+    minibwa —— 定量（identify）真比对计数（idxstats），同一覆盖度后端与
+               命名；2026-09-13 恢复（原管线 traditional 路径）
+    minibwa —— 共识（consensus）内部固定使用的真比对引擎，产共识/变异用 BAM
+               （自建单参考索引重新比对，与定量引擎互不混用）
 """
 
 import argparse
@@ -139,8 +142,9 @@ def build_parser():
         sp.add_argument('--out', required=True, help='输出目录')
         sp.add_argument('--reference', help='参考序列 FASTA')
         sp.add_argument('--ref-info', dest='ref_info', help='参考注释 TSV（Accession/Taxid/Species/Segment）')
-        sp.add_argument('--engine', default='salmon', choices=['salmon'],
-                        help='定量比对引擎（固定 salmon；共识段内部固定 minibwa）')
+        sp.add_argument('--engine', default='salmon', choices=['salmon', 'minibwa'],
+                        help='定量引擎（库与引擎正交：salmon=EM 定量默认；'
+                             'minibwa=真比对计数；共识段内部固定 minibwa 不受此参影响）')
         sp.add_argument('--threads', type=int, default=max(1, (os.cpu_count() or 4) // 2),
                         help='样本级并行/批次大小')
         sp.add_argument('--align-threads', dest='align_threads', type=int, default=8,
@@ -189,6 +193,8 @@ def build_parser():
         g.add_argument('--min-tpm', dest='min_tpm', type=float, default=1.0, help='最低 TPM (默认 1.0)')
         g.add_argument('--min-poisson', dest='min_poisson', type=float, default=0.3, help='泊松比值下限 (默认 0.3)')
         g.add_argument('--ratio', type=float, default=0.3, help='双轨 A 轨泊松比 (默认 0.3)')
+        g.add_argument('--min-ani', dest='min_ani', type=float, default=0.0, help='最低 ANI (默认 0=不启用)')
+        g.add_argument('--ani-thresh', dest='ani_thresh', type=float, default=95.0, help='ANI 分种阈值 (默认 95)')
         g.add_argument('--genes-cov', dest='genes_cov', help='基因覆盖表 TSV，启用 B 轨')
         g.add_argument('--min-gene-total-cov', dest='min_gene_total_cov', type=float, default=80.0)
         g.add_argument('--min-gene-avr-cov', dest='min_gene_avr_cov', type=float, default=5.0)
@@ -199,7 +205,7 @@ def build_parser():
         g = sp.add_argument_group('共识参数（照搬 batch_virus_variants.py 默认值）')
         g.add_argument('--vc-qual', dest='vc_qual', type=int, default=20,
                        help='最低碱基质量 Phred 值 (默认 20，对齐原管线 -q)')
-        g.add_argument('--vc-depth', dest='vc_depth', type=int, default=5,
+        g.add_argument('--vc-depth', dest='vc_depth', type=int, default=1,
                        help='最低覆盖深度 (默认 5，对齐原管线 -d；传 0 则按 MeanDepth/2 动态算)')
         g.add_argument('--vc-freq', dest='vc_freq', type=float, default=0.5,
                        help='变异最低频率阈值 (默认 0.5，对齐原管线 -f)')
@@ -312,6 +318,8 @@ def _register_platform_compat(sub):
         (('--min-tpm',), {'dest': 'min_tpm', 'type': float, 'help': argparse.SUPPRESS}),
         (('--min-poisson',), {'dest': 'min_poisson', 'type': float, 'help': argparse.SUPPRESS}),
         (('--ratio',), {'type': float, 'help': argparse.SUPPRESS}),
+        (('--min-ani',), {'dest': 'min_ani', 'type': float, 'help': argparse.SUPPRESS}),
+        (('--ani-thresh',), {'dest': 'ani_thresh', 'type': float, 'help': argparse.SUPPRESS}),
         (('--genes-cov',), {'dest': 'genes_cov', 'help': argparse.SUPPRESS}),
         (('--min-gene-total-cov',), {'dest': 'min_gene_total_cov', 'type': float,
                                      'help': argparse.SUPPRESS}),
@@ -392,7 +400,7 @@ def main():
 
     # ── index ──
     if args.stage == 'index':
-        tools.require('salmon')
+        tools.require(args.engine)
         eng = make_engine(args.engine, tools, args.align_threads, logger)
         p = eng.build_index(args.reference, _index_dir(args, out_dir),
                             args.align_threads)
@@ -404,7 +412,9 @@ def main():
     confirmed = None
     ref_info = {}
     if args.stage in ('all', DEFAULT_STAGE, 'identify'):
-        tools.require('salmon')
+        tools.require(args.engine)
+        if args.engine == 'minibwa':
+            tools.require('samtools')   # 真比对定量产 BAM 依赖 samtools
         if not args.reference:
             sys.exit("鉴定段需要 --reference")
         samples = collect_samples(args)
@@ -425,8 +435,14 @@ def main():
         if args.stage == 'filter':
             kept, dropped = fstage.run()
         else:
-            kept, dropped = fstage.apply(confirmed if confirmed is not None else
-                                         __import__('polars').DataFrame())
+            # 走到这里必然跑过识别段（stage 同为 'all'/DEFAULT_STAGE）。
+            # 此前退化成分支用空 DataFrame 兜底——真被触发时会写出一份
+            # "全部剔除"的 filter 结果冒充过滤结论；宁可直接失败。
+            if confirmed is None:
+                raise RuntimeError(
+                    'filter 段缺少识别段结果（confirmed 为空）：'
+                    '请先跑 identify，或使用 --stage filter 从磁盘结果表过滤')
+            kept, dropped = fstage.apply(confirmed)
         confirmed = kept
 
     # ── consensus / all ──

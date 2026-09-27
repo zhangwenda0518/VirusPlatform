@@ -13,6 +13,7 @@ from flask import (Blueprint, abort, jsonify, request,
 
 from Virus_Platform_Core.config import DIRS, PLATFORM_ROOT
 from Virus_Platform_Core.utils import (TaskLogger, check_path, safe_open)
+from Virus_Platform_Core.web.common import tree_overlay_for
 from Virus_Platform_Core.web.state import cfg
 from Virus_Platform_Core.web.tasks import tm
 
@@ -326,8 +327,8 @@ def api_gb_phylo():
     tree_tool = body.get('tree_tool') or 'fasttree'
     if not name:
         abort(400, '参数不完整（name 必填）')
-    if tree_tool not in ('fasttree', 'iqtree', 'nj'):
-        abort(400, 'tree_tool 仅支持 fasttree / iqtree / nj')
+    if tree_tool not in ('fasttree', 'raxml-ng', 'nj'):
+        abort(400, 'tree_tool 仅支持 fasttree / raxml-ng / nj')
 
     def job(log, prog, cancel):
         logger = TaskLogger(callback=log)
@@ -485,8 +486,10 @@ def api_msa_samples():
 
 _TREE_FILES = (('tree.nwk', 'FastTree'),
                ('nj.nwk', 'NJ 快速树（identity 距离）'),
-               ('iqtree.treefile', 'IQ-TREE ML 树'),
-               ('iqtree.contree', 'IQ-TREE 一致树'))
+               ('raxml.raxml.support', 'RAxML-NG ML 树（FBP 支持值）'),
+               ('raxml.raxml.bestTree', 'RAxML-NG ML 树（无支持值）'),
+               ('iqtree.treefile', 'IQ-TREE ML 树（旧产物）'),
+               ('iqtree.contree', 'IQ-TREE 一致树（旧产物）'))
 
 
 def _tree_files(gdir):
@@ -520,7 +523,7 @@ def api_tree_data():
             tree_file = p
             break
     if not tree_file:
-        abort(404, '该组没有树文件（tree.nwk / nj.nwk / iqtree.treefile / iqtree.contree）')
+        abort(404, '该组没有树文件（tree.nwk / nj.nwk / raxml.raxml.support）')
     with safe_open(tree_file) as f:
         nwk = f.read().strip()
     if not nwk:
@@ -538,10 +541,14 @@ def api_tree_data():
             base = os.path.basename(tree_file)
             if base == 'nj.nwk':
                 tool = 'NJ'
+            elif (base.startswith('raxml.')
+                    or g.get('tree_tool') == 'raxml-ng'
+                    or sj.get('tree_tool') == 'raxml-ng'):
+                tool = 'RAxML-NG'
             elif (base.endswith('.treefile') or base.endswith('.contree')
                     or g.get('tree_tool') == 'iqtree'
                     or sj.get('tree_tool') == 'iqtree'):
-                tool = 'IQ-TREE'
+                tool = 'IQ-TREE（旧产物）'
             else:
                 tool = 'FastTree'
             meta = {'tool': tool,
@@ -549,7 +556,9 @@ def api_tree_data():
                     'logl': g.get('tree_logl') or sj.get('logl')}
         except (OSError, ValueError):
             pass
-    return jsonify({'newick': nwk, 'file': os.path.basename(tree_file), **meta})
+    return jsonify({'newick': nwk, 'file': os.path.basename(tree_file),
+                    # 「进化树 + 基因组叠加」：同名 <stem>.overlay.json 有就带上
+                    'overlay': tree_overlay_for(tree_file), **meta})
 
 
 @bp.route('/api/msa/data')

@@ -368,12 +368,16 @@ def cdd_local(query_fa, out_dir, max_hits=MAX_HITS, evalue=CDD_EVALUE_MAX,
     if not CDD_DB:
         raise FileNotFoundError('缺少 mmseqs 格式 CDD 库（databases/annot/cdd/cdd_db）')
     out6 = os.path.join(out_dir, 'cdd_local.m8')
-    _run([mmseqs, 'easy-search', query_fa, CDD_DB, out6, out6 + '.tmp',
-          '--format-output',
-          'query,target,evalue,pident,qlen,qstart,qend,tstart,tend,theader',
-          '-e', str(evalue), '--max-seqs', str(max_hits), '-s', '4',
-          '--threads', str(threads or cfg.threads)],
-         env=_mmseqs_env(mmseqs), logger=logger)
+    # CDD prefilter 索引要一次性 ~5GB；小内存机器整库必死 → 统一走
+    # cdd_search.easy_search_cdd（整库失败自动 8 分片重试，结果等价）。
+    from .cdd_search import easy_search_cdd
+    easy_search_cdd(mmseqs, query_fa, CDD_DB, out6, out6 + '.tmp',
+                    format_output='query,target,evalue,pident,qlen,qstart,'
+                                  'qend,tstart,tend,theader',
+                    evalue=evalue, max_seqs=max_hits,
+                    extra=['-s', '4'],
+                    threads=threads or cfg.threads,
+                    env=_mmseqs_env(mmseqs), logger=logger)
     names = cdd_names()
     viral_ids = viral_cdd_ids()
     hits, qlen = [], 0

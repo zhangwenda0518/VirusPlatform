@@ -1,12 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
 # spec 位于 dev_tools/，平台根目录 = SPECPATH 的上级（由 dev_tools/package.py 调用）
 import os
+
 ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-datas = [(os.path.join(ROOT, 'webapp'), 'webapp'),
-         (os.path.join(ROOT, 'README.md'), '.')]
+def _tree(src, dest, exclude=('.mimosa', '__pycache__', '.git', '.github')):
+    """把目录展开成 datas 条目（逐文件），顺带跳过编辑器/AI 工具残留。
+
+    为什么不能直接写 `(目录, 目标)`：那样 PyInstaller 会**原样整棵拷贝**，
+    把 `webapp/templates/.mimosa`（编辑器 hook 缓存）这类残留一起打进分发版
+    （实测确实在包里）。`datas` 不支持 ignore 参数，只能自己走 os.walk。
+
+    目标路径统一用 `/` 分隔（PyInstaller 的 datas 目标用 posix 风格）。
+    """
+    import fnmatch
+    # *.bak_YYYYMMDD_* / *.bak 是开发期的手工备份（webapp 下有 20+ 个），
+    # 属于源码树但不该进分发版 —— 打进包只会白白增大体积、暴露内部迭代痕迹。
+    bak_patterns = ('*.bak', '*.bak_*')
+    out = []
+    for cur, dns, files in os.walk(src):
+        dns[:] = [d for d in dns if d not in exclude]
+        rel = os.path.relpath(cur, src)
+        tgt = dest if rel == '.' else dest + '/' + rel.replace(os.sep, '/')
+        for fn in files:
+            if fn in exclude:
+                continue
+            if any(fnmatch.fnmatch(fn, pat) for pat in bak_patterns):
+                continue
+            out.append((os.path.join(cur, fn), tgt))
+    return out
+
+
+datas = _tree(os.path.join(ROOT, 'webapp'), 'webapp')
+datas += [(os.path.join(ROOT, 'README.md'), '.')]
 datas += collect_data_files('plotly')
 datas += collect_data_files('pycirclize')
 datas += collect_data_files('gbdraw')
@@ -69,16 +97,41 @@ try:
 except Exception:
     pass
 
+# ViennaRNA 的 _RNA.pyd 用 MSVC C++ 运行库（导入表依赖 MSVCP140.dll），
+# 但平台其余扩展都只用 VCRUNTIME140 —— PyInstaller 的依赖分析因此没有把
+# MSVCP140.dll 收进 _internal（2026-09-18 实测：冻结版 import RNA 报
+# "Failed to load ViennaRNA RNAlib Python wrapper"，dsRNA 全链路失效）。
+# 源码模式不受影响（System32 里有）。这里从 System32 显式随包携带
+# （VC 运行库可随应用再分发，PyInstaller 对其它应用也是这么做的）。
+import os as _os
+import sys as _sys
+_binaries = []
+if _sys.platform == 'win32':
+    _windir = _os.environ.get('WINDIR', r'C:\Windows')
+    for _dll in ('msvcp140.dll', 'vcruntime140_1.dll'):
+        _p = _os.path.join(_windir, 'System32', _dll)
+        if _os.path.isfile(_p):
+            _binaries.append((_p, '.'))
+
+# primer3-py（T7 引物设计）**故意不进分发版**（2026-09-19 实测）：
+# 本机构建时装在 C:\ProgramData\VirusPlatformPrimer3（sys.path 注入），
+# 尝试整体收进冻结包后，import primer3.bindings 直接 0xC0000005 段错误
+# （p3helpers/thermoanalysis 两个 pyd 在冻结环境初始化即崩，原因未明）。
+# 处理：primer_design.py 已改为惰性导入 + 优雅降级（不可用时 T7/引物
+# 热力学功能提示 primer3 不可用，其余功能不受影响），分发版不携带
+# primer3 —— 待查清 pyd 冻结崩溃原因后再恢复随包。
+
 
 a = Analysis(
     [os.path.join(ROOT, 'app.py')],
     pathex=[],
-    binaries=[],
+    binaries=_binaries,
     datas=datas,
     hiddenimports=['Virus_Platform_Core.public_meta.search_engine',
                    'Virus_Platform_Core.public_meta.info_engine',
                    'Virus_Platform_Core.logan_submit', 'Virus_Platform_Core.lovis4u_run',
                    'Virus_Platform_Core.ncbi_submit.unified_metadata', 'Virus_Platform_Core.engine_entry',
+                   'Virus_Platform_Core.cdd_search',   # CDD 低内存分片回退（函数内惰性导入）
                    # 已知病毒引擎（2026-09-10 由顶层 engines/ 并入包内子包；
                    # 用相对导入后 PyInstaller 静态分析不到，须显式登记）
                    'Virus_Platform_Core.known_virus_suite.kv_common',
@@ -92,14 +145,23 @@ a = Analysis(
                    'Virus_Platform_Core.known_virus_suite.kv_variant_evo',
                    'Virus_Platform_Core.known_virus_suite.known_virus_suite',
                    'Virus_Platform_Core.kv_stage',
+                   # dsRNA 设计全链路（2026-09）：三模块均为函数内惰性 import，
+                   # PyInstaller 静态分析不到，须显式登记；RNA 为 viennarna 的
+                   # 编译扩展（dsRIP 效价打分的折叠能项）
+                   'Virus_Platform_Core.dsrna_scoring',
+                   'Virus_Platform_Core.dsrna_pipeline',
+                   'Virus_Platform_Core.dsrna_offtarget',
+                   'RNA',
                    'main',            # exe --cli <子命令> 用（打包后自检）
                    'gbdraw', 'Virus_Platform_Core.public_meta.landscape_plot', 'seaborn']
                    + collect_submodules('gbdraw')
                    + _pyro_impl
                    + _webview_hidden,
+
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    # 冻结分发：引导期预载 ViennaRNA（时机相关的 DllMain 冲突，见钩子内注释）
+    runtime_hooks=[os.path.join(ROOT, 'dev_tools', 'rna_early_import_hook.py')],
     # 体积治理：以下模块平台自身从不 import（2026-09-11 已逐项 grep 复核
     # Virus_Platform_Core/ + app.py + main.py，均 0 命中），只是被
     # pandas/plotly/gbdraw 的依赖链顺带拖进来。实测首版打包 2.05GB，
@@ -116,12 +178,31 @@ a = Analysis(
     #   polars 本体仅 8.1MB，但 polars/_plr.py 硬依赖 _polars_runtime_32
     #   （174MB 的 .pyd，就是它的核心运行时，无回退），两者必须同进同出，
     #   合计约 +183MB —— 这是该功能的必要成本。
+    #
+    # ⚠️ kaleido 已在 2026-09-16 移出 excludes：迁移 GIF 导出
+    #   （Virus_Platform_Core/phylogeo_gif.py）会**惰性 import** 它做逐帧出图，
+    #   排掉后打包版点「导出 GIF 动画」只会得到 ImportError。kaleido 本体几
+    #   百 KB，可忽略。它自身不随包带浏览器：kaleido 1.x 走 plotly 的
+    #   choreographer，优先用系统已装的 Chrome/Edge；都没有的那台机器上，
+    #   **首次**渲染会联网下载一份 Chromium（本机已下载到
+    #   %LOCALAPPDATA%\plotly\choreographer\deps\chrome-win64\）。离线机器
+    #   首次渲染失败时由 build_migration_gif 首帧给出人话提示。
     excludes=['pytest', '_pytest', 'IPython', 'jedi', 'parso', 'tkinter',
               '_tkinter', 'numba', 'llvmlite',
               'pyarrow', 'bokeh', 'botocore', 'boto3', 's3fs', 'sqlalchemy',
-              'sympy', 'duckdb', 'kaleido', 'reportlab', 'docutils', 'sphinx',
+              'sympy', 'duckdb', 'reportlab', 'docutils', 'sphinx',
               'matplotlib.tests', 'numpy.testing',
-              'pandas.tests', 'scipy.io.tests'],
+              'pandas.tests', 'scipy.io.tests',
+              # 开发/测试依赖（requirements-dev.txt）：真浏览器探针用，
+              # 平台本体从不 import。显式排除，防止本机装了之后被动入包。
+              'playwright',
+              # primer3 本体不入包（2026-09-20）：site-packages 里的副本位于
+              # 非 ASCII 路径，pyd 在冻结环境下构造 ThermoAnalysis 会段错误；
+              # app.py 启动时会把 primer3_pkg\primer3 镜像到
+              # %ALLUSERSPROFILE%\VirusPlatformPrimer3App 并插到 sys.path
+              # 最前（见 package.py 的 primer3_pkg 拷贝步骤）。
+              'primer3', 'primer3.bindings', 'primer3.argdefaults',
+              'primer3.p3helpers', 'primer3.thermoanalysis'],
     noarchive=False,
     optimize=0,
 )

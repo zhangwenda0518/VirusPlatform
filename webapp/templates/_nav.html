@@ -1,7 +1,26 @@
 {# 共享顶部导航：唯一来源，各页 {% include '_nav.html' %} 即可。
    一级导航 = 业务阶段（msg79 页面布局规范）。
-   数据资源/样本处理/病毒识别/病毒注释/比较基因组/溯源与提交 → /tools?g=<组id>，
-   由 tools 页 JS 高亮；其余按 request.path 服务端高亮。 #}
+   数据资源/样本处理/病毒识别/病毒注释/检测与防治/比较基因组/溯源与提交
+   → /tools?g=<组id>，由 tools 页 JS 高亮；其余按 request.path 服务端高亮。
+
+   2026-09-15：病毒浏览器（/explorer）迁出本站一级导航；
+   2026-09-27 彻底归档（archive/_retire_20260927/explorer/），路由已下线。
+
+   2026-09-16：本站移植了裁剪版系统地理能力（距离三分类 / MOTP / 权重分带 /
+   迁移 GIF，见 docs/主平台同步_裁剪移植_20260916.md），并恢复最小分组
+   「进化动力学分析」（3 张卡：RDP5 / 时间信号与定年 / 系统地理）。有组无入口
+   等于没有 —— 补回本处的一级导航项，否则卡片只能靠手敲 ?g=phylodyn。
+
+   2026-09-17：补回「比较基因组分析」一级导航项。09-15 把它和「进化动力学
+   分析」当成同一件事一起撤了，但两者是不同的业务对象：比较基因组 =
+   **不同病毒之间**的比较（跨科/属取参考序列 → 比对 → 建树 / SDT 同一性）；
+   进化动力学 = **同一个基因/序列集内部**的时间与地理信号。09-16 恢复
+   phylodyn 时占了原来 compare 的位置，这里改成两者并列。
+
+   2026-09-18：新增「检测与防治」一级导航项。引物设计 / dsRNA 设计原先挂在
+   「病毒注释分析」组下，但它们不是注释（注释 = 描述序列是什么），而是
+   面向下游实验的两条独立业务线：引物设计 → 检测（PCR/qPCR），
+   dsRNA 设计 → 防治（RNAi）。故并列成组，位置紧随注释之后。 #}
 <nav class="topnav">
   <span class="brand"><span class="leaf">🌿</span> 植物病毒分析平台</span>
   <span class="navlinks">
@@ -13,7 +32,9 @@
       ('/tools?g=kvsuite', 'nav.g.kvsuite', '病毒定量与共识', 'kvsuite'),
       ('/tools?g=virus', 'nav.g.virus', '病毒识别和分类分析', 'virus'),
       ('/tools?g=annotate', 'nav.g.annotate', '病毒注释分析', 'annotate'),
+      ('/tools?g=detect', 'nav.g.detect', '检测与防治', 'detect'),
       ('/tools?g=compare', 'nav.g.compare', '比较基因组分析', 'compare'),
+      ('/tools?g=phylodyn', 'nav.g.phylodyn', '进化动力学分析', 'phylodyn'),
       ('/tools?g=trace', 'nav.g.trace', '溯源与提交', 'trace'),
       ('/tasks', 'nav.tasks', '任务中心', ''),
       ('/results', 'nav.results', '结果中心', 'result'),

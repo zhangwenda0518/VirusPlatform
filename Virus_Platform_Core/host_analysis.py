@@ -650,9 +650,10 @@ def predict_hosts(sample_dir, info_tsv=None, prob_dir=None, threads=None,
     }
     with safe_open(summary_file, 'wt') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
-    mark_step_done(out_dir, step)
 
-    # 桑基图 / 旭日图（独立 HTML；报告里另嵌）
+    # 桑基图 / 旭日图（独立 HTML；报告里另嵌）：先生成再落断点标记——
+    # 原顺序先 mark_step_done 再画图，首跑画图失败会留下"完成但缺图"的
+    # 不可自愈状态（重跑直接跳过），且异常只打 {e} 无类型。
     try:
         from .viz import fig_host_sankey, fig_host_sunburst, _plotly_js_path
         _plotly_js_path(out_dir)
@@ -668,10 +669,21 @@ def predict_hosts(sample_dir, info_tsv=None, prob_dir=None, threads=None,
             sb.write_html(check_path(os.path.join(
                 out_dir, 'sunburst_host.html'), must_exist=False,
                 in_platform=True),
-                include_plotlyjs=False, full_html=True)
+                # 2026-09-18 修：原为 include_plotlyjs=False，于是这个 HTML
+                # **自带不带库**；单看内嵌报告没事（外层已加载 Plotly），
+                # 但被示例预览当独立 iframe 打开时必然 'Plotly is not defined'。
+                # 与上面桑基图统一口径：本地有就用本地，没有回退 CDN。
+                include_plotlyjs='plotly.min.js' if os.path.isfile(
+                    os.path.join(out_dir, 'plotly.min.js')) else 'cdn',
+                full_html=True)
     except Exception as e:
+        summary['figures_failed'] = f'{type(e).__name__}: {e}'
+        with safe_open(summary_file, 'wt') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
         if logger:
-            logger.log(f"宿主桑基/旭日图生成失败: {e}", "WARN")
+            logger.log(f"宿主桑基/旭日图生成失败 [{type(e).__name__}]: {e}",
+                       "WARN")
+    mark_step_done(out_dir, step)
 
     if logger:
         logger.log(f"宿主预测完成: {len(rows)} 条 contigs → "

@@ -57,7 +57,7 @@ def refresh_paths():
 DEFAULT_MIUVIG = {
     'source_uvig': 'metatranscriptome (not viral targeted)',
     'vir_ident_software': 'kun_peng;0.7.12;default parameters',
-    'assembly_software': 'SPAdes;4.3.0;metaviral',
+    'assembly_software': 'SPAdes;4.3.0;rnaviral',
     'assembly_qual': 'Genome fragment(s)',
     'detec_type': 'independent sequence (UViG)',
     'number_contig': '1',
@@ -504,7 +504,7 @@ def build_sqn(run_dir, *, seq_fasta=None, rows=None, author=None,
                     f.write(f'{k}\t{v}\n')
     asm_p = os.path.join(out_dir, 'assembly.tsv')
     if not (os.path.isfile(asm_p) and os.path.getsize(asm_p) > 0):
-        asm = [('Assembly Method', assembler or 'SPAdes;4.3.0;metaviral'),
+        asm = [('Assembly Method', assembler or 'SPAdes;4.3.0;rnaviral'),
                ('Sequencing Technology', sequencer or 'Illumina NovaSeq 6000')]
         with safe_open(asm_p, 'wt') as f:
             f.write('Assembly_parameter\tvalue\n')

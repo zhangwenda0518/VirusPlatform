@@ -4,6 +4,7 @@
 粘贴序列、拖拽上传、序列查看器、打开平台目录。"""
 import os
 import re
+import threading
 import time
 import uuid
 
@@ -176,7 +177,8 @@ def api_seqview():
 
 @bp.route('/api/open_platform_dir')
 def api_open_platform_dir():
-    os.startfile(check_path(PLATFORM_ROOT, must_exist=True, in_platform=True))
+    from Virus_Platform_Core.utils import open_in_explorer
+    open_in_explorer(check_path(PLATFORM_ROOT, must_exist=True, in_platform=True))
     return jsonify({'ok': True})
 
 
@@ -200,5 +202,40 @@ def api_open_dir():
         d = os.path.dirname(d)
         if not os.path.isdir(d):
             abort(400, '目录不存在')
-    os.startfile(d)
+    from Virus_Platform_Core.utils import open_in_explorer
+    open_in_explorer(d)
     return jsonify({'ok': True})
+
+
+# ── 拖拽代理（scripts/drag_proxy.py 悬浮窗）的路径接收 ──
+# 代理窗口收到资源管理器拖入的真实路径后 POST 到这里；页面轮询取走
+# 填入「最后点过的输入框」。内存态即可（本机 127.0.0.1，无持久化需求）。
+_drop_state = {'ts': 0.0, 'paths': []}
+_drop_lock = threading.Lock()
+
+
+@bp.route('/api/dropped_paths', methods=['POST'])
+def api_dropped_paths_post():
+    body = request.get_json(silent=True) or {}
+    paths = [str(x).strip() for x in (body.get('paths') or [])
+             if str(x).strip()]
+    if not paths:
+        abort(400, '缺少 paths')
+    with _drop_lock:
+        _drop_state['ts'] = time.time()
+        _drop_state['paths'] = paths
+    return jsonify({'ok': True, 'n': len(paths)})
+
+
+@bp.route('/api/dropped_paths/last')
+def api_dropped_paths_last():
+    try:
+        since = float(request.args.get('since') or 0)
+    except ValueError:
+        since = 0.0
+    with _drop_lock:
+        ts = _drop_state['ts']
+        paths = list(_drop_state['paths'])
+    if ts <= since:
+        return jsonify({'fresh': False, 'ts': ts})
+    return jsonify({'fresh': True, 'ts': ts, 'paths': paths})

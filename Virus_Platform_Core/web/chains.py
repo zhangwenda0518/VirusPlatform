@@ -7,19 +7,27 @@
 """
 import json
 import os
+import re
 import time
+from pathlib import Path
 
 from flask import abort
 
 from Virus_Platform_Core.config import PLATFORM_ROOT
 from Virus_Platform_Core.utils import (TaskLogger, check_path, safe_open)
-from Virus_Platform_Core.web.state import tool_runs_root as _tool_runs_root
+from Virus_Platform_Core.web.state import cfg, tool_runs_root as _tool_runs_root
 from Virus_Platform_Core.web.tool_jobs import (
     _tool_job_identify,
     _tool_job_assemble,
     _tool_job_contigs,
     _tool_job_verify,
     _tool_job_kvsuite,
+    _tool_job_convert,
+    _tool_job_fastp,
+    _tool_job_hostremoval,
+    _tool_job_orf,
+    _tool_job_orfa,
+    _tool_job_genoplot,
 )
 
 
@@ -146,7 +154,7 @@ def _tool_job_virchain(ctx):
 
     do_verify = ctx.p.get('do_verify')
     do_verify = True if do_verify is None else bool(do_verify)
-    asm_mode = (ctx.p.get('mode') or 'metaviral').strip()
+    asm_mode = (ctx.p.get('mode') or 'rnaviral').strip()
     mem = int(ctx.p.get('memory') or 64)
     min_len = int(ctx.p.get('min_len') or 200)
     conf = float(ctx.p.get('confidence') or 0)
@@ -321,6 +329,313 @@ def _tool_job_kvchain(ctx):
         return {'chain': chain_name, 'run': chain_name,
                 'n_steps': 1, 'steps': meta['steps'],
                 'kvsuite_run': run1,
+                'chain_json': os.path.join(chain_dir, '_chain.json')}
+    return job
+
+
+def _tool_job_prepchain(ctx):
+    """样本处理 · 一键前处理：转换 → 质控 → 转换(FASTA) → 宿主去除（输入自适应）。
+
+    .sra    ：① SRA→FASTQ → ② fastp 质控 → ③ FASTQ→FASTA → ④ 宿主去除
+    .fastq  ：① fastp 质控 → ② FASTQ→FASTA → ③ 宿主去除（跳过 SRA 解码）
+    FASTA   ：不接受——宿主去除要从 FASTQ 提取 kept reads，FASTA 直进会把
+              宿主 read 一起带到下游组装/鉴定。
+
+    自动降段（其余步骤照常，结果与 _chain.json 里注明原因）：
+      - 宿主库未就绪 → 跳过宿主去除（「数据库构建」页构建后可单独跑）；
+      - fastp 未安装 → 跳过质控（转换/宿主去除改用原始 FASTQ）。
+    转换出的 FASTA 作为宿主去除的分类加速输入（remove_host.classify_r1/r2，
+    与样品管道 ⓪b→① 同语义）；kept reads 仍从 FASTQ 提取，kept_*.fastq.gz
+    可直接喂 virchain（②→③→④）或样品管道。
+    """
+    root = _tool_runs_root()
+    inp = ctx.req('input', '输入文件（.sra 或 FASTQ）')
+    inp2 = ctx.opt('input2')
+    is_sra = str(inp).lower().endswith('.sra')
+    if is_sra:
+        if inp2:
+            abort(400, '.sra 输入不需要 R2（单/双端由 sracha 解码结果决定）')
+    elif not str(inp).lower().endswith(('.fastq', '.fq', '.fastq.gz', '.fq.gz')):
+        abort(400, '输入需为 .sra 或 FASTQ(.fastq/.fq[.gz])；'
+                   'FASTA 不能直接宿主去除（kept reads 必须从 FASTQ 提取）')
+    conf = float(ctx.p.get('confidence') or 0)
+    dedup = bool(ctx.p.get('dedup'))
+    db_host = ctx.opt('db') or cfg.databases['host']
+
+    def job(log, prog, cancel):
+        from Virus_Platform_Core.kunpeng import db_ready
+        from Virus_Platform_Core.preprocess import fastp_available
+        logger = TaskLogger(callback=log)
+        chain_dir = ctx.run_dir
+        chain_name = os.path.basename(chain_dir)
+        host_ok = bool(db_ready(db_host))
+        fastp_ok = bool(fastp_available())
+        meta = {'chain': 'prepchain', 'run': chain_name,
+                'label': '样本处理 一键前处理',
+                'input': inp, 'input2': inp2 or '', 'is_sra': is_sra,
+                'host_db_ready': host_ok, 'fastp_available': fastp_ok,
+                'created': time.strftime('%Y-%m-%d %H:%M:%S'), 'steps': []}
+        if not host_ok:
+            logger.log('宿主库未就绪 → 自动跳过宿主去除'
+                       '（「数据库构建」页构建宿主库后可单独运行）')
+        if not fastp_ok:
+            logger.log('fastp 未安装 → 自动跳过质控'
+                       '（可选步骤；后续转换/宿主去除改用原始 FASTQ）')
+
+        # 计划与进度权重（缺哪个环节就把它剔出计划，权重重新归一）
+        plan = []
+        if is_sra:
+            plan.append(('sra2fq', 'SRA→FASTQ 转换', 0.15))
+        if fastp_ok:
+            plan.append(('fastp', 'fastp 质控', 0.25))
+        plan.append(('fq2fa', 'FASTQ→FASTA 转换', 0.20))
+        if host_ok:
+            plan.append(('host', '宿主去除（kunpeng 分类）', 0.40))
+        tot = sum(w for _, _, w in plan) or 1.0
+        cur = 0.0
+
+        def _band(w):
+            nonlocal cur
+            lo, hi = cur, cur + w / tot
+            cur = hi
+            return lo, hi
+
+        fq1, fq2 = (inp, inp2) if not is_sra else (None, None)
+        kept, fasta = [], []
+
+        # ---- SRA→FASTQ（仅 .sra 输入）----
+        if is_sra:
+            lo, hi = _band(0.15)
+            run1, res1, _ = _chain_run_step(
+                chain_dir, root, 'sra2fq', 'SRA→FASTQ 转换',
+                _tool_job_convert, {'input': inp, 'target': 'fastq'},
+                ctx.threads, ctx.db_virus, logger, prog, lo, hi, cancel=cancel)
+            outs = [os.path.join(root, run1, f)
+                    for f in (res1 or {}).get('files') or []]
+            pair2 = [f for f in outs
+                     if re.search(r'_2\.(fastq|fq)\.gz$', os.path.basename(f),
+                                  re.I)]
+            rest = [f for f in outs if f not in pair2]
+            fq1 = rest[0] if rest else None
+            fq2 = pair2[0] if pair2 else None
+            if not fq1:
+                raise RuntimeError('SRA→FASTQ 未产出 FASTQ（见运行日志）')
+            meta['steps'].append({
+                'key': 'sra2fq', 'run': run1, 'title': 'SRA→FASTQ 转换',
+                'output': [os.path.basename(x) for x in outs],
+                'pe': bool(fq2)})
+            logger.log(f'sracha 解码为{"双端" if fq2 else "单端"} FASTQ')
+
+        # ---- fastp 质控（未安装则跳过，沿用原始 FASTQ）----
+        if fastp_ok:
+            lo, hi = _band(0.25)
+            p2 = {'r1': fq1, 'dedup': dedup}
+            if fq2:
+                p2['r2'] = fq2
+            run2, res2, _ = _chain_run_step(
+                chain_dir, root, 'fastp', 'fastp 质控', _tool_job_fastp, p2,
+                ctx.threads, ctx.db_virus, logger, prog, lo, hi,
+                cancel=cancel, optional=('r2',))
+            prep2 = os.path.join(root, run2, '00_prep')
+            qc1 = os.path.join(prep2, 'fastp_R1.fastq.gz')
+            qc2 = os.path.join(prep2, 'fastp_R2.fastq.gz') if fq2 else None
+            missing = [os.path.basename(x) for x in (qc1, qc2)
+                       if x and not os.path.isfile(x)]
+            if missing:
+                raise RuntimeError(f'质控未产出 {", ".join(missing)}')
+            fq1, fq2 = qc1, (qc2 if fq2 else None)
+            meta['steps'].append({
+                'key': 'fastp', 'run': run2, 'title': 'fastp 质控',
+                'summary': {k: v for k, v in (res2 or {}).items()
+                            if not isinstance(v, (list, dict))}})
+
+        # ---- FASTQ→FASTA（分类加速输入；双端逐端转换）----
+        lo, hi = _band(0.20)
+        mates = [('fq2fa', 'FASTQ→FASTA（R1）', fq1)]
+        if fq2:
+            mates.append(('fq2fa_r2', 'FASTQ→FASTA（R2）', fq2))
+        fa1 = fa2 = None
+        for j, (key, nm, src) in enumerate(mates):
+            seg_lo = lo + (hi - lo) * j / len(mates)
+            seg_hi = lo + (hi - lo) * (j + 1) / len(mates)
+            rr, rs, _ = _chain_run_step(
+                chain_dir, root, key, nm, _tool_job_convert,
+                {'input': src, 'target': 'fasta'},
+                ctx.threads, ctx.db_virus, logger, prog, seg_lo, seg_hi,
+                cancel=cancel)
+            rels = (rs or {}).get('files') or []
+            if not rels:
+                raise RuntimeError(f'{nm} 未产出 FASTA（见运行日志）')
+            f = os.path.join(root, rr, rels[0])
+            if key == 'fq2fa':
+                fa1 = f
+            else:
+                fa2 = f
+            fasta.append(f)
+            _chain_link(os.path.join(chain_dir, os.path.basename(f)), f,
+                        logger=logger, target_is_dir=False)
+            meta['steps'].append({'key': key, 'run': rr, 'title': nm,
+                                  'output': [os.path.basename(f)]})
+
+        # ---- 宿主去除（库未就绪则跳过）----
+        if host_ok:
+            lo, hi = _band(0.40)
+            p4 = {'r1': fq1, 'classify_r1': fa1, 'confidence': conf}
+            if fq2:
+                p4['r2'] = fq2
+            if fa2:
+                p4['classify_r2'] = fa2
+            if ctx.p.get('db'):
+                p4['db'] = ctx.p['db']
+            run4, res4, _ = _chain_run_step(
+                chain_dir, root, 'host', '宿主去除（kunpeng 分类）',
+                _tool_job_hostremoval, p4, ctx.threads, ctx.db_virus,
+                logger, prog, lo, hi, cancel=cancel,
+                optional=('r2', 'classify_r1', 'classify_r2', 'db'))
+            hr = os.path.join(root, run4, '01_host_removal')
+            if os.path.isdir(hr):
+                for fn in sorted(os.listdir(hr)):
+                    if fn.startswith('kept_') and fn.endswith('.fastq.gz'):
+                        _chain_link(os.path.join(chain_dir, fn),
+                                    os.path.join(hr, fn), logger=logger,
+                                    target_is_dir=False)
+                        kept.append(os.path.join(hr, fn))
+            meta['steps'].append({
+                'key': 'host', 'run': run4,
+                'title': '宿主去除（kunpeng 分类）',
+                'summary': {k: v for k, v in (res4 or {}).items()
+                            if not isinstance(v, (list, dict))}})
+        else:
+            meta['steps'].append({
+                'key': 'host', 'run': None, 'title': '宿主去除（kunpeng 分类）',
+                'skipped': '宿主库未就绪（「数据库构建」页构建后可单独运行）'})
+
+        prog('chain', 1.0, '一键前处理完成')
+        logger.close()
+        meta['done'] = True
+        _chain_write_manifest(chain_dir, meta)
+        out = {'chain': chain_name, 'run': chain_name,
+               'n_steps': len(meta['steps']), 'steps': meta['steps'],
+               'kept_fastq': kept, 'fasta': fasta,
+               'chain_json': os.path.join(chain_dir, '_chain.json')}
+        if not host_ok:
+            out['note'] = '宿主库未就绪，宿主去除已跳过'
+        if not fastp_ok:
+            out['note'] = (out.get('note', '') +
+                           ('；' if out.get('note') else '') +
+                           'fastp 未安装，质控已跳过').strip()
+        return out
+    return job
+
+
+def _tool_job_annochain(ctx):
+    """病毒注释分析 · 一键：注释三连 ① ORF 预测 → ② 功能注释 → ③ 基因组图谱。
+
+    输入 FASTA（核酸 contigs / 基因组）。三步各建 run_dir：
+      ① 步骤键固定为 'orf'（run 名 orf_*，布局 03_assembly + 04_orf）——
+        ② 复用 _tool_job_orfa 的 run 模式直接对该运行注释（04b_orf_annot
+        落在 ① 的运行目录，与样品管道 / 独立注释同一套产物口径），
+        ③ 从中取 GFF3 给 gbdraw 画带注释的图谱。
+    提交衔接：① 的运行自带 03_assembly + 04_orf + 04b 布局，跑完即出现在
+    「数据提交」页「关联注释」下拉里；项目关联后 FASTA 推断 / featuretable
+    / 提交包全部走既有机制，无需额外对接。
+    """
+    root = _tool_runs_root()
+    fasta = ctx.req('fasta', '输入 FASTA（核酸 contigs / 基因组）')
+    min_aa = max(1, min(int(ctx.p.get('min_aa') or 100), 5000))
+
+    def job(log, prog, cancel):
+        logger = TaskLogger(callback=log)
+        chain_dir = ctx.run_dir
+        chain_name = os.path.basename(chain_dir)
+        meta = {'chain': 'annochain', 'run': chain_name,
+                'label': '病毒注释分析 注释三连',
+                'created': time.strftime('%Y-%m-%d %H:%M:%S'), 'steps': []}
+        cur = 0.0
+
+        def _band(w):
+            nonlocal cur
+            lo, hi = cur, cur + w
+            cur = hi
+            return lo, hi
+
+        # ---- ① ORF 预测（键名固定 'orf'：run 名 orf_*，② 依赖该命名）----
+        lo, hi = _band(0.30)
+        run1, res1, _ = _chain_run_step(
+            chain_dir, root, 'orf', '① ORF 预测', _tool_job_orf,
+            {'fasta': fasta, 'min_aa': min_aa, 'annotate': False},
+            ctx.threads, ctx.db_virus, logger, prog, lo, hi, cancel=cancel)
+        n_ctg = len((res1 or {}).get('viral_contigs') or
+                    (res1 or {}).get('contigs') or []) or None
+        meta['steps'].append({
+            'key': 'orf', 'run': run1, 'title': '① ORF 预测',
+            'summary': {k: v for k, v in (res1 or {}).items()
+                        if not isinstance(v, (list, dict))}})
+        logger.log(f'① ORF 预测完成: run={run1}'
+                   + (f'（{n_ctg} 条 contigs）' if n_ctg else ''))
+
+        # ---- ② ORF 功能注释（复用 orfa 的 run 模式，产物写回 ① 运行目录）----
+        lo, hi = _band(0.45)
+        run2, res2, _ = _chain_run_step(
+            chain_dir, root, 'orfa', '② ORF 功能注释', _tool_job_orfa,
+            {'run': run1},
+            ctx.threads, ctx.db_virus, logger, prog, lo, hi, cancel=cancel)
+        ann_tsv = os.path.join(root, run1, '04b_orf_annot',
+                               'orf_annotation.tsv')
+        ann_linked = None
+        if os.path.isfile(ann_tsv):
+            ann_linked = os.path.basename(ann_tsv)
+            _chain_link(os.path.join(chain_dir, ann_linked), ann_tsv,
+                        logger=logger, target_is_dir=False)
+        meta['steps'].append({
+            'key': 'orfa', 'run': run2, 'title': '② ORF 功能注释',
+            'target_run': run1,
+            'output': [ann_linked] if ann_linked else [],
+            'summary': {k: v for k, v in (res2 or {}).items()
+                        if not isinstance(v, (list, dict))}})
+
+        # ---- ③ 基因组图谱（FASTA + ①/② 的 GFF3）----
+        gff = None
+        d1 = os.path.join(root, run1)
+        for pat in ('04b_orf_annot/*.gff3', '04b_orf_annot/*.gff',
+                    '04_orf/*.gff'):
+            hits = sorted(Path(d1).glob(pat))
+            if hits:
+                gff = str(hits[0])
+                break
+        lo, hi = _band(0.25)
+        p3 = {'fasta': fasta, 'max_plots': 12, 'mode': 'both'}
+        if gff:
+            p3['ann'] = gff
+            logger.log(f'③ 图谱注释来源: {os.path.basename(gff)}')
+        run3, res3, _ = _chain_run_step(
+            chain_dir, root, 'genoplot', '③ 基因组图谱', _tool_job_genoplot,
+            p3, ctx.threads, ctx.db_virus, logger, prog, lo, hi,
+            cancel=cancel, optional=('ann',))
+        plots = []
+        for pth in (res3 or {}).get('plots') or []:
+            pth = str(pth)
+            if os.path.isfile(pth):
+                _chain_link(os.path.join(chain_dir, os.path.basename(pth)),
+                            pth, logger=logger, target_is_dir=False)
+                plots.append(os.path.basename(pth))
+        meta['steps'].append({
+            'key': 'genoplot', 'run': run3, 'title': '③ 基因组图谱',
+            'output': plots,
+            'summary': {k: v for k, v in (res3 or {}).items()
+                        if not isinstance(v, (list, dict))}})
+
+        prog('chain', 1.0, '注释三连完成')
+        logger.close()
+        meta['done'] = True
+        _chain_write_manifest(chain_dir, meta)
+        return {'chain': chain_name, 'run': chain_name,
+                'n_steps': len(meta['steps']), 'steps': meta['steps'],
+                'orf_run': run1,
+                'annotation_tsv': ann_tsv if os.path.isfile(ann_tsv) else None,
+                'plots': plots,
+                'submit_hint': f'「数据提交」页建/打开项目后，'
+                               f'「关联注释」选择 {run1} 即可对接 featuretable',
                 'chain_json': os.path.join(chain_dir, '_chain.json')}
     return job
 

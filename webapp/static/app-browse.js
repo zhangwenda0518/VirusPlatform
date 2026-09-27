@@ -8,10 +8,15 @@
 let browseTarget = null;
 let browseMode = 'file';   // 'file' 选数据文件 | 'dir' 选目录
 let browseCwd = '.';
+// 目录选择回调（无输入框可回填的场景：下拉「✍ 自选目录」等）。
+// pickDir() 确认时若非空则把所选目录交给回调；browse()/browseDir() 会清掉它，
+// 避免上一次未消费的回调串场。
+let browseDirCb = null;
 
 function browse(inputId) {
   browseMode = 'file';
   browseTarget = inputId;
+  browseDirCb = null;
   $('dlgMask').style.display = 'flex';
   const dp = $('dlgPath');
   if (dp) wirePathInput(dp);              // 路径栏：粘贴清洗 + 跳转历史
@@ -24,6 +29,7 @@ function browse(inputId) {
 function browseDir(inputId) {
   browseMode = 'dir';
   browseTarget = inputId;
+  browseDirCb = null;
   $('dlgMask').style.display = 'flex';
   const dp = $('dlgPath');
   if (dp) wirePathInput(dp);              // 路径栏：粘贴清洗 + 跳转历史
@@ -33,8 +39,31 @@ function browseDir(inputId) {
   loadBrowse(last || '.');
 }
 
+/* 打开「选目录」对话框，确认后把所选目录交给 cb（不回填任何输入框）。
+   供下拉框「自选目录…」项使用：选中后把目录作为动态选项插回下拉。 */
+function pickDirWith(cb) {
+  if (typeof cb !== 'function') return;
+  browseMode = 'dir';
+  browseTarget = null;
+  browseDirCb = cb;
+  $('dlgMask').style.display = 'flex';
+  const dp = $('dlgPath');
+  if (dp) wirePathInput(dp);
+  const ttl = $('dlgTitle');
+  if (ttl) ttl.textContent = t('c.chooseDir', '选择目录');
+  const last = localStorage.getItem('vp_browse_cwd');
+  loadBrowse(last || '.');
+}
+
 function pickDir() {
   if (browseCwd === '此电脑') { alert('请先进入某个目录'); return; }
+  if (browseDirCb) {
+    const cb = browseDirCb;
+    browseDirCb = null;
+    closeDlg();
+    cb(browseCwd);
+    return;
+  }
   if (browseTarget && $(browseTarget)) {
     $(browseTarget).value = browseCwd;
     pushPathHist(browseTarget, browseCwd);

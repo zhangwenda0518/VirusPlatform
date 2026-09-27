@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 阶段③ 组装与 contig 分类：
-- SPAdes 组装去宿主 reads（--metaviral 默认，可选 --meta / --rna / --isolate）
+- SPAdes 组装去宿主 reads（--rnaviral 默认，可选 --metaviral / --meta / --rna /
+  --isolate / srna）
+- srna（小RNA/siRNA）模式：--only-assembler + 奇数 k 序列 + 单端 -s
+  （对齐 VirusDetect 的 sRNA 组装策略）；reads 最长 <32bp 时其他模式自动切换
 - contig 长度过滤
 - kunpeng 病毒库分类 contigs
 - 汇总病毒 contig 表
@@ -179,6 +182,73 @@ def ensure_virus_blast_db(logger=None):
                              ref, 'virus_ref', logger=logger, v4=False,
                              tag='病毒参考(virus)·临时')
 
+# srna 模式的奇数 k 序列（VirusDetect 同款默认 9-23）。组装时按嗅探到的
+# reads 最大长度截断（k 必须 < 最大读长，SPAdes 对 k ≥ 读长直接报错）。
+SRNA_KMERS = (9, 11, 13, 15, 17, 19, 21, 23)
+
+def _sniff_max_read_len(path, max_records=4000, logger=None):
+    """嗅探 reads 头部若干条的最大长度；无法判断（空文件/读失败）返回 None。
+
+    支持 FASTQ（含 .gz）与 FASTA（含 .gz）：自动 srna 切换与 k 截断都用它
+    当参考值，不追求全量精确——超短 reads（小RNA）长度集中且均匀，头部
+    采样足够判断。FASTA 场景真实存在：输入可直接是 FASTA（见
+    `_seq_file_kind`），≤32bp 的 FASTA reads 同样需要自动切 srna。
+
+    读失败（截断 gz 的 EOFError、权限/占用等 OSError）或格式不可识别也
+    返回 None，但都会留 WARN：返回 None 意味着"无法判断是否超短 reads"，
+    静默吞掉会让 sRNA 数据走错模式（平台日志铁律：跳过必须带类型和原因）。
+    """
+    try:
+        with open(path, 'rb') as probe:
+            gz = probe.read(2) == b'\x1f\x8b'
+        if gz:
+            import gzip
+            fh = gzip.open(path, 'rt', encoding='utf-8', errors='replace')
+        else:
+            fh = open(path, 'r', encoding='utf-8', errors='replace')
+        with fh:
+            first = ''
+            for ln in fh:
+                s = ln.strip()
+                if s:
+                    first = s
+                    break
+            if first.startswith('>'):
+                # FASTA：累计每条记录长度（兼容多行折行），只取头部 N 条
+                m, cur, n = 0, 0, 0
+                for ln in fh:
+                    s = ln.strip()
+                    if s.startswith('>'):
+                        m = max(m, cur)
+                        cur = 0
+                        n += 1
+                        if n >= max_records:
+                            break
+                    else:
+                        cur += len(s)
+                else:
+                    m = max(m, cur)
+                return m or None
+            if not first.startswith('@'):
+                if logger:
+                    logger.log(f"读长嗅探：{os.path.basename(str(path))} 既非 "
+                               f"FASTQ 也非 FASTA（首行 {first[:20]!r}），"
+                               f"无法判断是否超短 reads", 'WARN')
+                return None
+            maxlen = 0
+            for i, ln in enumerate(fh):
+                if i >= max_records * 4:
+                    break
+                if i % 4 == 0:                  # 首行'@'已消费，第2/6/10…行为序列
+                    maxlen = max(maxlen, len(ln.strip()))
+            return maxlen or None
+    except (OSError, EOFError) as e:
+        if logger:
+            logger.log(f"读长嗅探失败（{type(e).__name__}: {e}），"
+                       f"无法判断是否超短 reads，"
+                       f"{os.path.basename(str(path))} 将按常规模式处理", 'WARN')
+        return None
+
 def _is_ascii(p):
     return all(ord(c) < 128 for c in str(p))
 
@@ -276,24 +346,52 @@ def _spades_tmp_base():
     drv = (os.environ.get('SYSTEMDRIVE') or 'C:').rstrip('\\') or 'C:'
     return os.path.join(drv + os.sep, 'vp_spades_tmp')
 
+# SPAdes 各版本的 k 阶段行格式（实测 SPAdes 3.15 的 spades.log 为第一、
+# 三种；旧版/摘要行为第二、三种）：
+#   Assembling dataset ("dataset.info") with K=49
+#   Assembling K=21
+#   ===== K9 started. =====
+# 旧实现只认第二种 → 主格式下 seen 永远为空，进度条卡在 5%（实测日志验证）。
+_K_PROGRESS_RE = re.compile(
+    r'with\s+K=(\d+)|Assembling\s+(?:k\s*=\s*)?(\d+)|K(\d+)\s+started',
+    re.IGNORECASE)
+
+
 def _spades_monitor(spades_dir, mode, progress):
-    """SPAdes 看门狗：解析 spades.log 的 Assembling k=xx 行数估算进度。
+    """SPAdes 看门狗：解析 spades.log 的 k 阶段行数估算进度。
 
     返回 monitor_fn（传给 run_cmd）；progress 为 None 时返回 None。
     """
     if progress is None:
         return None
-    k_total = {'metaviral': 4, 'meta': 5, 'rna': 3, 'isolate': 4}.get(mode, 4)
+    k_total = {'rnaviral': 3, 'rna': 3, 'metaviral': 4, 'isolate': 4,
+               'meta': 5, 'srna': len(SRNA_KMERS)}.get(mode, 4)
     log_p = os.path.join(spades_dir, 'spades.log')
     seen = set()
+    # 增量读：只解析新写入的字节。日志里 k 行出现在每个 k 阶段的开头，
+    # 只读尾部 8KB 会整段错过（实测 110KB 日志的 K= 行都在前 380 行）。
+    state = {'pos': 0, 'tail': ''}
 
     def _watch():
         try:
-            with open(log_p, 'r', encoding='utf-8', errors='replace') as f:
-                tail = f.read()[-8000:]
-            for m in re.finditer(r'Assembling\s+(?:k\s*=\s*)?(\d+)', tail):
-                seen.add(m.group(1))
-            k_done = len(seen)
+            if not os.path.isfile(log_p):
+                return
+            with open(log_p, 'rb') as f:
+                if os.path.getsize(log_p) < state['pos']:
+                    state['pos'] = 0        # 日志被清空重写（重试组装）
+                f.seek(state['pos'])
+                chunk = f.read()
+                state['pos'] = f.tell()
+            if not chunk:
+                return
+            text = state['tail'] + chunk.decode('utf-8', errors='replace')
+            cut = text.rfind('\n') + 1
+            state['tail'] = text[cut:]      # 末行可能写了一半，留待下次拼接
+            for m in _K_PROGRESS_RE.finditer(text[:cut]):
+                k = next((g for g in m.groups() if g), None)
+                if k:
+                    seen.add(k)
+            k_done = min(len(seen), k_total)
             if k_done:
                 progress(min(0.05 + k_done / k_total * 0.85, 0.92),
                          f'SPAdes 组装中：k 阶段 {k_done}/{k_total}')
@@ -301,39 +399,88 @@ def _spades_monitor(spades_dir, mode, progress):
             pass
     return _watch
 
-def run_spades(r1, r2, out_dir, mode='metaviral', threads=None, memory_gb=64,
-               logger=None, progress=None):
+def run_spades(r1, r2, out_dir, mode='rnaviral', threads=None, memory_gb=64,
+               logger=None, progress=None, info=None, extra_se=None):
     """运行 SPAdes。返回 contigs fasta 路径（rna 模式为 transcripts.fasta）。
 
-    metaviral/meta 模式未拼出 contigs 时（低深度样品常见——metaviralSPAdes
-    的"染色体外元件"筛选门槛较严），自动清空输出并用 rna 模式重试一次。
+    info：可选 dict，回填实际执行情况（requested_mode / mode / auto_srna /
+    dropped_r2 / fallback_rna）——自动切换模式、丢弃 R2 这类会显著影响
+    结果解释的行为必须进 summary.json，不能只留在日志里。
+
+    srna（小RNA）模式：--only-assembler + 奇数 k 序列 + 单端 -s（R2 忽略），
+    超出读长的 k 由 SPAdes 自动裁剪，故 k 序列全量直传。常规模式遇超短
+    reads（最长 <32bp，小RNA/miRNA 建库的典型特征）自动切换 srna——这些
+    reads 进不了默认 k=21+ 的图，实测 SPAdes 自动降 k 后还会在 rna 模式
+    配置下崩溃。
+
+    rnaviral/metaviral/meta 模式未拼出 contigs 时（低深度样品常见——病毒模式
+    的"染色体外元件"筛选门槛较严），自动清空输出并用 rna 模式重试一次；
+    srna 模式本身已是最后手段，失败不再重试。
     平台路径含中文时自动经纯 ASCII 临时目录中转（输入复制过去、结果拷回）。
     """
+    max_read_len = None
+    for _p in (r1, r2):
+        if _p:
+            _n = _sniff_max_read_len(_p, logger=logger)
+            if _n and (max_read_len is None or _n > max_read_len):
+                max_read_len = _n
+    if info is not None:
+        info['requested_mode'] = mode
+        info['max_read_len_sampled'] = max_read_len
+    auto_srna = False
+    if max_read_len and max_read_len < 32 and mode != 'srna':
+        auto_srna = True
+        mode = 'srna'
+        if info is not None:
+            info['auto_srna'] = True
+        if logger:
+            logger.log(f"检测到超短 reads（头部采样最长 {max_read_len}bp，"
+                       f"疑似小RNA/siRNA 数据），自动改用 srna 模式"
+                       f"（--only-assembler + 奇数 k 序列 + 单端组装）", "WARN")
     try:
         return _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb,
-                                logger, progress)
+                                logger, progress, max_read_len=max_read_len,
+                                info=info, extra_se=extra_se)
     except RuntimeError as e:
-        if mode in ('metaviral', 'meta') and '未找到 contigs' in str(e):
+        if (not auto_srna and mode in ('rnaviral', 'metaviral', 'meta')
+                and '未找到 contigs' in str(e)):
             if logger:
                 logger.log(f"{mode} 模式未拼出 contigs（该模式对低深度病毒样品"
-                           f"筛选较严），自动改用 rna 模式重试组装 ...")
+                           f"筛选较严），自动改用 rna 模式重试组装 ...", "WARN")
+            if info is not None:
+                info['fallback_rna'] = True
             spades_dir = check_path(os.path.join(out_dir, 'spades'),
                                     must_exist=False, in_platform=True)
             shutil.rmtree(spades_dir, ignore_errors=True)
             return _run_spades_once(r1, r2, out_dir, 'rna', threads,
-                                    memory_gb, logger, progress)
+                                    memory_gb, logger, progress,
+                                    max_read_len=max_read_len, info=info,
+                                    extra_se=extra_se)
         raise
 
 def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
-                     progress=None):
+                     progress=None, max_read_len=None, info=None,
+                     extra_se=None):
     import uuid
     cfg = get_config()
     spades = cfg.tool('spades')
     threads = threads or cfg.threads
+    if mode == 'srna' and r2:
+        if logger:
+            logger.log("srna 模式按单端 -s 组装（VirusDetect 同款策略），忽略 R2",
+                       "WARN")
+        r2 = None
+        if info is not None:
+            info['dropped_r2'] = True
+    if info is not None:
+        info['mode'] = mode
     spades_dir = check_path(os.path.join(out_dir, 'spades'),
                             must_exist=False, in_platform=True)
     os.makedirs(spades_dir, exist_ok=True)
 
+    if extra_se and not (os.path.isfile(extra_se)
+                         and os.path.getsize(extra_se) > 0):
+        extra_se = None
     use_shim = not (_is_ascii(spades_dir) and _is_ascii(r1)
                     and (not r2 or _is_ascii(r2)))
     spades_in1, spades_in2, spades_out = r1, r2, spades_dir
@@ -354,6 +501,10 @@ def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
         if r2:
             spades_in2 = os.path.join(shim_dir, _shim_name(r2, 'R2'))
             shutil.copyfile(check_path(r2, must_exist=True), spades_in2)
+        if extra_se:
+            spades_inse = os.path.join(shim_dir, _shim_name(extra_se, 'SE'))
+            shutil.copyfile(check_path(extra_se, must_exist=True), spades_inse)
+            extra_se = spades_inse
 
     # FASTA reads 无质量值：SPAdes 默认纠错只认 FASTQ，会直接报错
     # （"to run read error correction, reads should be in FASTQ format"）。
@@ -374,6 +525,11 @@ def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
             in_args = ['-1', spades_in1, '-2', spades_in2]
         else:
             in_args = ['-s', spades_in1]          # 单端数据
+        if extra_se:
+            # ②b 抽取的孤儿单端 reads（只有一条 mate 比中病毒）：
+            # SPAdes 支持重复 -s（各自成为独立单端库）
+            in_args += ['-s', extra_se]
+        if spades_in2 is None:
             if mode in ('metaviral', 'meta'):
                 # SPAdes meta/metaviral 实际不使用单端 reads
                 # （警告 "Single reads are not used in metagenomic mode"），
@@ -382,15 +538,65 @@ def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
                     logger.log(f"单端数据：{mode} 模式不支持单端 reads，"
                                f"自动改用 rna 模式")
                 mode = 'rna'
-        cmd = [spades, '--' + mode, '-t', str(threads), '-m', str(int(memory_gb)),
-               '-o', spades_out] + in_args
-        if only_assembler:
-            cmd.append('--only-assembler')
-        if logger:
-            logger.log(f"SPAdes 组装 (mode={mode}, threads={threads}, mem={memory_gb}GB"
-                       + ("，FASTA 输入，仅组装不纠错" if only_assembler else ")"))
-        mon = _spades_monitor(spades_out, mode, progress)
-        run_cmd(cmd, logger=logger, monitor_fn=mon, monitor_interval=15)
+        if mode == 'srna':
+            # 不按嗅探长度截 k：头部采样会低估（sRNA fastq 常按长度排序），
+            # 而 SPAdes 对超出读长的 k 会自动裁剪（"K-mer sizes were set to
+            # [19] because estimated read length (21) is less than 23"），
+            # 全序列直传既安全又不丢高 k 阶段。
+            if max_read_len and max_read_len <= SRNA_KMERS[0]:
+                raise RuntimeError(
+                    f"reads 过短（最长 {max_read_len}bp），srna 模式无法组装"
+                    f"（最小 k={SRNA_KMERS[0]}，要求 k < 读长）")
+
+        # 组装尝试序列：k-mer 覆盖模型（kmer_coverage_model）对偏斜数据/小子集
+        # 可能报 "Invalid kmer coverage histogram"（退出码 64）——所有模式都
+        # 按阶梯降级重试：srna 逐次去掉最高两个 k；rnaviral/rna 退到显式
+        # -k 21,33 → 21；metaviral/meta/isolate 同理退到默认短梯。
+        if mode == 'srna':
+            ladder = list(SRNA_KMERS)
+            attempt_extras = []
+            while len(ladder) >= 3:
+                attempt_extras.append(
+                    ['--only-assembler', '-k', ','.join(str(k) for k in ladder)])
+                ladder = ladder[:-2]
+        else:
+            base = ['--' + mode]
+            if only_assembler:
+                base.append('--only-assembler')
+            attempt_extras = [list(base)]
+            if mode in ('rnaviral', 'rna', 'metaviral', 'meta', 'isolate'):
+                attempt_extras.append(base + ['-k', '21,33'])
+                attempt_extras.append(base + ['-k', '21'])
+
+        last_err = None
+        for extra in attempt_extras:
+            k_str = next((extra[i + 1] for i, x in enumerate(extra)
+                          if x == '-k'), '默认')
+            if info is not None and '-k' in extra:
+                info['k'] = k_str
+            cmd = ([spades] + extra + ['-t', str(threads), '-m', str(int(memory_gb)),
+                                       '-o', spades_out] + in_args)
+            if logger:
+                extra_desc = f"k={k_str}" if '-k' in extra else "默认 k 阶梯"
+                only_desc = "，仅组装不纠错" if (
+                    '--only-assembler' in extra or only_assembler and mode == 'srna') else ""
+                se_desc = "，单端 -s" if mode == 'srna' else ""
+                logger.log(f"SPAdes 组装 (mode={mode}, {extra_desc}{se_desc}, "
+                           f"threads={threads}, mem={memory_gb}GB{only_desc})")
+            mon = _spades_monitor(spades_out, mode, progress)
+            try:
+                run_cmd(cmd, logger=logger, monitor_fn=mon, monitor_interval=15)
+                last_err = None
+                break
+            except RuntimeError as e:
+                last_err = e
+                if '(退出码 64)' not in str(e) or extra is attempt_extras[-1]:
+                    raise
+                if logger:
+                    logger.log("k-mer 覆盖模型失败（退出码 64），"
+                               "降级 k 阶梯重试", "WARN")
+                shutil.rmtree(spades_out, ignore_errors=True)
+                os.makedirs(spades_out, exist_ok=True)
 
         result_dir = spades_out
         if use_shim:
@@ -411,8 +617,8 @@ def _run_spades_once(r1, r2, out_dir, mode, threads, memory_gb, logger,
                 logger.log(f"SPAdes 产物拷回 {moved} 个文件 -> {spades_dir}")
             result_dir = spades_dir
 
-        # 产物名随 SPAdes 版本/模式而异：常规与 metaviral/meta 出 contigs.fasta，
-        # 旧版 rnaSPAdes 出 transcripts.fasta，新版只出
+        # 产物名随 SPAdes 版本/模式而异：常规/rnaviral/metaviral/meta 出
+        # contigs.fasta，旧版 rnaSPAdes 出 transcripts.fasta，新版只出
         # hard_filtered_transcripts.fasta（主结果）/ soft_filtered_transcripts.fasta。
         candidates = ['contigs.fasta', 'transcripts.fasta',
                       'hard_filtered_transcripts.fasta',
@@ -440,7 +646,7 @@ def filter_contigs(contigs_fasta, out_fasta, min_len=200, logger=None):
         logger.log(f"contig 过滤(≥{min_len}bp): 保留 {n} 条, 总长 {total_bp:,}bp")
     return out_fasta, n, total_bp
 
-def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
+def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='rnaviral',
                           threads=None, memory_gb=64, min_contig_len=200,
                           logger=None, force=False, chunk_dir=None,
                           progress=None):
@@ -471,12 +677,13 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
             if os.path.isfile(_p) and os.path.getsize(_p) > 0:
                 contigs_raw = _p
                 break
+    sp_info = {}
     if contigs_raw is None:
         contigs_raw = run_spades(r1, r2, out_dir, mode=mode, threads=threads,
                                  memory_gb=memory_gb, logger=logger,
                                  progress=(lambda p, m: progress(
                                      p * 0.55, f'③ SPAdes：{m}'))
-                                 if progress else None)
+                                 if progress else None, info=sp_info)
     else:
         if logger:
             logger.log("复用已有 SPAdes 组装结果（跳过组装）")
@@ -488,7 +695,17 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
     contigs_fa, n_contigs, total_bp = filter_contigs(
         contigs_raw, contigs_fa, min_len=min_contig_len, logger=logger)
     if n_contigs == 0:
-        raise RuntimeError("组装后无 ≥最小长度 的 contigs，无法继续")
+        n_raw = count_fasta_seqs(contigs_raw)
+        _hint = (f"SPAdes 产物 {os.path.basename(str(contigs_raw))} 共 {n_raw} "
+                 f"条序列，无一条达到长度阈值 {min_contig_len}bp")
+        _ml = _sniff_max_read_len(r1, logger=logger) if r1 else None
+        if _ml and _ml < 32:
+            _hint += (f"；输入 reads 超短（最长 {_ml}bp，小RNA/siRNA 数据），"
+                      f"建议把「最小 contig 长度」调到 ≤100bp 并确认已自动"
+                      f"切换 srna 模式")
+        elif n_raw:
+            _hint += "，建议调低「最小 contig 长度」或检查数据质量/深度"
+        raise RuntimeError(f"组装后无满足长度要求的 contigs，无法继续（{_hint}）")
 
     # 3. kunpeng 分类 contigs
     if logger:
@@ -578,6 +795,9 @@ def assemble_and_classify(sample_dir, r1, r2, db_virus, mode='metaviral',
     summary = {
         'stage': step,
         'assembly_mode': mode,
+        # 实际执行的 SPAdes 情况：requested_mode/mode/auto_srna/dropped_r2/
+        # fallback_rna/max_read_len_sampled（含自动降级时 mode 与请求不同）
+        'spades': (sp_info or None),
         'raw_contigs': count_fasta_seqs(contigs_raw),
         'contigs': n_contigs, 'total_bp': total_bp,
         'contigs_fasta': 'contigs.filtered.fasta',

@@ -1,0 +1,48 @@
+{
+ "tool": "rdp",
+ "engine": "rdp5",
+ "n_seqs": 5,
+ "aln_len": 1200,
+ "variable": 158,
+ "n_events": 1,
+ "events": [
+  {
+   "recombinant": "Sim_Gansu_REC|Gansu|2022",
+   "major": "Sim_Beijing_1|Beijing|2023",
+   "minor": "Sim_Ningxia_1|Ningxia|2019",
+   "start": 1171,
+   "end": 542,
+   "methods": [
+    "3Seq",
+    "SiScan",
+    "Maxchi",
+    "Chimaera",
+    "Bootscan",
+    "GENECONV"
+   ],
+   "n_methods": 6,
+   "pvalue": 1.60345557179822e-25,
+   "support": null
+  }
+ ],
+ "csv": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rdp_20260921_042147_478491\\rdp\\rdp5.csv",
+ "qc": {
+  "n_in": 5,
+  "n_keep": 5,
+  "n_removed": 0,
+  "reasons": {},
+  "ref_id": "Sim_Gansu_REC|Gansu|2022",
+  "ref_len": 1200,
+  "thresholds": {
+   "min_length": 0.9,
+   "max_gap": 0.1,
+   "max_n": 0.05,
+   "max_identity_drop": 0.02
+  },
+  "clean": "clean.fasta",
+  "report": "align_qc_report.tsv"
+ },
+ "input": "D:\\桌面\\植物病毒分析平台\\examples\\example_rdp.fasta",
+ "source_input": "D:\\桌面\\植物病毒分析平台\\examples\\example_rdp.fasta",
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\rdp_20260921_042147_478491\\rdp"
+}

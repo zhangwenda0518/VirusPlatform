@@ -15,6 +15,7 @@
   "/api/cds/selection/save": "cds_export.api_cds_selection_save",
   "/api/cds/table": "cds_export.api_cds_table",
   "/api/convert_kraken2": "build.api_convert_kraken2",
+  "/api/datasets": "build.api_datasets",
   "/api/dbs": "build.api_dbs",
   "/api/dl/batch/<bid>": "download.api_dl_batch",
   "/api/dl/batch/<bid>/<action>": "download.api_dl_batch_action",
@@ -28,19 +29,6 @@
   "/api/examples": "examples.api_examples",
   "/api/examples/<module>": "examples.api_example",
   "/api/examples/<module>/<path:filename>": "examples.api_example_file",
-  "/api/explorer/charts": "explorer.api_charts",
-  "/api/explorer/export/csv": "explorer.api_export_csv",
-  "/api/explorer/export/fasta": "explorer.api_export_fasta",
-  "/api/explorer/host": "explorer.api_host",
-  "/api/explorer/init": "explorer.api_init",
-  "/api/explorer/primers": "explorer.api_primers",
-  "/api/explorer/profile": "explorer.api_profile",
-  "/api/explorer/profile_species": "explorer.api_profile_species",
-  "/api/explorer/query": "explorer.api_query",
-  "/api/explorer/status": "explorer.api_status",
-  "/api/explorer/variation": "explorer.api_variation",
-  "/api/explorer/vector": "explorer.api_vector",
-  "/api/explorer/virus_options": "explorer.api_virus_options",
   "/api/gb/collections": "refs.api_gb_collections",
   "/api/gb/download": "refs.api_gb_download",
   "/api/gb/extract": "refs.api_gb_extract",
@@ -102,8 +90,12 @@
   "/api/pipeline/create": "samples.api_pipeline_create",
   "/api/queue": "samples.api_queue",
   "/api/queue/<entry_id>/remove": "samples.api_queue_remove",
+  "/api/queue/<entry_id>/start": "samples.api_queue_start",
   "/api/queue/add": "samples.api_queue_add",
   "/api/queue/clear_finished": "samples.api_queue_clear",
+  "/api/queue/pause": "samples.api_queue_pause",
+  "/api/queue/resume": "samples.api_queue_resume",
+  "/api/queue/start_all": "samples.api_queue_start_all",
   "/api/register_virus_lib": "build.api_register_virus_lib",
   "/api/sample_files/<sample>": "samples.api_sample_files",
   "/api/samples": "samples.api_samples",
@@ -120,6 +112,7 @@
   "/api/settings": "settings.api_settings_set",
   "/api/storage": "settings.api_storage",
   "/api/storage/rescan": "settings.api_storage_rescan",
+  "/api/submit/adopt_sample": "submit.api_submit_adopt_sample",
   "/api/submit/contig_runs": "submit.api_submit_contig_runs",
   "/api/submit/copy": "submit.api_submit_copy",
   "/api/submit/create": "submit.api_submit_create",
@@ -154,16 +147,22 @@
   "/api/task/<tid>/stream": "tasks_api.api_task_stream",
   "/api/tasks": "tasks_api.api_tasks",
   "/api/tasks/clear_finished": "tasks_api.api_tasks_clear_finished",
+  "/api/tasks/stop_all": "tasks_api.api_tasks_stop_all",
   "/api/tool/analysis": "tool_results.api_tool_analysis",
   "/api/tool/analyze": "tool_results.api_tool_analyze",
   "/api/tool/chain_result": "tools.api_tool_chain_result",
   "/api/tool/consensus_result": "tool_results.api_tool_consensus_result",
+  "/api/tool/dsrna_panel": "tools.api_dsrna_panel",
   "/api/tool/genoplot_preview": "tools.api_tool_genoplot_preview",
   "/api/tool/hostpredict_run": "tool_results.api_tool_hostpredict_run",
   "/api/tool/kvsuite_refs": "tool_results.api_tool_kvsuite_refs",
   "/api/tool/kvsuite_result": "tool_results.api_tool_kvsuite_result",
+  "/api/tool/mirna_lib": "tools.api_mirna_lib",
+  "/api/tool/mirna_lib/facets": "tools.api_mirna_lib_facets",
   "/api/tool/msa_data": "tool_results.api_tool_msa_data",
   "/api/tool/open": "tools.api_tool_open",
+  "/api/tool/pdplot_export": "tools.api_pdplot_export",
+  "/api/tool/phylogeo_gif": "tools.api_phylogeo_gif",
   "/api/tool/primer_design": "tool_results.api_tool_primer_design",
   "/api/tool/quicktree_data": "tool_results.api_tool_quicktree_data",
   "/api/tool/rdp_masked": "tools.api_rdp_masked_post",
@@ -173,6 +172,7 @@
   "/api/tool/runs": "tools.api_tool_runs",
   "/api/tool/runs/<run>/delete": "tools.api_tool_run_delete",
   "/api/tool/structcmp_data": "tool_results.api_tool_structcmp_data",
+  "/api/tool/verify_export": "tool_results.api_tool_verify_export",
   "/api/tool/verify_result": "tool_results.api_tool_verify_result",
   "/api/tool/viral_contigs": "tool_results.api_tool_viral_contigs",
   "/api/tools": "build.api_tools",
@@ -184,10 +184,8 @@
   "/cds-export": "pages.page_cds_export",
   "/download": "download.page_download",
   "/downloads/<bid>/<path:filename>": "download.page_dl_file",
-  "/explorer": "explorer.page",
   "/genome": "pages.page_genome",
   "/help": "pages.page_help",
-  "/hostpredict": "pages.page_hostpredict",
   "/hostremoval": "pages.page_host_removal",
   "/logan": "logan.page_logan",
   "/logan/report/<name>/": "logan.page_logan_report",
@@ -197,7 +195,6 @@
   "/orf": "pages.page_orf",
   "/pipeline": "pages.page_pipeline",
   "/primer": "pages.page_primer",
-  "/reference/i18n.js": "explorer.i18n_runtime",
   "/report/<sample>/": "pages.page_report",
   "/report/<sample>/<path:filename>": "pages.page_report_file",
   "/results": "pages.page_results",
@@ -210,8 +207,7 @@
   "/tools": "tools.page_tools",
   "/virome": "virome.page_virome",
   "/virome/": "virome.page_virome_app",
-  "/virome/<path:filename>": "virome.virome_asset",
-  "/virus/files/<path:relpath>": "explorer.virus_file"
+  "/virome/<path:filename>": "virome.virome_asset"
  },
  "rules": {
   "/": [
@@ -259,6 +255,9 @@
   "/api/convert_kraken2": [
    "POST"
   ],
+  "/api/datasets": [
+   "GET"
+  ],
   "/api/dbs": [
    "GET"
   ],
@@ -296,51 +295,6 @@
    "GET"
   ],
   "/api/examples/<module>/<path:filename>": [
-   "GET"
-  ],
-  "/api/explorer/charts": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/export/csv": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/export/fasta": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/host": [
-   "GET"
-  ],
-  "/api/explorer/init": [
-   "GET"
-  ],
-  "/api/explorer/primers": [
-   "GET"
-  ],
-  "/api/explorer/profile": [
-   "GET"
-  ],
-  "/api/explorer/profile_species": [
-   "GET"
-  ],
-  "/api/explorer/query": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/status": [
-   "GET"
-  ],
-  "/api/explorer/variation": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/vector": [
-   "GET",
-   "POST"
-  ],
-  "/api/explorer/virus_options": [
    "GET"
   ],
   "/api/gb/collections": [
@@ -526,10 +480,22 @@
   "/api/queue/<entry_id>/remove": [
    "POST"
   ],
+  "/api/queue/<entry_id>/start": [
+   "POST"
+  ],
   "/api/queue/add": [
    "POST"
   ],
   "/api/queue/clear_finished": [
+   "POST"
+  ],
+  "/api/queue/pause": [
+   "POST"
+  ],
+  "/api/queue/resume": [
+   "POST"
+  ],
+  "/api/queue/start_all": [
    "POST"
   ],
   "/api/register_virus_lib": [
@@ -579,6 +545,9 @@
    "GET"
   ],
   "/api/storage/rescan": [
+   "POST"
+  ],
+  "/api/submit/adopt_sample": [
    "POST"
   ],
   "/api/submit/contig_runs": [
@@ -683,6 +652,9 @@
   "/api/tasks/clear_finished": [
    "POST"
   ],
+  "/api/tasks/stop_all": [
+   "POST"
+  ],
   "/api/tool/analysis": [
    "GET"
   ],
@@ -693,6 +665,9 @@
    "GET"
   ],
   "/api/tool/consensus_result": [
+   "GET"
+  ],
+  "/api/tool/dsrna_panel": [
    "GET"
   ],
   "/api/tool/genoplot_preview": [
@@ -707,10 +682,22 @@
   "/api/tool/kvsuite_result": [
    "GET"
   ],
+  "/api/tool/mirna_lib": [
+   "GET"
+  ],
+  "/api/tool/mirna_lib/facets": [
+   "GET"
+  ],
   "/api/tool/msa_data": [
    "GET"
   ],
   "/api/tool/open": [
+   "POST"
+  ],
+  "/api/tool/pdplot_export": [
+   "POST"
+  ],
+  "/api/tool/phylogeo_gif": [
    "POST"
   ],
   "/api/tool/primer_design": [
@@ -740,6 +727,9 @@
   ],
   "/api/tool/structcmp_data": [
    "GET"
+  ],
+  "/api/tool/verify_export": [
+   "POST"
   ],
   "/api/tool/verify_result": [
    "GET"
@@ -774,16 +764,10 @@
   "/downloads/<bid>/<path:filename>": [
    "GET"
   ],
-  "/explorer": [
-   "GET"
-  ],
   "/genome": [
    "GET"
   ],
   "/help": [
-   "GET"
-  ],
-  "/hostpredict": [
    "GET"
   ],
   "/hostremoval": [
@@ -811,9 +795,6 @@
    "GET"
   ],
   "/primer": [
-   "GET"
-  ],
-  "/reference/i18n.js": [
    "GET"
   ],
   "/report/<sample>/": [
@@ -853,9 +834,6 @@
    "GET"
   ],
   "/virome/<path:filename>": [
-   "GET"
-  ],
-  "/virus/files/<path:relpath>": [
    "GET"
   ]
  }

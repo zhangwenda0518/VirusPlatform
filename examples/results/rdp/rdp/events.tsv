@@ -1,0 +1,2 @@
+recombinant	major	minor	start	end	n_methods	methods	best_pvalue
+Sim_Gansu_REC|Gansu|2022	Sim_Beijing_1|Beijing|2023	Sim_Ningxia_1|Ningxia|2019	1171	542	6	3Seq,SiScan,Maxchi,Chimaera,Bootscan,GENECONV	1.6e-25

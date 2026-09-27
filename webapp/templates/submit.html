@@ -599,13 +599,20 @@ async function doTaxCheck(btn) {
   unlock();
 }
 
+// 运行下拉显示名：sample: 前缀 = 样品管道产物（results/<样品>/，来自
+// ⚡分段一键），工具运行保持原名
+function runLabel(r) {
+  return String(r).startsWith('sample:')
+    ? `🧪 样品 ${String(r).slice(7)}（管道产物）` : r;
+}
+
 async function loadContigRuns() {
   const sel = $('impRun');
   if (!sel) return;
   try {
     const runs = await jfetch('/api/submit/contig_runs');
     sel.innerHTML = runs.length
-      ? runs.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
+      ? runs.map(r => `<option value="${esc(r)}">${esc(runLabel(r))}</option>`).join('')
       : `<option value="">${t('sb.noContigRun')}</option>`;
   } catch (e) { sel.innerHTML = `<option value="">${t('sb.loadFailP')}</option>`; }
 }
@@ -616,7 +623,7 @@ async function loadOrfRuns() {
   try {
     const runs = await jfetch('/api/submit/orf_runs');
     sel.innerHTML = runs.length
-      ? runs.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')
+      ? runs.map(r => `<option value="${esc(r)}">${esc(runLabel(r))}</option>`).join('')
       : `<option value="">${t('sb.noOrfRun')}</option>`;
   } catch (e) { sel.innerHTML = `<option value="">${t('sb.loadFailP')}</option>`; }
 }
@@ -850,10 +857,17 @@ async function saveFileEdit() {
 renderQuickFill();
 loadContigRuns();
 loadOrfRuns();
-// 默认展开提交工作区：自动打开最近项目（无则第一个），让 ②③④ 直接可见
+// 默认展开提交工作区：URL ?open=<项目名>（管道页「提交准备」建档后跳转）
+// 优先，其次最近项目，再次第一个，让 ②③④ 直接可见
 (async function autoOpen() {
   try {
+    let want = null;
+    try { want = new URLSearchParams(location.search).get('open'); } catch (e) {}
     const list = await jfetch('/api/submit/tables');
+    if (want && (list || []).some(p => p.name === want)) {
+      await openTable(want);
+      return;
+    }
     if (list && list.length) {
       let last = null;
       try { last = localStorage.getItem('vp_submit_last'); } catch (e) {}

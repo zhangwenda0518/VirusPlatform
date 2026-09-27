@@ -68,6 +68,13 @@
 .pdz-mk { position: absolute; top: 1px; height: 14px; border-radius: 2px; cursor: pointer; }
 .pdz-mk.fwd { background: #2b8a3e; }
 .pdz-mk.rev { background: #1971c2; }
+/* 指向箭头：F 3' 端向右（下游）延伸，R 3' 端在左、向左（上游）延伸 */
+.pdz-mk.fwd::after { content: ''; position: absolute; right: -6px; top: 0;
+  border-left: 6px solid #2b8a3e; border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent; }
+.pdz-mk.rev::after { content: ''; position: absolute; left: -6px; top: 0;
+  border-right: 6px solid #1971c2; border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent; }
 .pdz-probe { position: absolute; height: 5px; top: 5px; border-radius: 2px;
   background: rgba(103, 65, 217, .18); border: 1px dashed #6741d9; cursor: pointer; }
 .pdz-lane.flash .pdz-amp { animation: pdzFlash .8s ease 3; }
@@ -465,10 +472,12 @@ function pdRender(d) {
     '<th class="num">' + esc(t('prd.thRGc', 'R GC%')) + '</th>' +
     '<th>' + esc(t('prd.thProbe', '探针 (5\'→3\')')) + '</th>' +
     '<th class="num">' + esc(t('prd.thProbeTm', 'P Tm')) + '</th>' +
-    '<th class="num">' + esc(t('prd.thPos', '位置')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thFPos', 'F 位置')) + '</th>' +
+    '<th class="num">' + esc(t('prd.thRPos', 'R 位置')) + '</th>' +
     '<th class="num">' + esc(t('prd.thProduct', '产物 bp')) + '</th>' +
     '<th class="num">' + esc(t('prd.thScore', '评分')) + '</th>' +
     '<th>' + esc(t('prd.thGrade', '评价')) + '</th>' +
+    '<th>' + esc(t('prd.thSeq', '序列')) + '</th>' +
     '</tr></thead><tbody>');
   let any = false;
   (d.records || []).forEach(function (rec, i) {
@@ -479,6 +488,8 @@ function pdRender(d) {
       const tip = bd.detail && bd.detail.length
         ? esc(t('prd.deduct', '扣分') + ': ' + bd.detail.join('; '))
         : esc(t('prd.noDeduct', '无扣分'));
+      const fEnd = p.f_start + p.f_len - 1;
+      const rEnd = p.r_start + p.r_len - 1;
       out.push('<tr id="pd-row-' + i + '-' + p.idx + '" data-seq="' + i +
         '" data-pair="' + p.idx + '" style="cursor:pointer" title="' +
         esc(t('prd.rowClick', '点击后覆盖图会定位并高亮这对引物')) + '">' +
@@ -493,15 +504,49 @@ function pdRender(d) {
         '<td class="seq" title="' + esc(p.probe_seq || '') + '">' +
           (p.probe_seq ? esc(p.probe_seq) : '<span style="color:var(--ink-300)">—</span>') + '</td>' +
         '<td class="num">' + (p.probe_seq ? p.probe_tm.toFixed(1) : '—') + '</td>' +
-        '<td class="num">' + p.f_start + '–' + p.amp_end + '</td>' +
+        // 指向：F 结合正链、3' 端向右延伸（▶）；R 结合负链、3' 端在左（◀）
+        '<td class="num" style="white-space:nowrap" title="' +
+          esc(t('prd.fDirTip', '正向引物结合正链，向右（下游）延伸')) + '">' +
+          p.f_start + '–' + fEnd + ' ▶</td>' +
+        '<td class="num" style="white-space:nowrap" title="' +
+          esc(t('prd.rDirTip', '反向引物结合负链，其 3\' 端在左，向左（上游）延伸')) + '">' +
+          '◀ ' + p.r_start + '–' + rEnd + '</td>' +
         '<td class="num">' + p.product + '</td>' +
         '<td class="num" title="' + tip + '"><b>' + p.score.toFixed(1) + '</b></td>' +
         '<td>' + pdBadge(p.score, p.recommendation) + '</td>' +
+        '<td><button class="btn small" onclick="event.stopPropagation();' +
+          'pdToggleSeq(' + i + ',' + p.idx + ')" title="' +
+          esc(t('prd.seqBtnTip', '展开该引物对的序列（引物 / 扩增子分开显示）')) + '">' +
+          '⌄ ' + esc(t('prd.thSeq', '序列')) + '</button></td>' +
         '</tr>');
+      // 序列分区展示：正向引物 / 反向引物 / 探针 / 扩增子 各自独立成块，
+      // 与表格里的序列列分开，方便直接复制送下游合成/注释
+      const trk = tracks[i] || {};
+      const spanLen = p.amplicon_span || (p.amp_end - p.amp_start + 1);
+      const ampSeq = (trk.seq && p.amp_start > 0)
+        ? String(trk.seq).substr(p.amp_start - 1, spanLen) : '';
+      const blk = (label, seq, note, color) =>
+        '<div style="margin:4px 0"><div style="font-size:11px;font-weight:700;color:' +
+        color + ';margin-bottom:2px">' + label +
+        (note ? ' <span class="hint" style="font-weight:400;margin:0">· ' + note + '</span>' : '') +
+        '</div><div class="seq" style="word-break:break-all;user-select:all">' +
+        (seq ? esc(seq) : '—') + '</div></div>';
+      out.push('<tr class="pd-seqrow" id="pd-seq-' + i + '-' + p.idx +
+        '" style="display:none"><td colspan="16" style="background:var(--surface-2,#fafafa);padding:8px 12px">' +
+        blk(esc(t('prd.seqF', '正向引物 (5\'→3\')')) + ' ▶', p.f_seq,
+            p.f_start + '–' + fEnd + ' · Tm ' + p.f_tm.toFixed(1) + ' · GC ' + p.f_gc.toFixed(1) + '%', '#2b8a3e') +
+        blk(esc(t('prd.seqR', '反向引物 (5\'→3\')')) + ' ◀', p.r_seq,
+            p.r_start + '–' + rEnd + ' · Tm ' + p.r_tm.toFixed(1) + ' · GC ' + p.r_gc.toFixed(1) + '% · ' +
+            esc(t('prd.seqRNote', '为负链序列，3\' 端在左侧坐标处')), '#1971c2') +
+        (p.probe_seq ? blk(esc(t('prd.seqProbe', '探针 (5\'→3\')')), p.probe_seq,
+            p.probe_start + '–' + (p.probe_start + p.probe_len - 1) + ' · Tm ' + p.probe_tm.toFixed(1), '#6741d9') : '') +
+        blk(esc(t('prd.seqAmp', '扩增子序列')), ampSeq,
+            p.amp_start + '–' + p.amp_end + ' · ' + p.product + ' bp', 'var(--green-700,#1d7a4f)') +
+        '</td></tr>');
     });
   });
   if (!any) {
-    out.push('<tr><td colspan="14" style="text-align:center;color:var(--ink-400)">' +
+    out.push('<tr><td colspan="16" style="text-align:center;color:var(--ink-400)">' +
       esc(t('prd.noPairs', '未设计出符合参数的引物对')) + '</td></tr>');
   }
   out.push('</tbody></table></div>');
@@ -528,6 +573,12 @@ function pdRender(d) {
     if (!tr) return;
     pdFlashLane(+tr.getAttribute('data-seq'), +tr.getAttribute('data-pair'));
   });
+}
+
+/* 展开/收起引物对的序列分区（正向 / 反向 / 探针 / 扩增子独立成块） */
+function pdToggleSeq(seqIdx, pairIdx) {
+  const row = document.getElementById('pd-seq-' + seqIdx + '-' + pairIdx);
+  if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
 }
 
 /* ============================================================
@@ -818,5 +869,6 @@ window.addEventListener('resize', function () {
   if (adv) adv.classList.remove('open');
 })();
 </script>
+<script src="/static/examples.js?v={{ asset_v }}"></script>
 </body>
 </html>

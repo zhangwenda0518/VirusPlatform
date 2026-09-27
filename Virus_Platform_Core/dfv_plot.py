@@ -250,8 +250,10 @@ def run_dfv_plots(sample_dir, logger=None, force=False, max_plots=12,
                    'standalone': bool(fasta_in or ann_in),
                    'input': os.path.basename(str(fa)), 'plots': plots,
                    'n_seqs': len(seqs)}
-    # 清掉列表里实际不存在的文件（出图失败被跳过时）
-    plots[:] = [p for p in plots if os.path.isfile(p)]
+    # 清掉列表里实际不存在的文件（出图失败被跳过时），并转成相对路径——
+    # 绝对路径在样品目录搬迁后会让报告端 join 失效、静默丢图
+    plots[:] = [os.path.relpath(p, out_dir) for p in plots
+                if os.path.isfile(p)]
     with safe_open(summary_file, 'wt') as f:
         json.dump(summary, f, ensure_ascii=False, indent=1)
     if summary.get('n_seqs') and not plots:

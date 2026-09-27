@@ -1,0 +1,209 @@
+{
+ "tool": "phylodyn_local",
+ "created": "2026-09-21 03:56:52",
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6",
+ "stages": {
+  "prep": {
+   "ok": true,
+   "error": null
+  },
+  "clock": {
+   "ok": true,
+   "error": null
+  },
+  "phylogeo": {
+   "ok": true,
+   "error": null
+  }
+ },
+ "n_files": 22,
+ "files": [
+  {
+   "stage": "clock",
+   "tag": "clock_stats",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_stats.tsv",
+   "rel": "clock/clock_stats.tsv",
+   "size": 253,
+   "sha256_16": "8bd7217671b8c268"
+  },
+  {
+   "stage": "clock",
+   "tag": "divergence_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\divergence_tree.nwk",
+   "rel": "clock/divergence_tree.nwk",
+   "size": 3577,
+   "sha256_16": "f1b1f5255b1d6534"
+  },
+  {
+   "stage": "clock",
+   "tag": "drt_json",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_qc\\drt.json",
+   "rel": "clock/clock_qc/drt.json",
+   "size": 8725,
+   "sha256_16": "e5b8b05a866763cb"
+  },
+  {
+   "stage": "clock",
+   "tag": "rtt_scatter",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_qc\\rtt_scatter.tsv",
+   "rel": "clock/clock_qc/rtt_scatter.tsv",
+   "size": 2509,
+   "sha256_16": "baf9667f94b969ba"
+  },
+  {
+   "stage": "clock",
+   "tag": "timetree_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\timetree.nwk",
+   "rel": "clock/timetree.nwk",
+   "size": 3521,
+   "sha256_16": "c59a4c6fdfe39187"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_ancestral_fasta",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\ancestral_sequences.fasta",
+   "rel": "clock/treetime/ancestral_sequences.fasta",
+   "size": 36573,
+   "sha256_16": "111aca98e8a5168b"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_auspice",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\auspice_tree.json",
+   "rel": "clock/treetime/auspice_tree.json",
+   "size": 11846,
+   "sha256_16": "17024368322a992f"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_divergence_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\divergence_tree.nexus",
+   "rel": "clock/treetime/divergence_tree.nexus",
+   "size": 4045,
+   "sha256_16": "70aaa6ffc22f0ebd"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_molecular_clock",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\molecular_clock.txt",
+   "rel": "clock/treetime/molecular_clock.txt",
+   "size": 60,
+   "sha256_16": "8d6eaa26f112dc48"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_rtt_pdf",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\root_to_tip_regression.pdf",
+   "rel": "clock/treetime/root_to_tip_regression.pdf",
+   "size": 16028,
+   "sha256_16": "c72bcc5c91e6d171"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_timetree_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.nexus",
+   "rel": "clock/treetime/timetree.nexus",
+   "size": 3990,
+   "sha256_16": "f4d7de8da795e010"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_timetree_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.nwk",
+   "rel": "clock/treetime/timetree.nwk",
+   "size": 3521,
+   "sha256_16": "c59a4c6fdfe39187"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_tree_pdf",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.pdf",
+   "rel": "clock/treetime/timetree.pdf",
+   "size": 13019,
+   "sha256_16": "c3724d5f1e029188"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "corridors",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\corridors.tsv",
+   "rel": "phylogeo/corridors.tsv",
+   "size": 109,
+   "sha256_16": "4f794af77a9a2817"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "events_year",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\events_year.tsv",
+   "rel": "phylogeo/events_year.tsv",
+   "size": 488,
+   "sha256_16": "83629c9e8db2790d"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_annotated_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\annotated_tree.nexus",
+   "rel": "phylogeo/ml/annotated_tree.nexus",
+   "size": 1789,
+   "sha256_16": "98dc19c618a91f2e"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_confidence_csv",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\confidence.csv",
+   "rel": "phylogeo/ml/confidence.csv",
+   "size": 1788,
+   "sha256_16": "49c22d6ecf69f750"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_gtr",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\GTR.txt",
+   "rel": "phylogeo/ml/GTR.txt",
+   "size": 408,
+   "sha256_16": "dd880465ec8ddd13"
+  },
+  {
+   "stage": "prep",
+   "tag": "dates",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\dates.csv",
+   "rel": "prep/dates.csv",
+   "size": 668,
+   "sha256_16": "22e1e19adb24b97d"
+  },
+  {
+   "stage": "prep",
+   "tag": "prep_fasta",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.fasta",
+   "rel": "prep/prep.fasta",
+   "size": 18658,
+   "sha256_16": "7518725a9cbfed3e"
+  },
+  {
+   "stage": "prep",
+   "tag": "prep_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.nwk",
+   "rel": "prep/prep.nwk",
+   "size": 677,
+   "sha256_16": "140139383068ae96"
+  },
+  {
+   "stage": "prep",
+   "tag": "states",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\states.csv",
+   "rel": "prep/states.csv",
+   "size": 488,
+   "sha256_16": "3ffe1f96ed9c3156"
+  }
+ ],
+ "warnings": [
+  {
+   "stage": "clock",
+   "text": "rooting=\"optimize\"：零分布同样逐轮取最大根位 R²（与参照发布版管道 temporal_signal.py 一致）。真实数据\"最大根位 R²\" = 0.6171，而树自带根位只有 0.6132 —— 两者差距就是\"根位搜索\"贡献的量，**单看 R² 数值会高估信号**。"
+  },
+  {
+   "stage": "phylogeo",
+   "text": "2/14 个内部节点的ML 最大边际概率 < 0.7（最低 0.43）—— 涉及这些节点的迁移方向不可靠，做方向性结论前先看置信分布"
+  }
+ ],
+ "errors": []
+}

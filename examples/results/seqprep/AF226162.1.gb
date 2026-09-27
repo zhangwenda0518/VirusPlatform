@@ -1,0 +1,85 @@
+LOCUS       AF226162                2229 bp    mRNA    linear   VRL 15-OCT-2003
+DEFINITION  Tulare apple mosaic virus segment RNA3 putative movement protein 3a
+            and coat protein mRNAs, complete cds.
+ACCESSION   AF226162
+VERSION     AF226162.1
+KEYWORDS    .
+SOURCE      Tulare apple mosaic virus
+  ORGANISM  Tulare apple mosaic virus
+            Viruses; Riboviria; Orthornavirae; Kitrinoviricota; Alsuviricetes;
+            Martellivirales; Bromoviridae; Ilarvirus; Ilarvirus TAMV.
+REFERENCE   1  (bases 1 to 2229)
+  AUTHORS   Scott,S.W., Zimmerman,M.T. and Ge,X.
+  TITLE     Viruses in subgroup 2 of the genus Ilarvirus share both serological
+            relationships and characteristics at the molecular level
+  JOURNAL   Arch. Virol. 148 (10), 2063-2075 (2003)
+   PUBMED   14551826
+REFERENCE   2  (bases 1 to 2229)
+  AUTHORS   Scott,S.W., Zimmerman,M.T. and Ge,X.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (19-JAN-2000) Plant Pathology & Physiology, Clemson
+            University, P.O. Box 340377, Clemson, SC 29634-0377, USA
+FEATURES             Location/Qualifiers
+     source          1..2229
+                     /organism="Tulare apple mosaic virus"
+                     /mol_type="mRNA"
+                     /db_xref="taxon:151043"
+                     /segment="RNA3"
+     CDS             359..1231
+                     /codon_start=1
+                     /product="putative movement protein 3a"
+                     /protein_id="AAK01484.1"
+                     /translation="MALIRSKPIVLTAANEEELYKQITSALVSVNANLKMFQACFPLE
+                     LKNNSHTSFELCDENTRSIVTAFTTKIRKSINVDHPHIFLLWVPKILKTTFATADIRC
+                     KYLATGDEKAVGNFPLNEAFIFSFGWERSIRMKDAYSGKGLHLFIQDTCPGFWPNAPL
+                     GRLVPLWDNCATAKMRYTEDIGTSMTIDGWMRVKNVLSDKVTRGLLSSYMAHEFTCRE
+                     KVEKFTGPPRVQLSDDLPETLDFTSQCSEVKRPPVLTDATKADEDSKVVSGNGVYEDL
+                     STASKRQGQNTPTP"
+     CDS             1347..1985
+                     /codon_start=1
+                     /product="coat protein"
+                     /protein_id="AAK01485.1"
+                     /translation="MSNFSNAIEVNGKWYSPVNAPPNRGGRRKPTARSRNWAVQQRSQ
+                     PPNMVVGSMPINLPTWKSFPGEQWHEVSGFEFPASWISGDIAYASMRTELGKIKALHD
+                     STKVYSVMYGFITKAGWLCRLKDDFDPSNATGPNAPNRTRVKAGKYSAKQLVFPPGTT
+                     VAEVKSAYNFVWQFDSAPASGTANVVKVVKFYVSTTPLPGVKPPANFLVCEE"
+ORIGIN      
+        1 gtattcatct gagcataaat accctttgag agcagaagat ctttcgtcaa ccaagcaatt
+       61 tgtctaaatc gaaacttcta ataggcgtca gaatttcgat tcccactacc tacttaactg
+      121 tggattcagt ggaagtttcg ctggtgacat tttctgagaa cgattaaccg gtggagtccg
+      181 ggtcttcgat actcaaagaa agaagtgtta agagtggttt tatcctcttc acttaccaac
+      241 tgaatacgtc ctcgcttgta cgggataggc tcattttgaa gtagttcctc actacttgag
+      301 cttctgttga ggagtacctg cttgagaaga gcttctaaaa tcgctgaagc taacaattat
+      361 ggcccttatt cgatctaagc caatcgtcct gacagccgct aatgaagagg aattgtacaa
+      421 gcaaattact agcgcgctgg tttccgtgaa tgccaacttg aagatgttcc aagcttgttt
+      481 tccactcgaa ttgaagaata attcccacac tagttttgaa ctatgtgatg aaaatacccg
+      541 ttcaattgtt accgcattta ctaccaaaat tcggaagtct attaatgttg atcatcccca
+      601 cattttcctt ttgtgggtgc ccaaaatctt gaaaacgact tttgccaccg ccgatattcg
+      661 ttgcaaatat ctcgcgacgg gtgatgagaa agcagtgggg aatttcccgc tgaatgaagc
+      721 tttcatcttc tcattcggtt gggaacgttc catacgcatg aaagatgcgt actcggggaa
+      781 aggtttgcat ctgttcatac aggacacatg ccccgggttc tggcccaatg ctccccttgg
+      841 aaggcttgtg cctctttggg acaattgcgc cactgccaaa atgcggtata ccgaggatat
+      901 cggaacctcg atgacaattg acggatggat gcgagtgaag aacgttttgt cagataaagt
+      961 gacaagaggg cttttaagct cttatatggc tcatgagttt acgtgtaggg agaaggtcga
+     1021 gaaatttacc ggtcctcctc gcgtacagct ttcggacgat ttacctgaga cgctcgattt
+     1081 tacgtcacag tgctcagaag ttaagcggcc tccagtttta actgatgcta ctaaagctga
+     1141 tgaagattca aaagttgtgt ctgggaatgg tgtgtacgag gatctgtcaa ccgcttcaaa
+     1201 gaggcaggga cagaataccc cgactccgtg atttatgtgt tcgtgggatg gataccctta
+     1261 tttgggtccc ccggtcgcag gttgcgtggg ggtctttgtc ttgaagaagc cttttcctgt
+     1321 actttccgtc ccattttcag cacaacatgt ctaattttag taatgctatc gaggtgaatg
+     1381 gtaaatggta ttcacctgtt aatgccccgc ctaatcgtgg tgggagacgc aagccgacag
+     1441 ctcgttctcg caactgggct gttcaacagc gatcacaacc accaaatatg gtggttggtt
+     1501 ccatgccaat caatctaccc acttggaagt ctttcccagg tgaacaatgg catgaagttt
+     1561 caggctttga gtttccagct tcctggattt cgggtgacat agcctatgcc tccatgcgta
+     1621 ctgagctggg gaagattaag gccttgcatg attcaaccaa ggtctattct gtgatgtatg
+     1681 gattcatcac taaagccgga tggttatgcc ggcttaagga tgatttcgat ccatccaatg
+     1741 ccaccggtcc aaatgcgccc aataggacac gtgtgaaggc aggaaaatac agtgccaagc
+     1801 aattggtgtt tccaccaggc actacggttg ctgaggtcaa gtctgcctac aattttgttt
+     1861 ggcaattcga ctcagctcct gcttccggta ccgcgaatgt ggttaaagtc gtgaagtttt
+     1921 atgtttccac gacaccactt cctggtgtga agcctccagc aaacttttta gtttgtgagg
+     1981 agtgactaca ctcgggcttt tgtcccgtgt gtggttatgt accactttgt cattgtatgt
+     2041 gctacaatta ctcatgtgat gtcattggtt gtgatgccaa tgataccttc tgtatagaag
+     2101 atgatcaagt gtaacattca tgttacctag cgaagggtcc tccgggatgt gctcagcact
+     2161 cagccttagc taagttcata tgcccacctt tgctgtctcc gggtggatgc ctcatggtgc
+     2221 tatggatgc
+//

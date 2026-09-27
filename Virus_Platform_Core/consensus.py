@@ -52,7 +52,9 @@ from .utils import run_cmd
 # ---------------------------------------------------------------- 常量
 # 参数默认值对齐 ViralWasm-Consensus
 MIN_BASE_QUALITY = 20      # -q / --min_qual：最小碱基质量
-MIN_DEPTH = 10             # -d / --min_depth：最小覆盖深度
+MIN_DEPTH = 1              # -d / --min_depth：最小覆盖深度（2026-09 统一为 1：
+                           # 低滴度/低频株共识完整性优先，Q20 质量过滤已在
+                           # 计数前把关；要保守阈值可按调用传 5/10）
 MIN_FREQ = 0.5             # -f / --min_freq：最小等位基因频率
 AMBIG = 'N'                # -a / --ambig：简并符号
 
@@ -61,6 +63,11 @@ MIN_MINOR_FREQ = 0.02      # 次等位基因频率阈值：≥ 此值记为 iSNV
 MIN_MINOR_COUNT = 2        # iSNV 的绝对 reads 数下限：1 条 read 在 10x 处就是 10%，
                            # 不设下限会把测序错误当成准种
 MIN_COV_PCT = 10.0         # 判定「该病毒真实存在」的最低覆盖度百分比
+
+# minibwa 的种子下限：实测 20-29bp reads 在任何种子参数下比对率都是 0
+# （见 minibwa_win_build 对拍记录）。小RNA/siRNA 数据（21-24nt）落到这里时
+# 覆盖/共识/变异全为 0，但那是工具不支持、不是"病毒不存在"——必须区分。
+MINIBWA_MIN_READ_LEN = 30
 
 BASES = 'ACGT'
 IDX = {'A': 0, 'C': 1, 'G': 2, 'T': 3, 'N': 4, '-': 5}
@@ -555,6 +562,62 @@ def analyze_variants(ref_seq, cons, rows, min_minor_freq=MIN_MINOR_FREQ,
 
 
 # ---------------------------------------------------------------- 主入口
+def _probe_read_len(reads, max_records=2000):
+    """头部采样 reads 的最大长度；读不到（空/异常）返回 None。
+
+    reads 是 [(r1, r2), ...] 的配对列表（同 run_minimap2 的入参口径）；
+    支持 FASTQ 与 FASTA（含 .gz）。取所有可读文件的最大读长——单端读长
+    短不等于比对不了（另一端正常仍可映射），只有两端都短才判定为超短。
+    只为「能否被 minibwa 比对」这一判断服务，不追求全量精确。
+    """
+    import gzip
+    best = 0
+    for pair in reads[:2]:
+        for p in pair:
+            if not p or not os.path.isfile(p):
+                continue
+            try:
+                with open(p, 'rb') as probe:
+                    gz = probe.read(2) == b'\x1f\x8b'
+                if gz:
+                    fh = gzip.open(p, 'rt', encoding='utf-8', errors='replace')
+                else:
+                    fh = open(p, 'r', encoding='utf-8', errors='replace')
+                with fh:
+                    first = ''
+                    for ln in fh:
+                        s = ln.strip()
+                        if s:
+                            first = s
+                            break
+                    m = 0
+                    if first.startswith('>'):
+                        # FASTA：累计每条记录长度（兼容多行折行）
+                        cur, n = 0, 0
+                        for ln in fh:
+                            s = ln.strip()
+                            if s.startswith('>'):
+                                m = max(m, cur)
+                                cur = 0
+                                n += 1
+                                if n >= max_records:
+                                    break
+                            else:
+                                cur += len(s)
+                        else:
+                            m = max(m, cur)
+                    else:
+                        for i, ln in enumerate(fh):
+                            if i >= max_records * 4:
+                                break
+                            if i % 4 == 0:  # 首行'@'已消费，第 2/6/10… 行为序列
+                                m = max(m, len(ln.strip()))
+                    best = max(best, m)
+            except OSError:
+                continue
+    return best or None
+
+
 def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
                            min_qual=MIN_BASE_QUALITY, min_depth=MIN_DEPTH,
                            min_freq=MIN_FREQ, ambig=AMBIG,
@@ -585,6 +648,16 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
         raise RuntimeError('参考序列为空：%s' % ref_fasta)
     total_len = sum(len(s) for s in refs.values())
     _prog('load', 0.10, '参考 %d 条，共 %d bp' % (len(refs), total_len))
+
+    max_read_len = _probe_read_len(reads)
+    short_reads = bool(max_read_len and max_read_len < MINIBWA_MIN_READ_LEN)
+    if short_reads and logger:
+        logger.log(
+            f"⚠ 输入 reads 超短（头部采样最长 {max_read_len}bp）：minibwa 对 "
+            f"<{MINIBWA_MIN_READ_LEN}bp reads 实测比对率为 0，本阶段覆盖/共识/"
+            f"变异无法评估——相关 contig 记为 unknown（未知），不代表不存在；"
+            f"如需共识请改用支持超短 reads 的比对器（如 bowtie 短读模式）",
+            'WARN')
 
     sam = os.path.join(out_dir, 'aligned.sam')
     _prog('align', 0.15, 'minibwa 回贴 reads（preset=%s，双端配对）' % preset)
@@ -620,7 +693,11 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
         # 精确匹配类型标签：'SNV' 是 'iSNV' 的子串，用 in 会误计
         st['n_snv'] = sum(1 for v in vs if 'SNV' in v['type'].split(';'))
         st['n_isnv'] = sum(1 for v in vs if 'iSNV' in v['type'].split(';'))
-        st['present'] = 'yes' if st['coverage_pct'] >= min_cov_pct else 'no'
+        if short_reads:
+            # 短读比对不了 ≠ 病毒不存在：低覆盖结论不可采信，标为未知
+            st['present'] = 'unknown'
+        else:
+            st['present'] = 'yes' if st['coverage_pct'] >= min_cov_pct else 'no'
         cov_rows.append(st)
 
     # ---- 产物 ----
@@ -675,6 +752,9 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
         'n_isnv': sum(r['n_isnv'] for r in cov_rows),
         'present': present,
         'low_support': [r['contig'] for r in cov_rows if r['present'] == 'no'],
+        'unsupported_short_reads': bool(short_reads),
+        'max_read_len_sampled': max_read_len,
+        'unknown': [r['contig'] for r in cov_rows if r['present'] == 'unknown'],
         'min_cov_pct': min_cov_pct,
         'refs': cov_rows,
         'params': {'min_qual': min_qual, 'min_depth': min_depth,
@@ -686,9 +766,14 @@ def consensus_and_variants(run_dir, ref_fasta, reads, out_subdir='consensus',
     with open(os.path.join(out_dir, 'summary.json'), 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=1)
 
-    _prog('done', 1.0,
-          '完成：%d 条参考，%d 条 reads 比对上，变异位点 %d（SNV %d / iSNV %d），'
-          '判定真实存在 %d 条'
-          % (len(refs), summary['n_mapped_reads'], len(all_variants),
-             summary['n_snv'], summary['n_isnv'], len(present)))
+    _msg = ('完成：%d 条参考，%d 条 reads 比对上，变异位点 %d（SNV %d / iSNV %d），'
+            '判定真实存在 %d 条'
+            % (len(refs), summary['n_mapped_reads'], len(all_variants),
+               summary['n_snv'], summary['n_isnv'], len(present)))
+    if short_reads:
+        _msg += ('；⚠ %d 条因超短 reads（最长 %dbp < %dbp）无法比对，'
+                 '存在性记为 unknown'
+                 % (len(summary['unknown']), max_read_len,
+                    MINIBWA_MIN_READ_LEN))
+    _prog('done', 1.0, _msg)
     return summary

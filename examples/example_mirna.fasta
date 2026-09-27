@@ -1,0 +1,16 @@
+>ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）
+TGACAGAAGAGAGTGAGCACA
+>ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）
+UUUGGAUUGAAGGGAGCUCUA
+>ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）
+UCGCUUGGUGCAGGUCGGGAA
+>osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）
+CUGCACUGCCUCUUCCCUGGC
+>Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）
+CCAACCGGTGGCGGGCGGCCT
+>Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）
+TTCAGGCGCTCTTTTGCATGAC
+>Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）
+CCTCTGTTTTCGACCTTCGTTT
+>Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）
+TCTCGCTGCTGAGCTCGGCGT

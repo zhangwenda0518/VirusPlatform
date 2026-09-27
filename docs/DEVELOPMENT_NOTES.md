@@ -55,7 +55,8 @@
 16. **进化树查看器用 Archaeopteryx.js**（`webapp/static/vendor/archaeopteryx/`，
     LGPL-3.0，npm 包 `archaeopteryx`）。渲染入口是 app.js `renderTreeTo()`：
     同一容器重新 `launchArchaeopteryx` 即换树，换树前先 `viewer.destroy()`；
-    一页只能有一个 viewer。FastTree/IQ-TREE 把支持值写成内部节点名，
+    一页只能有一个 viewer。FastTree/RAxML-NG（以及 IQ-TREE 旧产物）把支持值
+    写成内部节点名，
     解析需 `nhConfidenceValuesAsInternalNames: true`（此时必须同时
     `nhConfidenceValuesInBrackets: false`，两者互斥，见 app.js
     `_treeInternalLabelsAllNumeric()`）。面板自带布局/支持值/搜索/导出，
@@ -1240,7 +1241,7 @@ ORF/图谱/引物设计一样独立成模块；②「结构比较」放病毒注
   - 原 t-ncbi 的"仅 FASTA 集合"下载入口撤销——现在所有来源统一产
     GenBank 集合 + FASTA 双产物（ncbi_refs 集合名即样品流程可用的参考集合名）。
 - **t-treebuild「进化树构建（科/属级）」**（合并原 t-msa + t-tree）：
-  ① 集合建树（tbColl 下拉 + NJ/FastTree/IQ-TREE，/api/gb/phylo）；
+  ① 集合建树（tbColl 下拉 + NJ/FastTree/RAxML-NG，/api/gb/phylo）；
   ② FASTA 直接建树（quicktree）；③ 树查看（本机 Newick / 样品与集合树）；
   ④ MSA 查看（SNP-only）。所有元素 id 原样保留（qt_fa/tv_*/ms_*），
   msaToolInit/treeToolInit 等 JS 零改动。
@@ -2568,4 +2569,452 @@ fixture、33KB、无任何产物）已删除。
 - 注：本机 `run/results/` 无样品（用户已归档），`_it_platform.py` 的
   "样品列表 > 0" 断言属既有数据依赖项，非本轮引入；补一个临时样品目录后
   全量 PASSED。
+
+## 裁剪版系统地理移植 + 两个"永远报绿"的巡检陷阱（2026-09-16）
+
+完整清单/证据见 `docs/主平台同步_裁剪移植_20260916.md`；这里只记**踩坑**。
+
+### 1. 有组无入口 = 卡片到不了（组落地路由的隐含前提）
+
+09-15 拆分把 `compare` / `phylodyn` 从 `NAV_GROUPS` 摘掉后，`#t-rdp` / `#t-rtt` /
+`#t-phylogeo` 三张卡变成"路由在、卡片在、界面上到不了"：tools 页的
+`currentGroupFromURL()` → `showLanding/showModule` 要求组在 `NAV_GROUPS` 里，
+否则 `?g=phylodyn` 掉回 sample 组、`#t-phylogeo` 深链落不到卡片。
+**只补组还不够** —— `_nav.html` 的一级导航项是硬编码列表，不补就是"只能手敲 URL"。
+
+### 2. `tests/_check_pages_console.py` 的判据曾经恒真（巡检静默全绿）
+
+两个缺陷叠加，缺一都不会"全绿"：
+
+1. 单页模式末尾写的是 `main()` 而不是 `sys.exit(main())` → 子进程**永远 exit 0**，
+   而父进程只看 `returncode` ⇒ 页面坏成什么样都打 ✔。
+2. 父进程 `subprocess.run(..., text=True)` 按本地代码页（GBK）解码子进程 stdout，
+   而平台自己的模块会把**子进程** stdout 重配成 UTF-8（`/settings` 加载全量数据时
+   打印的自检报告就是 UTF-8）→ 读线程抛 `UnicodeDecodeError`、stdout 变空 ⇒
+   连"结论行"都读不到，而缺陷 1 又把空输出当成功。
+
+现在：`sys.exit(main())` + `encoding='utf-8', errors='replace'` + **以子进程自报的
+末行结论（`OK ` / `BAD `）为主判据**、`returncode` 兜底，两者不满足一律 ✘。
+**负对照**（把子进程结论强改 `BAD` 的临时副本）：修前"全部 ✔"，修后 `rc=1` 且逐页 ✘。
+
+### 3. 脚本化整文件写入会静默改换行符（CRLF → LF）
+
+用 Python 脚本做批量文本替换时，`io.open(..., newline='')` 读进来是 `\n`，
+写回就把 CRLF 文件整篇变成 LF ⇒ `git diff` 出现上千行噪声（正是 `.gitattributes`
+里 `* -text` 那段注释警告的事）。**对策**：改完用字节比对核一遍 CRLF/LF 计数，
+必要时 `.replace(b'\n', b'\r\n')` 还原。本次涉及 `i18n.js` / `tools.html` / `phylogeo.py`。
+
+
+## 2026-09-17 dsRNA 设计全链路（工具箱 t-dsrna）改造
+
+原 `_tool_job_dsrna` 只是 dsRNAmax_det 裸调（产出 result.csv），本次升级为
+完整链路，引擎侧三个新模块（均为函数内惰性 import，**打包 spec 的
+hiddenimports 必须登记**，已加）：
+
+| 模块 | 职责 |
+|---|---|
+| `dsrna_pipeline.py` | 编排：exe 探测/内存守卫/maximin 选窗/面板扫描/引物/成品 QC |
+| `dsrna_scoring.py` | dsRIP 效价 + 安全合成评分（**平台唯一口径**，合并 C-host 管线的 dsrip_scoring/safety_scoring 两份复制实现） |
+| `dsrna_offtarget.py` | uint64 排序数组 21-mer 脱靶扫描器（双链入索引、0→1→2mm 分层、磁盘缓存） |
+
+数据资产（发行包需带）：
+- `databases/dsrna/lookup.db` + `siRNA_parameters.txt`（dsRIP 权重/热力学表）
+- `databases/dsrna/lethal_lists/*.tsv`（5 物种致死基因，按**裸种名**匹配，
+  面板文件名里的 `_refseq_rna` 后缀会被剥掉再匹配）
+- `databases/dsrna/panel/*.fna`（RefSeq mRNA 脱靶面板，8 物种约 750MB，
+  首扫建索引并缓存到 `panel/_cache/`，之后秒级；**冻结分发可不带**，
+  空面板时工具自动降级为纯效价选窗并在日志说明）
+
+链路设计要点（背景：2026-09 对 C-host dsRNAmax 管线的审计）：
+1. **打分对象=交付分子**：引物限定在效价×安全最优窗内设计（scope=
+   best_window），引物定稿后对真实扩增子重跑效价 + 面板脱靶复扫（QC）。
+   旧控制台/管线在 300nt 臂上打分、却交付 Primer3 随手挑的 215bp 产物，
+   两者的脱靶面完全不同。
+2. **median 遮蔽离群株**：多候选按（最差目标，中位，总和）maximin 重排；
+   命中 0 的"盲目标"与 <25% 覆盖的目标显式告警（单臂只能覆盖共享 21-mer
+   的同源目标，异源目标须各自出臂做鸡尾酒）。
+3. **绝对红线**：致死基因 0 错配命中一票否决（`red_lines`），不随臂内
+   相对归一化被稀释；安全分仍是 dsRIP 口径的臂内归一（最安全=100）。
+4. exe 兼容四件套：`-otKmerLen` 恒显式传（kmerLen<21 不传直接 fatal）；
+   `-seed` 经 `probe_exe()` 探测后才传（stock exe 会 exit 2）；`-csv` 写
+   失败时 exe 退出码仍为 0 且不再输出臂序列，靠解析失败兜底；内存守卫按
+   **160B × 去重 k-mer × iterations** 估算（iterations=100 实测 13-16KB/
+   kmer 反推），超预算抛 `MemoryBudgetExceeded` 而不是等 OOM。iterations
+   默认从 1000 回落到 100——每个迭代完整拷贝一份 k-mer 表且全部并发存活，
+   1000 次 ≈ 10 倍内存（18 条高分化 15kb 靶标 ≈ 40GB）。
+5. 同 seed 两次运行臂逐字节一致（det 构建，tag `v1.1.15-det.1`，源码在
+   C-host dsRNAmax 仓库 commit 1e0c19e）。
+
+测试：`python tests/_it_dsrna.py`（端到端/确定性/内存守卫/与 C-host 管线
+v4 口径对拍 w933=7..296）；致死红线阳性用例见该次改造的会话记录
+（Apis NM_001160052.1 → 280/280 lethal mm0 → red_line）。
+
+已知边界：
+- 植物特有生物学未建模：DCL2 22nt / RDR6 transitivity 会次级放大脱靶，
+  21-mer 模型在植物里偏乐观（报告未声明，属已知科学局限）。
+- `offtarget_lethal.tsv` 只含致死命中行（全量命中行体积大，扫描器返回值
+  里 `sirna_tiers` 已含逐 siRNA 分层，需要时可再导出）。
+
+### dsRNA 测试夹具：论文已发表序列（tests/fixtures/dsrna/）
+
+`_it_dsrna.py` 第 5–7 节用 dsRNAmax 原论文（Fletcher et al. 2025, NAR Genom
+Bioinform, lqaf064）补充材料做真实数据夹具：
+
+- `tef17_tef21_arms.fa` = Suppl. Table 1 的两条已发表臂（300nt，有三种
+  基础生测数据背书），经 PyMuPDF 从 PDF 文本层抽取，非手工抄写；
+- `ce_ef1a_alnpartners.fa` = Suppl. Figure 3 的 C. elegans EF1a 比对段
+  （图无文本层，来自图像 OCR）。**保真锚点是同源度**：TEF-17 前 168nt
+  对 Ce-EF1a 实测 85.12%（图注 85.1%，几乎精确），TEF-21 实测 79.00%
+  （图注 79.3%，差 1 个碱基，容差内）。
+
+⚠ 论文内部口径差异（勿当 bug 修）：Figure 1/4 截图里的运行产物与
+Table 1 最终发表序列**不是同一分子**——共享保守前缀，但 GC 不同
+（图内 45.9%/45.7% vs Table 1 的 45.00%/42.67%）。测试断言只用
+Table 1 长度 + Figure 3 同源度，不用图注 GC。
+
+语义断言：发表设计 = 与 C. elegans 无连续 ≥17nt 精确匹配 → 我们的
+扫描器在 21-mer 口径下 mm0 必为 0（TEF-17/21 实测均 0，mm1 9/18）。
+第 7 节把 TEF-17 喂回全链路：v1.1.15 的 constructLen==目标长 边界
+（off-by-one 修复的标志性场景）出臂为目标精确子串，引物/扩增子 QC 全通过。
+
+#### 2026-09-17 代码审查修复（第二轮回归）
+
+审查发现并修复 4 个 P1（隔离株覆盖日志 TypeError——`isolate_coverage` 返回
+结构改为 `{overall, per_isolate}` 后 `min(m.values())` 会在 float/dict 间比较；
+空面板选择语义——`panel=''` 此前被归一化成 None 而误扫全部 750MB 面板，
+现三态化：不给=全部 / ''或'none'=跳过 / 列表=所选；JS `+val('ds_mm')||1`
+把"0 错配"吞成 1；result.csv 固定拷 0 号候选的 CSV 而非 maximin 中选者——
+候选现在携带 `orig` 原始编号）+ 2 个口径问题（报告里面板 bp/n_records 恒 0
+——indexes 未透传；lethal_rows 的 sirna_idx 0 基与 TSV 契约不一致，改 1 基）
++ 卫生项（删 `extract_amplicon` 死代码与 `assign_safety_scores` 未用形参；
+`build_lethal_index` 进程内缓存——同任务臂扫描+扩增子复扫免整文件重读；
+`scan_arms` 支持 cancel 逐 siRNA 中断；revcomp 文档注明仅 DNA 字母表）。
+`tests/_it_dsrna.py` 增至 9 节：新增 isolates 分支端到端（含 5% 突变衍生株
+的逃逸信号断言）、`panel=''` 跳过、result.csv 中选臂校验、max_mm=0 分层
+（11 跨突变窗 None + 869 精确窗 0）。
+
+## 2026-09-17 病毒浏览器「输入包」导出：两个按钮、一份信封
+
+需求（用户）：「停止，还是本地部署吧，修改 explore 导出 fasta 和 VirPhyKit 需要的
+元数据信息文件，并且进行预过滤」→ 随后追问「我们之前的脚本呢，导出我们之前流程
+支持的格式，是不是更好些」→ 定案**拆两个按钮**、**不信 GenBank 标记、按长度判完整**。
+
+### 唯一的真冲突是 date 列编码
+
+信封本来就已经一样了 —— 我们自己的 BEAST 交接包（进化平台
+`beast_handoff.py:471`）写的表头也是 `name,date,location`，FASTA 头也与 `name`
+列逐字相等。冲突只在 `date` 这一列的**写法**，而且**单向不可兼容**：
+
+| `date` 写法 | VirPhyKit/TreeTime | 自家 `virome_phylo_pipeline` |
+|---|---|---|
+| `2018-06-29` | ✔ 2018.49178 | ✔ 2018.49444 |
+| `2018.49589` | ✔ 2018.49589 | ✘ **2018.95145，偏 0.46 年且不报错** |
+
+原因：`utils/decimal_year.py` 的 `to_decimal_year(strict=True)` 只认
+`YYYY[-MM[-DD]]`，把小数年当成「年=2018.58 + 6 月 15 日」再折一次；越界年份还会
+直接 raise，让服务器整个 BEAST 作业中止。TreeTime 的 `parse_dates()` 两种都收。
+→ `YYYY-MM-DD` 是唯一两边都读对的写法，但 VirPhyKit 的 Example 用的是小数年
+（`2007.569473`），所以**各出一个按钮，不混用**：
+
+| 按钮 | 路由 | date 列 | 产物名 |
+|---|---|---|---|
+| 导出 VirPhyKit 输入包 | `POST /api/explorer/export/virphykit` | 小数年 `2007.56947` | `virphykit_*.zip` |
+| 导出管线输入包 | `POST /api/explorer/export/pipeline` | `YYYY[-MM[-DD]]` | `pipeline_*.zip` |
+
+两包**除 date 列外逐字相同**（name/location/FASTA 全等），巡检里有断言锁这条，
+因为它是「两个按钮」这个设计的全部前提。
+
+### 完整性：不信 `Nuc_Completeness` 标记，按长度判
+
+标记 `complete` 直接放行（这信号只在「说完整」时可靠）；标记非 `complete` 时按长度判：
+落在同物种 `complete` 记录长度**中位数**的 `[0.90, 1.20]` 倍内就留。
+该物种一条 `complete` 都没有时（全库 6,508 个物种里有 1,985 个），退化为
+**它自己最长序列**的长度。
+
+数据依据：PVY 标 `complete` 的 685 条长度 9376–9800（很紧），而标 `partial`
+的最长到 9762 —— 只认标记会白丢 269 条本该留的全长序列。全库同口径 66,552 →
+81,137（+14,585）。跑在真实筛选上：PVY 588 → **805 条**（靠长度救回 217 条）。
+档位取的是本平台既有判据：下界 0.90 = `align_qc.py:38` 的 `DEFAULT_MIN_LENGTH`，
+上界 1.20 = `contig_annot.py:245` 的「近完整」。
+**不能用属平均做基准**：`databases/genus_lens.tsv` 的 Potyvirus 平均只有 5292 bp
+（真值 ~9700，被片段拉低），拿它判只命中 2 条。
+
+### 顺手修掉一个互通缺陷：`metadata.csv` 里不能有引号
+
+TreeTime 读元数据走 `treetime/utils.py:251` 的 `parse_dates()`，对非 `.tsv` 用
+`sep=r'\s*,\s*'` + `engine='python'`，**不按引号包裹切分**。所以 `"Anshun, Guizhou"`
+这种字段会被从逗号劈开 —— PVY 那个包里 43/588 条 `location` 就这样被截断（还带个
+孤立引号），截断后的区域在 Mapping.txt 里永远匹配不上 → 全被标成 Unknown。
+现在所有会破坏 CSV 的字符（逗号/引号/制表/换行）一律压成空格（`csv_safe`），
+写出来**一个引号都没有**，TreeTime 的正则、pandas 默认、R `read.csv`、
+最朴素的 `split(',')` 读出来完全一致。巡检里既有断言也有相应的灵敏度负控。
+
+### 契约来源（外部目录，只按方法对齐，不复用代码）
+
+VirPhyKit 是 GPL v3，本平台**只做方法对齐、不引入其代码**。三个约束从源码读出：
+`Treetime/function_treetime.py:131-134` 读 `name/date/location` 并在 `:141-148`
+**硬性中止**于「叶缺日期/缺地点」；`Treedater/function_treedater.py:25` 用 R
+`read.csv`；`Subsample/fuction_subsample.py:37` 的
+`re.search(r"(?:^|>|_)([A-Za-z0-9]+)(?:_|$)")` 从头里取**第一个** alnum token。
+所以序列名口径定为 `{区域}_{登录号}_{小数年}`、区域去掉全部非 ASCII 字母数字字符。
+
+### 巡检与验证
+
+新增 `tests/_check_virphykit_export.py`（8 节，已登记进 `_run_all`）：小数年解析
+（8 正 8 负）、区域/name token、长度判据（中位数 vs 均值 + 闭区间边界 + 基准缺失负控）、
+预过滤夹具（含「标记 partial 但长度到位必须留下」的正控与 6 条负控）、
+两种日期口径对拍真下家、契约灵敏度自检、两路由端到端真库、可选 GeoSubsampler 实跑。
+
+**负控（证明会红）**：A 把 `statistics.median` 改成 `mean` → 1 项失败；
+B 让 `_metadata_text` 忽略 `date_mode` → 4 项失败、退出码 1。改回后 md5 逐字节复原。
+`tests/_check_explorer.py` 重跑全绿（证明 `filter_records` 抽取与路由重构没扰动
+原有两个导出与 5000 行表格口径）。浏览器端真点击两个按钮，提示条数字与
+`Content-Disposition` 文件名均正确（4,806 → 3,867；PVY 805），
+再把两个 zip 从**运行中的实例**上取回来复检：契约 0 问题、两包除 date 列外全等。
+
+### 环境提醒（本次踩到）
+
+- `dev_tools/run_sanitized.py` **只存在于进化平台**（`D:\桌面\植物病毒进化分析平台`），
+  所以 8900 是**进化平台**的实例；主平台在 **8765**（`python -u app.py --web`）。
+  改主平台代码后要重启 8765 才生效（Flask 无 reload），别对着 8900 测主平台。
+- 主平台的 `/api/explorer/query` 响应里 `rows_total` 是**全库行数**（`len(df)`），
+  不是筛选后的条数 —— 别拿它当筛选结果计数（筛选后的量看 `stats.total` / `table`）。
+- 前端 `filters()` 会把上一次的 `state.table` 一并回传，但服务端按筛选条件重跑，
+  不吃这张表（导出尤其如此，见 `explorer.py` 模块头「已知差异 1」）。
+
+## 2026-09-17 更正：比较基因组分析撤错了，已复原（导航层）
+
+**谁改的**：2026-09-15 的「三块业务迁出」拆分（本次会话之外的操作，见
+`docs/平台拆分记录_20260915.md`）。**为什么错**：拆分把「比较基因组分析」与
+「进化动力学分析」当成同一件事捆着撤出导航，但两者是不同的业务对象 ——
+比较基因组 = **不同病毒之间**的比较（跨科/属取参考序列 → MAFFT 比对 → 建树 / SDT
+同一性）；进化动力学 = **同一个基因 / 序列集内部**的时间与地理信号
+（重组 / 根到尾回归 / 系统地理）。09-16 恢复 `phylodyn` 时又用「覆盖」而不是
+「并列」，把 `compare` 的一级导航位吞了，于是它落到「**有组、有卡、有路由，
+但界面上到不了**」的状态。
+
+**复原改动（三处，仍仅导航层）**：
+
+| 文件 | 改动 |
+|---|---|
+| `Virus_Platform_Core/web/pages.py` | `NAV_GROUPS` 在 `annotate` 与 `phylodyn` **之间**插回 `compare` 组（5 张卡：`t-seqprep` / `/cds-export` / `t-align` / `t-treebuild` / `t-sdt`）；`_PATH_TO_GROUP` 恢复 `'/cds-export': 'compare'` |
+| `webapp/templates/_nav.html` | `_nav_items` 在 `annotate` 之后、`phylodyn` 之前补回 `('/tools?g=compare', 'nav.g.compare', '比较基因组分析', 'compare')` |
+| `webapp/templates/home.html` | 模块卡区补回「🧬 比较基因组分析」 |
+
+`i18n.js` 的 `nav.g.compare` / `hm.entry.compare.d`（中英）**一直在**，无需补。
+**未动 `phylodyn`** —— 09-16 的裁剪移植保持原样，两组现在并列。
+`/explorer` **未恢复**进导航：病毒浏览器确实迁走了，与本次更正无关。
+
+**关键澄清（推翻 09-16 文档里的一条说法）**：compare 的**后端在本站一直都好**，
+从未迁走。`TOOL_REGISTRY`（`web/tools_api.py`）里的 `align` / `quicktree` / `sdt` /
+`identity` / `structcmp` 与 `Virus_Platform_Core/{align_qc,sdt_exact,gb_collection,
+cds_export,msa_view,phylo}.py` 都在本站；`tools.html` 里 4 张卡的 `section.card[id]`
+（`:1322` / `:1430` / `:1546` / `:1649`）也都在。09-16 那条「比较基因组仍只在
+进化平台」对本站不准确 —— 拆掉的只有导航入口。
+
+**验证（全绿）**：
+- 真浏览器点击链路：首页模块卡 → 一级导航（该项高亮）→ `/tools?g=compare` 组树 →
+  4 个 hash 条目逐一点击，每次**只**该卡可见（`getComputedStyle(s).display`），
+  `/cds-export` 可达；控制台仅 1 条 ArchaeopteryxJS 常规 log，无 pageerror。
+- `tests/_it_compare.py`（SDT 精确矩阵 / NT+AA 同一性 / NJ+FastTree / GenBank 集合
+  离线全流程）、`tests/_it_platform.py`（含「`NAV_GROUPS` 每个 id 必须是 `main > *`
+  直接子元素」的结构断言 `:246`）、`tests/_it_align.py`、`tests/_it_msa.py`、
+  `tests/_check_pages_console.py`（22 页）—— 全部通过。
+
+**已定位但未修（与本次改动无关）**：`tests/_check_restore.py` 步 [3]「通用卡恢复」
+会红 —— 它等 `#toolrun-contigs` 出现「上次运行」，而 `/api/tool/runs` 是
+**按 mtime 倒序只取前 30 条**（`tools_api.py:190` 的 `names[:30]`）；最新一条
+`contigs_*` 运行在 222 个运行目录里排第 **168** 位（2026-09-12），永远进不了这个窗口。
+它是独立诊断脚本、**未登记进 `_run_all.py`**，不是门禁；修它属于改测试语义，
+本次未动（步 [1][2] 走的正是 compare 组，均通过）。
+
+**顺带发现并已定案（2026-09-17）**：主平台的 `/explorer` 也是「有页面、导航里没有」，
+但**与 compare 性质不同** —— 它是**活的 7 页签浏览器**（trends / mutation / table /
+primers / host / vector / profile），且这个「服务器版 7 页签」是**已提交**的工作
+（`6c59773` 引入、`ef07b55` 修跨站深链 + 真点击验证）。用户明确决定**暂不恢复**
+该入口、保持现状（只作深链访问）。所以：**compare 要进导航，explorer 不进** ——
+别看形态一样就一起改。
+
+## 2026-09-17 进化树 + 基因组叠加上线：补丁早就在，缺的是「接线」
+
+**用户的观察是对的**：进化树查看器里确实做过「叶标签之外的蛋白结构与相似性连线」，
+但 ③ 树查看的示例里没有。定位结论：能力在、**数据链路没有**。
+
+**能力在哪**：`webapp/static/vendor/archaeopteryx/archaeopteryx.js` 里的自研补丁
+「Comparative Synteny & Homology as tree overlays」（`~:5507` 起）—— 只画在矩形布局
+（rectangular），三层叠加：属色带（`g.aptx-genus-bands`）、每叶基因轨道
+（`g.aptx-genome`，叶标签右侧的箭头 gene box + 底部 `Genome Coordinates (bp)` 标尺）、
+同源连线（`g.aptx-genome-links` 的半透明 ribbon，按蛋白同一性走 5 档色阶
+30/55/75/90/100，右上角 `Protein Identity (%)` 色标）。数据入口是
+`launchArchaeopteryx(box, name, nwk, {genomeOverlay: {...}})` 或句柄 `setGenomeOverlay()`；
+面板里自动多出 `Genome Tracks` / `Genus Bands` / `Homology Links` / `Identity %` 开关。
+
+**为什么示例没有**：`genomeOverlay` 在库和 `demo-synteny.html` **之外零引用** —— 主平台、
+进化平台、`dist/` 全都没有生产方，两个渲染入口
+（`webapp/static/app-compare.js: renderTreeTo`、`webapp/templates/results.html: treeRender`）
+都只传 `{layout:'rectangular'}`。没有数据，补丁就永远不画。
+
+**接线（本轮）**：
+
+| 层 | 改动 |
+|---|---|
+| 数据约定 | `Virus_Platform_Core/web/common.py` 新增 `tree_overlay_for(nwk_path)`：叠加 JSON 放在**与树同目录同名**的位置（`tree.nwk` → `tree.overlay.json`）。缺失 / 损坏 / 非 dict / 空 tracks / 超 16MB **一律返回 None**，树照常渲染（叠加是可选产物，不能把树查看卡变成报错） |
+| 后端 | 三个树入口都带上 `overlay` 字段：`web/tool_results.py` 的 `/api/tree/file`、`/api/tool/quicktree_data`（取运行目录里实际选中的那棵树）；`web/refs.py` 的 `/api/tree/data` |
+| 前端 | `renderTreeTo(box, newick, opts)` 透传 `opts.genomeOverlay`；`treeToolLoadFile` / `treeToolView` / `quickTreeLoad` 与 `results.html treeLoad/treeRender` 都把 `d.overlay` 带上；`tvMeta` / `treeMeta` 多一行「基因组叠加：N 条轨道 / M 个基因 / K 条同源连线（按蛋白同一性着色）（仅矩形布局绘制）」 |
+| 示例 | `tests/make_example_overlay.py` 产出 `examples/example_synteny_tree.nwk` + `examples/example_synteny_tree.overlay.json`（3 轨道 × 6 CDS，18 条蛋白同一性连线 68.6%~93.2%，NJ 树走平台自己的 `phylo._nj_distance_matrix` + `_neighbor_joining`）；③ 树查看新增按钮「✨ 示例·基因组叠加」（`data-i18n-title="tk.fillExampleOverlayTitle"`，两个按钮的 onclick 改成 `fillExample(...).then(treeToolLoadFile)`，否则示例根外置时相对路径会落空） |
+
+**巡检**：`tests/_check_tree_overlay.py`（已登记 `_run_all.py`）—— 后端契约 +
+**五类坏 overlay 的降级负控**（无同名 JSON / JSON 损坏 / JSON 是数组 / 空 tracks /
+17MB 超限：都必须 overlay=null 且树仍 200）+ 真浏览器点示例数 SVG
+（属色带 3 / 基因框 18 / 同源连线 18 / 标尺 1 / 色标 1，注意宽度 ≥7px 的 gene 画成
+箭头 `polygon`、窄的才退化成 `rect`）+ **换纯树示例后四类元素必须清零**的负控 +
+i18n 键 + 无 pageerror。已按纪律做**断电负控**：临时让 `tree_overlay_for` 直接
+`return None` → 巡检 10 项变红，恢复后全绿。
+
+**补丁留档（2026-09-17 已做）**：`webapp/static/vendor/` 在 `.gitignore:39` —— 这个补丁
+**从未入库**，只存在于本机与该机 `dist/` 副本，而丢了之后平台只会「静默不画叠加」
+（没有数据不算错，所以不会报错）。排查确认**本机已无上游原件**（源码、`dist/.../_internal/`、
+进化平台三份 `archaeopteryx.js` md5 全同 `18e59d72…`），做不出可信 diff，
+故按用户选择留**字节级副本**：`docs/vendor_patches/archaeopteryx/{archaeopteryx.js,
+demo-synteny.html}` + `README.md`（md5、上游版本与 LGPL-3.0 说明、补丁三层与代码锚点、
+恢复步骤与冒烟方法）。**`.gitignore` 未改** —— vendor 整体仍不纳管，只有这两个文件的
+副本入库。
+
+**本次不做（用户已定案）**：① `dev_tools/package.py` **暂不重打包** `dist/` —— 源码模式
+8765 已带接线与新示例，打包版留待改动攒批再打；② 进化平台 8900 **暂不同步**这套接线
+（那边有同一份补丁与 `demo-synteny.html`，接线时逐文件留 `.bak`，因为它无 git）。
+
+**附带发现（2026-09-17 已修，见下一节）**：`examples/example_synteny_{A,B,C}.gb` 的 CDS 曾是
+840bp @ 500bp 间隔（互相重叠），且第 6 个 CDS 结束在 3490 > `LOCUS` 声明的 3300。
+生成器因此把标尺取 `max(len(seq), max(end))`，避免最右一个基因框被裁掉。
+
+## 2026-09-17 「全部修复」：夹具自洽性 / 行尾 / 残留进程 / 一个被砸坏的表单标签
+
+用户对上一轮报告的三个知情项 + 排查中新发现的缺陷做了统一修复。
+
+**① 示例夹具 `example_synteny_{A,B,C}.gb` 改自洽（真实缺陷）**
+
+| 缺陷 | 修法 |
+|---|---|
+| 6 个 CDS 按 500bp 间距排但每个 840bp → 相邻重叠 340bp（40%） | `tests/make_examples.py:make_synteny_trio()` 改为 840bp 编码 + 60bp 间隔、首尾各留 150bp |
+| 第 6 个 CDS 收在 **3490** 而 `LOCUS`/序列只有 **3300bp** → 越界，按坐标切片被静默截断 | 基因组长度显式推导：`2*150 + 6*840 + 5*60 = ` **5640bp**（< 6.8kb 仍贴近 Potexvirus 口径） |
+| 生成器用 `max(len(seq), max(end))` 把越界**兜住**了（缺陷被掩盖，没人再看得见） | `tests/make_example_overlay.py` 改为**断言**：CDS 越界直接报错并点名文件/基因 |
+| 巡检不检查这条不变量 | `tests/_check_tree_overlay.py` 新增两条：每个 CDS 落在轨道长度内、同轨 CDS 互不重叠 |
+
+重生成链（幂等）：`tests/make_examples.py:make_synteny_trio` → `tests/make_example_synteny_gb.py`
+（ORIGIN 写真序列，5640bp / GC≈58% / EXAMPLE_SET 集合重建）→ `tests/make_example_overlay.py`
+（树 + `overlay.json`）。**蛋白层面完全不变**：3 轨道 × 6 CDS、18 条连线 68.6%~93.2%（中位 75.0%）、
+树拓扑 `(C,(A,B))` 照旧 —— 变的是坐标、轨道长度与（DNA 派生的）枝长。
+`examples/results/synteny/summary.json` 里的 `length` 同步为 5640，并把指向已删工作目录
+（`databases/examples/_work/synteny`）的绝对路径改为相对路径、补 `note` 说明该快照由已摘除的
+LoVis4U 口径引擎产出（故不可原样重跑）；`ident` 数值来自蛋白、未受影响，保持原样。
+
+**② 行尾归一化（9 个文件，只动行终止符）**
+工作区里 9 个改动文件的行尾与 `HEAD` 约定不一致，`git diff` 被整文件噪音淹没（`app.js`
+4058 行、`tools.html` 4489 行）。按各自 `HEAD` 约定重写：`app.js`/`assembly.py`/`db_migrate.py`/
+`kv_engines.py`/`kv_stage.py`/`io_api.py` → LF；`kv_config.yaml`/`pages.py`/`tools.html` → CRLF
+（后两个原本混入 45 / 2 行纯 LF）。改写前后以「按 LF 归一后内容逐字节一致」断言把关，原文件
+备份在 `run/_eol_backup_20260917/`。归一后 `app.js` 的 diff 降到 110 行（只剩真实改动）。
+**`.gitattributes` 的 `* -text` 未改** —— 纪律仍是「编辑时保持文件原有行尾」。
+
+**③ 清理 6 个残留进程**（只留 8765 主平台 / 8900 进化平台）
+`:8791` `:8792`（进化平台临时实例，父进程已退）、`:8818`（主平台临时实例）、
+`:8931`（`http.server` 目录列表 —— 会暴露整个平台目录）、`:8766`（nohup 拉起的进化平台副本）、
+PID 409424（`tests/_diag_pages.py` 跑了两天，占 `:18777`）。
+**`:_pick_port` 的连带发现**：`app.py:_pick_port()` 按 `[8765, 8900, 8989, 9600, 8888, 5050, 5000]`
+顺序取第一个可绑定端口，所以 8765/8900 被占用时，用户双击 `启动平台-网页.bat` 会静默落到
+8989/9600 —— `:8989`、`:9600` 正是这样来的用户实例，**未动**（用户自己关）。
+
+**④ 排查中新发现并修掉的真实 UI 缺陷：`tools.html` 定年卡的 `<label>` 被砸坏**
+`tests/_it_platform.py` 的「导航项均有 `<main>` 直接子卡片」断言报 15 个 id 缺失
+（`t-dsrna` / `t-pd*` / `t-phylogeo`）。根因不是行尾也非本次改动，而是 `tools.html:1795`：
+
+```html
+<label data-i18n="tk.rttMetaLbl"
+<button ... onclick="pdPickDataset('rtt_input','rtt_meta','date')" ...>📦 从数据接入 run 选择</button> data-page-node-id="ew5WnP90Z0UaA8mckngklu">元数据 CSV / TSV（必选：seq_id + 日期列）</label>
+```
+
+按 `webapp/templates/tools.html.bak_20260916_geo移植前` 的原文可知是 09-16 那次
+`data-page-node-id` 注入把「📦 从数据接入 run 选择」按钮**插进了 `<label>` 的属性区**：元数据标签
+文本丢失、「选择」按钮退化成一串文字、页面上还漏出裸的 `data-page-node-id="…">`，并且未闭合的
+`<label>` 让后面 15 张卡片在 DOM 里**嵌套错位**（点导航项即空白页 —— 正是该断言防的那类 bug）。
+已按原文恢复 label + 按钮为兄弟节点。全模板扫描（「行内标签未闭合且下一行直接开新标签」）
+**只此一处**；`_it_platform.py` 恢复 `PLATFORM CHECKS PASSED`，真浏览器复核：标签文本回来、
+按钮存在可见可点、无游离文本、`main > #t-*` 抽查全 True、22 页无 JS 报错。
+
+**⑤ `tools.html` 又被改回混行尾 → 再次归一（并更正归因）**
+归一化完成后复核，`tools.html` 又变成 `worktree=MIXED`（CRLF 6318 + **恰好 4 行**纯 LF，
+mtime 15:26:01）：`pdltt` 卡片里的 `<b id="pdlttTitle">` / `<span style="flex:1">` /
+`<a id="pdlttDated">` / `<a id="pdlttPhyloPdf">`。已按 CRLF 再次归一（备份
+`run/_eol_backup_20260917/tools.html.mixed_20260917b`），全仓 130 个改动文件复核 **0 处不一致**。
+
+**归因更正（当日稍后查明）**：这 4 行不是"树外 IDE 插件"写的，而是**另一个会话在同一工作区
+就地编辑**时新加的行 —— 当天有人在给 `t-pdltt` 卡加「真 TreeDater 引擎」，`pdlttTitle` /
+`pdlttDated` / `pdlttPhyloPdf` 正是那批新元素（同一小时里 `run/` 下出现 7 个就地改写
+`phylodyn_trees.py` 的补丁脚本，还有两个 `_check_phylodyn_example.py` 并行在跑）。
+**教训**：看到 MIXED 先查时间线与"有没有别人的 python 在跑"，别抢在别人正在写的文件上做行尾
+归一化（会互相覆盖）；09-16 那次 `data-page-node-id` 砸坏 `<label>` 的来源仍未证实。
+真正的守卫仍是 `tests/_it_platform.py` 的「导航项均为 `<main>` 直接子元素」断言
+—— 它上次就是这样抓出 `<label>` 被砸坏的。
+
+**⑥ 示例结果清单里 26 处 `source` 指向已不存在的路径（改对）**
+`examples/results/manifest.json` 的 `source` 全部写着 `databases/examples/…`，而该目录
+2026-09-10 起已不存在（示例根搬到了 `examples/`）；生成器 `tests/make_example_results.py:179`
+早就是 `'source': 'examples/'`，只有这份旧快照留在旧值。`source` 不经
+`/api/examples` 暴露（只出 title / run / files / generated_at），故无用户可见影响，属
+"死元数据指错路"。已按 26 处文本替换为 `examples/`（备份
+`run/_eol_backup_20260917/manifest.json.before_source_fix`），JSON 仍可解析、条目数仍 26。
+**未删任何示例结果目录** —— `identity` / `structcmp` / `synteny` 三套产物是"卡片已下架的
+历史快照"（前者现为 SDT 卡模式二、中者降为 MSA 卡内部比对、后者是已摘除的 LoVis4U 引擎），
+它们在「👁 示例结果总览」里仍能正常打开（后端按目录列产物，与有没有卡片无关），
+所以**删不删是用户的决定**，本轮只报告不动手。
+
+**验证**：`_check_tree_overlay.py`（含两条新断言，exit 0）、`_it_platform.py`（PASSED）、
+`_check_pages_console.py`（22 页 ✔）、`_check_examples_manifest.py`（✔ 无硬性差异）、
+`_audit_contract.py`（✔ 无硬性差异）。两条新守卫都做了**负控**：把 ORF6 改成 `4651..6490`
+→ `make_example_overlay.py` 以「CDS 超出记录长度 5640 bp」退出 1；把 overlay 首轨基因改成
+越界+重叠 → 巡检恰好多出 2 条 FAIL。两处还原后 md5 与改动前一致。**未改 `dist/`、未同步 8900、未提交 git。**
+
+## 2026-09-18 引物设计 / dsRNA 设计从「病毒注释分析」拆出，新组「检测与防治」
+
+**用户提出的判据**：「引物设计、dsRNA 设计是不是独立功能？从功能注释移除，归到检测与防治。」
+核过一遍，**是独立的** —— 而且判据不止"看起来不像注释"，有三条硬理由：
+
+1. **回答的问题不同**。注释组（`annotate`）回答的是「这条序列**是什么**」——
+   ORF / 数据库比对 / 保守域 / 图谱，产物都是**对序列的描述**；
+   引物设计回答「怎么把它**检出来**」（产物 = 引物对，服务 PCR / qPCR），
+   dsRNA 设计回答「怎么把它**防住**」（产物 = RNAi 分子，服务防治）。
+2. **产物的消费方不同**。注释产物喂给「结果中心 / 提交」这条链（读、看、投稿）；
+   这两项的产物是**可下单的湿实验材料**，必须真做实验才能闭环，与注释不是一条链。
+3. **依赖与参数集完全不相交**。注释靠病毒库 / CDD / nt·nr；引物靠 primer3 热力学
+   与模板保守性；dsRNA 靠 dsRNAmax 选窗 + dsRIP 效价 + 脱靶面板 → T7 引物。
+   三者没有共享输入，挂在一个组下只是历史偶然（旧页面把它们放在注释页侧栏）。
+
+**改动（5 处，仅导航/文案层，**不动任何分析代码**）**：
+
+| 文件 | 改动 |
+|---|---|
+| `Virus_Platform_Core/web/pages.py` | `NAV_GROUPS` 里 `annotate` 组从 7 项减到 5 项（移出 `/primer` 与 `t-dsrna`），紧随其后新建 `{'id':'detect','label':'检测与防治'}`（2 项）；`_PATH_TO_GROUP['/primer']` 由 `annotate` 改为 `detect` |
+| `webapp/templates/_nav.html` | `_nav_items` 在 annotate 与 compare 之间插 `('/tools?g=detect','nav.g.detect','检测与防治','detect')` |
+| `webapp/templates/home.html` | 「病毒注释分析」卡 desc 去掉「引物设计」；新增「🎯 检测与防治」卡 |
+| `webapp/static/i18n.js` | 中英各加 `nav.g.detect`（检测与防治 / Detection & control）与 `hm.entry.detect.d`；`hm.entry.annotate.d` 中英同步删掉引物（**中英必须同改，`_audit_contract.py` 会卡 zh/en 键数一致**） |
+| `tests/` | `_it_platform.py` 加 `/tools?g=detect` 到 PAGES + 4 条新断言；`_it_nav_responsive.py` 把写死的「13 个一级链接」改成按 `NAV_GROUPS` 派生 |
+
+**`_PATH_TO_GROUP` 是这层最容易漏的一行**：`_group_nav.html` 用 `current_group`
+拼 `/tools?g=<组id>#<卡id>`，漏改则 `/primer` 侧栏仍列注释组、dsRNA 入口指错组。
+故新断言直接切 `/primer` 渲染出的 `class="group-topbar"` 区块来验，
+而不是照抄 `NAV_GROUPS` 自证（那等于把测试绑在实现上）。
+
+**验证**：`_it_platform.py`（PASSED，含 4 条新断言）、`_audit_contract.py`
+（✔ 无硬性差异，i18n zh/en 各 2154 键一致）、`_check_pages_console.py`
+（20 页真浏览器 ✔，含 `/primer`）、`_it_nav_responsive.py`（✔ 全部通过；**首次跑
+`/pipeline 640px` 报过一条 linkRows=3，复跑即 2 行** —— 640px 属极窄窗口、
+折行处在临界，与本次 +1 项无关：真浏览器里在同一页面内逐档摘掉 detect / compare /
+phylodyn 三个组，15 / 14 / 13 / 12 个链接在 640px **一律折 2 行**，1920px 一律 1 行）。
+线上实例已重启（8765）实测：首页导航 15 项、`/primer` 组顶栏「🏠 检测与防治」。
+**未改 `dist/`、未同步 8900（该平台无 annotate 组，无需镜像）、未提交 git。**
+
+**没做但可以做的**（留给用户定）：本组目前只有这 2 项。同属"检测"语义、现挂在别组的
+还有 `t-variant`（病毒变异分析，现属「病毒定量与共识」，产物是 SNP/变异图 = 检测）
+与 `/hostpredict`（现属「病毒识别和分类分析」）—— 要不要一并搬进来，等用户口径。
 

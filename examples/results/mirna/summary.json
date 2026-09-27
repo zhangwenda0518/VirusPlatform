@@ -1,0 +1,20 @@
+{
+ "tool": "mirna",
+ "n_mirna": 8,
+ "n_virus": 3,
+ "n_pairs": 24,
+ "n_hits": 2,
+ "consensus_levels": {
+  "LOW+": 2
+ },
+ "full_mode": false,
+ "algorithms": [
+  "miranda",
+  "psrna",
+  "rnahybrid"
+ ],
+ "elapsed_sec": 1.2,
+ "results_json": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\mirna_20260920_011838_a48468\\mirna_target\\results.json",
+ "results_tsv": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\mirna_20260920_011838_a48468\\mirna_target\\results.tsv",
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\mirna_20260920_011838_a48468\\mirna_target"
+}

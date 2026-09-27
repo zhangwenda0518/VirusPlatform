@@ -1,0 +1,3 @@
+mirna_id,target_virus_id,target_virus_name,consensus_level,num_algorithms,consensus_detail,best_energy,miranda_bin_score,miranda_bin_energy,rnahybrid_bin_mfe,pita_bin_dgopen,target_start,target_end,miranda_identity
+"Theobroma_cacao_miRNA_00667","NC_002035","NC_002035","LOW+","2","miRanda+RNAhybrid","-28.5","128.0","","","0.0","2534","2557","72.72727272727273"
+"Rhamphospermum_arvense_miRNA_00033","NC_002035","NC_002035","LOW+","2","miRanda+RNAhybrid","-25.0","154.0","","","0.0","2474","2497","72.72727272727273"

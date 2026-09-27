@@ -3,6 +3,7 @@
 + 既有样品报告与结果中心数据。只读，不启动分析任务。"""
 import json
 import os
+import re
 import shutil
 import sys
 # 控制台编码兜底：Windows 默认代码页是 GBK，本脚本的 ✔/✘/⚠ 等字符会让
@@ -21,10 +22,11 @@ from Virus_Platform_Core.config import PLATFORM_ROOT  # noqa: E402
 
 EX = os.path.join(PLATFORM_ROOT, 'examples')
 
-PAGES = ['/', '/pipeline', '/samples', '/hostremoval', '/hostpredict',
+PAGES = ['/', '/pipeline', '/samples', '/hostremoval',
          '/orf', '/annotation', '/genome', '/primer', '/build', '/results',
          '/tools', '/settings', '/meta', '/download', '/logan', '/submit',
-         '/virome', '/tools?g=virus', '/tools?g=annotate', '/tools?g=compare']
+         '/virome', '/tools?g=virus', '/tools?g=annotate', '/tools?g=compare',
+         '/tools?g=detect']
 
 
 def check(cond, msg):
@@ -62,6 +64,17 @@ def main():
                           ('fillExample(\'tv_file\', EXAMPLE_TREE_NWK)', '树查看'),
                           ('fillExample(\'sd_fa\', EXAMPLE_SET_FASTA)', 'SDT 卡'),
                           ('fillExample(\'s_files\', EXAMPLE_GB_TRIO)', '导入示例 .gb')]:
+        check(marker in html, f'tools 页渲染含 {where}')
+    # RDP5 重组卡输入通道（2026-09-15 补齐）：📋 粘贴 + ✨ 同种病毒示例。
+    # RDP5 是「同种/同株系」比较，示例必须是同一病毒的比对（跨病毒比较在比对卡），
+    # 故示例常量与比对卡的 EXAMPLE_SET_FASTA 分开——别合并，语义不同。
+    for marker, where in [("pasteSeq('rdp_input', '.fasta')", 'RDP5 卡·粘贴序列'),
+                          ("fillExample('rdp_input', EXAMPLE_RECOMB_FASTA)", 'RDP5 卡·同种病毒示例'),
+                          ('data-i18n="tk.rdpScopeHint"', 'RDP5 卡·同种病毒范围提示'),
+                          ('id="rdp_qc"', 'RDP5 卡·序列预筛开关'),
+                          ('id="rdp_qc_ref"', 'RDP5 卡·预筛参考序列'),
+                          ('id="rdp_qc_len"', 'RDP5 卡·预筛长度比'),
+                          ('data-i18n="tk.rdpQcHint"', 'RDP5 卡·预筛判据说明')]:
         check(marker in html, f'tools 页渲染含 {where}')
     # 比较组三模块结构：参考序列获取 / 进化树构建 / SDT
     for gone in ('id="t-contigs-struct"', 'id="t-ncbi"', 'id="t-synteny-gb"',
@@ -177,8 +190,9 @@ def main():
     _i_sun = hv.find('id="sunC"')
     check(0 < _i_det < _i_host < _i_sun,
           '报告区顺序：分类表 → contig 明细 → 宿主预测统计 → 旭日图')
-    check(hv.count('<section class="card" id="t-contigs">') == 1
-          and hv.count('<section class="card" id="t-assemble">') == 1,
+    # 卡片标签现在带 data-page-node-id 等附加属性，按 id 匹配而不是整串比对
+    check(len(re.findall(r'<section[^>]*\bid="t-contigs"', hv)) == 1
+          and len(re.findall(r'<section[^>]*\bid="t-assemble"', hv)) == 1,
           '④ contigs / ③ assemble 卡存在且唯一')
     check(hv.count('id="hostRptSec"') == 1, '宿主预测统计块唯一（无错插副本）')
     for marker, where in [("vEx('tmv')", '示例病毒 TMV'),
@@ -203,6 +217,29 @@ def main():
                    'ncbiCdd', 'ncbiNuc'):
         check(marker in ha, f'metabuli 风格结果渲染含 {marker}')
 
+    # 2026-09-18：引物设计 / dsRNA 设计由「病毒注释分析」拆到新组「检测与防治」。
+    # 断言的是**渲染出来的界面产物**（组顶栏），不是照抄 NAV_GROUPS 自证 ——
+    # 这层最容易漏改的正是 pages.py 的 _PATH_TO_GROUP（漏了则 /primer 侧栏
+    # 仍列注释组 7 项、dsRNA 入口还指向 ?g=annotate）。
+    hp = c.get('/primer').get_data(as_text=True)
+    _gt = hp.split('class="group-topbar"', 1)[-1].split('</nav>', 1)[0]
+    check(_gt and '检测与防治' in _gt, '/primer 组顶栏 =「检测与防治」')
+    check('/tools?g=detect#t-dsrna' in _gt,
+          '/primer 组顶栏的 dsRNA 入口指向 detect 组')
+    check('病毒注释分析' not in _gt, '/primer 组顶栏不再是「病毒注释分析」')
+    hd = c.get('/tools?g=detect').get_data(as_text=True)
+    check('id="t-dsrna"' in hd, '检测与防治组概览渲染出 dsRNA 卡')
+    from Virus_Platform_Core.web.pages import NAV_GROUPS as _NG
+    _g = {g['id']: g for g in _NG}
+    _d_ids = {it.get('id') or it.get('href') for it in _g['detect']['items']}
+    _a_ids = {it.get('id') or it.get('href') for it in _g['annotate']['items']}
+    # 2026-09-18：另一会话把「miRNA 设计」(t-mirna) 也放进了本组 →
+    # 期望集合跟着现实走（不是本会话加的东西，但断言得对得上，否则整份文件在这就崩）
+    check(_d_ids == {'/primer', 't-dsrna', 't-mirna'},
+          f'检测与防治组 = 引物设计 + dsRNA 设计 + miRNA 设计（实际 {sorted(_d_ids)}）')
+    check(not ({'/primer', 't-dsrna'} & _a_ids),
+          '注释组不再含引物设计 / dsRNA 设计')
+
     # ---------- 3b. 模块历史运行组件（折叠/衔接/删除） ----------
     import os as _os
     # 工具工作台各组页渲染的是同一份 tools.html（卡片由前端按组显隐），
@@ -211,7 +248,7 @@ def main():
                             'tools.html'), encoding='utf-8') as _f:
         _n_rh = _f.read().count('class="rh" id="rh-')
     for pg, n in [('/tools?g=sample', _n_rh), ('/tools?g=compare', _n_rh),
-                  ('/hostremoval', 1), ('/hostpredict', 1), ('/orf', 1),
+                  ('/hostremoval', 1), ('/orf', 1),
                   ('/annotation', 1), ('/genome', 1), ('/primer', 1)]:
         h = c.get(pg).get_data(as_text=True)
         check(h.count('class="rh" id="rh-') == n, f'{pg} 历史容器 {n} 个')
@@ -419,28 +456,92 @@ def main():
     check(r.status_code == 200, 'app-compare.js 静态资源 200')
     r = c.get('/static/i18n.js')
     check(r.status_code == 200, 'i18n.js 静态资源 200')
-    # Explorer（服务器版 7 页签移植，2026-09-15）：前端脚本必须可达
-    r = c.get('/static/app-explorer.js')
-    check(r.status_code == 200, 'app-explorer.js 静态资源 200')
 
-    # ---------- 5. Explorer 路由 ----------
-    # 只断言「路由存在且不是 404」，不在此处跑重活：
-    # /variation 缺 virus 参数返回 400（正确行为），带参数要跑两两比对；
-    # /profile 缺 name 返回空串；/vector 会重跑主过滤管道。真跑留给
-    # _check_explorer.py（Playwright 真浏览器）。
-    for rule in ('/api/explorer/status', '/api/explorer/init',
-                 '/api/explorer/virus_options', '/api/explorer/primers',
-                 '/api/explorer/host', '/api/explorer/profile',
-                 '/api/explorer/profile_species', '/reference/i18n.js'):
+    # ---------- 5. Explorer 路由：2026-09-17 摘除入口，2026-09-27 彻底归档
+    # （archive/_retire_20260927/explorer/）→ 断言 404 防回归 ----------
+    # 背景：病毒浏览器在 2026-09-17 起在两个平台停用（只摘入口与蓝图注册，
+    # 代码与数据留着）。这里原先逐个断言「路由存在且不是 404」，蓝图一摘就
+    # 全变 404，`check()` 里的 assert 让**文件在这一节就崩**、后面所有检查跑不到
+    # ——看起来像"本次改动改坏了"。所以改成反向断言：这些路由**必须 404**。
+    _gone = ('/api/explorer/status', '/api/explorer/init',
+             '/api/explorer/virus_options', '/api/explorer/primers',
+             '/api/explorer/host', '/api/explorer/profile',
+             '/api/explorer/profile_species')
+    for rule in _gone:
         r = c.get(rule)
-        check(r.status_code != 404, f'{rule} 路由已注册（HTTP {r.status_code}）')
+        check(r.status_code == 404, f'{rule} 已摘除（HTTP {r.status_code}，应为 404）')
     for rule in ('/api/explorer/query', '/api/explorer/charts',
                  '/api/explorer/vector', '/api/explorer/export/csv'):
         r = c.post(rule, json={})
-        check(r.status_code != 404, f'{rule} 路由已注册（HTTP {r.status_code}）')
-    r = c.get('/explorer')
-    check(r.status_code == 200, '/explorer 页面 200')
-    check(b'app-explorer.js' in r.data, '/explorer 引用了 app-explorer.js')
+        check(r.status_code == 404, f'{rule} 已摘除（HTTP {r.status_code}，应为 404）')
+    # /reference/i18n.js 也属于 explorer 蓝图（实测 404）→ 一并纳入防回归
+    r = c.get('/reference/i18n.js')
+    check(r.status_code == 404, f'/reference/i18n.js 已摘除（HTTP {r.status_code}，应为 404）')
+
+    # ---------- 5b. 进化动力学 t-phylodyn（2026-09-18 接线）+ 8 张归档卡防回归 ----------
+    # 与 tools 页同一份模板，所以这里用 test_client 就能查（真浏览器在
+    # _check_phylodyn_ui.py / _check_phylodyn_e2e.py）。
+    r = c.get('/tools?g=phylodyn')
+    html = r.data.decode('utf-8', 'replace')
+    for mark in ('id="t-phylodyn"', 'id="pdFlow"', 'id="pd_input"',
+                 'id="pdyn_meta"', 'id="toolrun-phylodyn"', 'id="pd_sub_on"',
+                 'id="pd_coords_tsv"',
+                 'function runPhylodyn(', 'function loadPhylodynResult(',
+                 'const PD_STAGES', 'function drawTimeTree(',
+                 # A2 迁移弧线地图（2026-09-18）：容器 + 坐标表输入 + 渲染函数。
+                 # drawPgGeo 是**两卡共用**的实现，删了它系统地理卡的图也会没。
+                 'id="pdGeoArc"', 'id="pd_coords"', 'function drawPgGeo(',
+                 'function _pgArc('):
+        check(mark in html, f'phylodyn 卡接线标记存在: {mark}')
+    # ★ 撞车负控：新卡把撞车的 id 改成了 pdyn_*，而**保留的数据接入卡**仍用 pd_*
+    check('id="pd_zip"' not in html and 'id="pdyn_zip"' not in html,
+          'zip 来源的输入框已摘除（2026-09-18 explorer 不再导出 zip）')
+    _rz = c.post('/api/phylodyn/import_export_zip', json={'zip_path': 'x.zip'})
+    check(_rz.status_code == 404,
+          f'/api/phylodyn/import_export_zip 已摘除（HTTP {_rz.status_code}，应为 404）')
+    _gone = ('id="t-pdrand"', 'id="t-pdrrt"', 'id="t-pdtempmig"', 'id="t-pdbsp"',
+             'id="t-pdrspp"', 'id="t-pdtreetime"', 'id="t-pdltt"', 'id="t-pdmjrm"',
+             'function runPdBsp(', 'function runPdLtt(', 'function loadPdMjrmResult(',
+             'id="t-pdrename"', 'id="t-pdgroup"', 'function runPdrename(')
+    _left = [m for m in _gone if m in html]
+    check(not _left, f'10 张归档卡的前端标记已消失（残留: {_left or "无"}）')
+    from Virus_Platform_Core.web.tools_api import TOOL_REGISTRY as _TR
+    check('phylodyn' in _TR, 'TOOL_REGISTRY 注册了 phylodyn')
+    for _t in ('pdrand', 'pdrrt', 'pdtempmig', 'pdbsp', 'pdrspp', 'pdtreetime',
+               'pdltt', 'pdmjrm', 'pdrename', 'pdgroup'):
+        check(_t not in _TR, f'归档工具已从注册表摘除: {_t}')
+    for _t in ('pdprep',):
+        check(_t in _TR, f'保留工具仍在注册表: {_t}')
+    for _t in ('pdspacetime', 'pdsub'):
+        check(_t not in _TR, f'已并入数据准备的卡已摘除: {_t}')
+    _r2 = c.get('/tools?g=phylodyn')
+    _h2 = _r2.data.decode('utf-8', 'replace')
+    _left2 = [m for m in ('id="t-pdspacetime"', 'id="t-pdsub"', 'function runPdSub(',
+                          'function runPdSpacetime(') if m in _h2]
+    check(not _left2, f'两张已合并卡的前端标记已消失（残留: {_left2 or "无"}）')
+    # 2026-09-18：摘卡留下的**非界面残影**（i18n 孤儿键 / LIGHT_TOOLS / 死函数）
+    from Virus_Platform_Core.web.tools_api import LIGHT_TOOLS as _LT
+    check('pdspacetime' not in _LT and 'pdsub' not in _LT,
+          f'LIGHT_TOOLS 里没有已下线的工具（实际 {sorted(_LT)}）')
+    _iz = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'webapp/static/i18n.js'),
+        encoding='utf-8').read()
+    _dead = [k for k in ('tk.pdrandBusy', 'tk.pdrrtStat', 'tk.pdbspX',
+                         'tk.pdrsppStat', 'tk.pdlttY') if ("'%s'" % k) in _iz]
+    check(not _dead, f'8 张归档卡的 i18n 孤儿键已清（残留: {_dead or "无"}）')
+    _js = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'webapp/templates/tools.html'),
+        encoding='utf-8').read()
+    _df = [f for f in ('pdsubModeToggle', 'pdsubFromToggle')
+           if ('function %s(' % f) in _js]
+    check(not _df, f'已下线卡的死函数已清（残留: {_df or "无"}）')
+    _gs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       'Virus_Platform_Core', 'geo_subsampler.py')
+    check(not os.path.isfile(_gs),
+          'geo_subsampler.py 已删（与 kit.subsample_fasta 同口径的重复实现，2026-09-18 收敛）')
+    from Virus_Platform_Core import phylodyn_kit as _pk
+    check(not hasattr(_pk, 'import_from_zip'),
+          'import_from_zip 已删（zip 来源 2026-09-18 整条下线）')
 
     print('PLATFORM CHECKS PASSED', flush=True)
 

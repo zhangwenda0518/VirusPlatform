@@ -472,7 +472,7 @@ def plot_tree_labeled(nwk_path, out_png, title=''):
     fig, ax = plt.subplots(figsize=(10, max(3.5, 0.32 * n_tips)))
     Phylo.draw(tree, axes=ax, do_show=False,
                label_func=lambda c: (c.name or '')[:40] if c.is_terminal() else '')
-    ax.set_title(title or '系统进化树（FastTree/IQ-TREE）')
+    ax.set_title(title or '系统进化树（FastTree/RAxML-NG）')
     _save_fig_png(fig, out_png)
 
 
@@ -577,6 +577,22 @@ def build_report(sample_dir, logger=None):
     if os.path.isfile(p):
         primer_sum = _read_json(p)
 
+    # 缺产物的阶段小节会被静默省略——一次性列出来，避免"报告少一块但没人知道"
+    _missing_inputs = [name for name, path in (
+        ('①宿主去除', os.path.join(sample_dir, '01_host_removal', 'stats.json')),
+        ('②b病毒鉴定', os.path.join(sample_dir, '02b_kvsuite', 'summary.json')),
+        ('③组装', os.path.join(sample_dir, '03_assembly', 'summary.json')),
+        ('④宿主预测', os.path.join(sample_dir, '08_host_analysis', 'summary.json')),
+        ('⑥ORF', os.path.join(sample_dir, '04_orf', 'summary.json')),
+        ('⑥b注释', os.path.join(sample_dir, '04b_orf_annot', 'summary.json')),
+        ('⑦系统发育', os.path.join(sample_dir, '05_phylo', 'summary.json')),
+        ('⑧引物', os.path.join(sample_dir, '06_primer', 'summary.json')),
+        ('⑨基因组图', os.path.join(sample_dir, '09_genome_plots', 'summary.json')),
+    ) if not os.path.isfile(path)]
+    if _missing_inputs and logger:
+        logger.log('报告缺少以下阶段产物，对应小节已省略（需要完整报告请先运行这些阶段）: '
+                   + '、'.join(_missing_inputs), 'WARN')
+
     figures = []          # (title, html_div or img_tag)
 
     # ②b 已知病毒识别与定量 → 桑基 + 旭日 + 柱状
@@ -672,8 +688,17 @@ def build_report(sample_dir, logger=None):
     if phylo_sum and not phylo_sum.get('skipped'):
         from .phylo import pairwise_identity_matrix
         for g in phylo_sum.get('groups', []):
-            gdir = check_path(os.path.join(sample_dir, '05_phylo', g['dir']),
-                              must_exist=True)
+            # 不用 must_exist：历史运行残留的组目录缺失不该让整个报告阶段抛错
+            gdir = check_path(os.path.join(sample_dir, '05_phylo',
+                                           g.get('dir') or ''),
+                              must_exist=False)
+            if not os.path.isdir(gdir):
+                if logger:
+                    logger.log(f"系统发育组 {g.get('group')} 目录缺失"
+                               f"（05_phylo/{g.get('dir')}），跳过该组图表",
+                               "WARN")
+                continue
+            gdir = str(gdir)
             if g.get('tree'):
                 nwk = os.path.join(gdir, g['tree'])
                 if os.path.isfile(nwk):
@@ -704,10 +729,14 @@ def build_report(sample_dir, logger=None):
     if os.path.isfile(p_gb):
         try:
             gb = _read_json(p_gb)
-            n_svg = 0
+            n_svg = n_missing = 0
             for rel in gb.get('plots', []):
-                svg_p = os.path.join(sample_dir, '09_genome_plots', rel)
+                # 老版本 summary 记的是绝对路径，这里兼容；新版本记相对路径，
+                # 样品目录搬迁后仍能解析
+                svg_p = rel if os.path.isabs(rel) else os.path.join(
+                    sample_dir, '09_genome_plots', rel)
                 if not os.path.isfile(svg_p):
+                    n_missing += 1
                     continue
                 with safe_open(svg_p) as f:
                     svg = f.read()
@@ -719,6 +748,10 @@ def build_report(sample_dir, logger=None):
                 figures.append((f"病毒基因组图 — {base.replace('.svg', '')}",
                                 f'<div style="overflow:auto">{svg}</div>'))
                 n_svg += 1
+            if n_missing and logger:
+                logger.log(f"09_genome_plots 有 {n_missing} 张图文件无法解析"
+                           f"（summary 记录路径与文件不一致），未嵌入报告",
+                           "WARN")
             if not n_svg and logger:
                 logger.log("09_genome_plots 无可用 SVG，跳过基因组图小节", "WARN")
         except Exception as e:
@@ -730,6 +763,9 @@ def build_report(sample_dir, logger=None):
         contigs_fa = os.path.join(sample_dir, '03_assembly', 'contigs.filtered.fasta')
         bed_file = os.path.join(sample_dir, '04_orf', 'orfipy.bed')
         bed_records = []
+        if not os.path.isfile(bed_file) and logger:
+            logger.log("未找到 04_orf/orfipy.bed（⑥ 未用 orfipy 或为旧运行），"
+                       "跳过 contig 圈图小节", "WARN")
         if os.path.isfile(bed_file):
             # orfipy BED 无表头：标准 6+ 列（chrom start end name score strand ...）
             with safe_open(bed_file) as f:
@@ -1313,8 +1349,11 @@ function renderHostBar() {
   }
 }
 
-/* ---- Krona 替代：旭日图 ---- */
+/* ---- Krona 替代：旭日图（仅无 taxburst.html 回退时渲染；
+   Krona 可用时不画，否则同屏出现两张旭日图） ---- */
 function renderSun() {
+  var sunEl = document.getElementById('krona');
+  if (!sunEl) return;   /* taxburst.html 已作为 Krona 内嵌 → 不再画第二张 */
   var showUnc = document.getElementById('kronaUnc').checked;
   var rows = REPORT.filter(function(r) {
     if (r.rank === 'unclassified') return showUnc;
@@ -1333,7 +1372,7 @@ function renderSun() {
     val.push(n.count);
     stack.push({d: n.depth, id: sid});
   }
-  if (!ids.length) { document.getElementById('krona').innerHTML = '<div style="color:#999;padding:20px">无数据</div>'; return; }
+  if (!ids.length) { sunEl.innerHTML = '<div style="color:#999;padding:20px">无数据</div>'; return; }
   Plotly.newPlot('krona', [{type: 'sunburst', ids: ids, labels: lab,
     parents: par, values: val, branchvalues: 'remainder', maxdepth: 6}],
     {margin: {t: 10, b: 10, l: 10, r: 10}}, {responsive: true});

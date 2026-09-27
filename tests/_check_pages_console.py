@@ -4,8 +4,17 @@
 
 运行: python tests/_check_pages_console.py [--base http://127.0.0.1:8765]
 不带 --base 时自起 Flask 服务（werkzeug 线程），跑完即关。
+
+两种驱动方式：
+  · 默认 —— 单进程内依次访问全部页面（最快）；
+  · `--isolated` —— 每页起一个独立子进程（`--page <url>` 单页模式）。
+    本机实测：同一 chromium 进程内连续访问会在第 3~6 页之间随机段错误
+    （headless shell 与完整 chromium 均如此，单页独立访问则始终正常），
+    属于累积状态问题。要一次跑完 21 页时用 `--isolated` 规避，代价是
+    每页多一次服务启动开销。
 """
 import os
+import subprocess
 import sys
 
 for _s in (sys.stdout, sys.stderr):
@@ -20,7 +29,14 @@ BASE = None
 if '--base' in sys.argv:
     BASE = sys.argv[sys.argv.index('--base') + 1]
 
-if not BASE:
+# 单页模式：只巡检这一个 URL（供 --isolated 的父进程调用）
+ONLY_PAGE = None
+if '--page' in sys.argv:
+    ONLY_PAGE = sys.argv[sys.argv.index('--page') + 1]
+
+if not BASE and ('--page' in sys.argv or '--fast' in sys.argv):
+    # 父进程（默认逐页独立进程模式）只负责派发子进程，服务由各子进程自己起
+    # （串行，端口不冲突）
     from werkzeug.serving import make_server
     import threading
     import app as app_module
@@ -49,11 +65,15 @@ def pages_to_check():
 
 def main():
     from playwright.sync_api import sync_playwright
-    pages = pages_to_check()
-    print(f'待巡检页面 {len(pages)} 个')
+    pages = [ONLY_PAGE] if ONLY_PAGE else pages_to_check()
+    if not ONLY_PAGE:
+        print(f'待巡检页面 {len(pages)} 个')
     bad = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        # 受限环境下 chromium 的沙箱与 /dev/shm 会引发随机段错误
+        browser = pw.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'])
         ctx = browser.new_context(viewport={'width': 1440, 'height': 900})
         page = ctx.new_page()
         issues = []
@@ -93,6 +113,8 @@ def main():
             ('/pipeline', 'selectSample', 'function'),
             ('/pipeline', 'pasteSeq', 'function'),
         ]
+        if ONLY_PAGE:                      # 单页模式：全局函数抽查只在 /tools /results 上做
+            checks = [c for c in checks if c[0] == ONLY_PAGE]
         for route, fn, want in checks:
             issues.clear()
             try:
@@ -106,6 +128,12 @@ def main():
 
         browser.close()
 
+    if ONLY_PAGE:
+        # 单页模式：父进程只解析这一行（末行 = 结论）
+        print(('OK ' if not bad else 'BAD ')
+              + (bad[0][1] if bad else 'no issues'))
+        return 0 if not bad else 1
+
     print('=' * 64)
     if bad:
         print(f'✘ {len(bad)} 个问题:')
@@ -115,5 +143,63 @@ def main():
     print(f'✔ 全部 {len(pages)} 个页面加载无 JS 报错，全局函数抽查通过')
 
 
+def run_isolated():
+    """逐页独立进程巡检：规避同进程内连续访问导致的 chromium 随机段错误。"""
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        # playwright 属开发依赖（requirements-dev.txt），未装时跳过而非失败，
+        # 与其他浏览器探针的约定一致。
+        print('[SKIP] 未安装 playwright，跳过真浏览器页面巡检')
+        print('       安装: python -m pip install -r requirements-dev.txt')
+        return 0
+    pages = pages_to_check()
+    print(f'逐页独立进程巡检，共 {len(pages)} 页（每页一个新进程）')
+    me = os.path.abspath(__file__)
+    bad = []
+    for i, p in enumerate(pages, 1):
+        try:
+            # 解码必须按 UTF-8：平台自己的模块会把**子进程** stdout 重配成 UTF-8
+            # （/settings 加载全量数据时的自检报告就是 UTF-8），父进程若按本地
+            # 代码页（GBK）解码，读线程抛 UnicodeDecodeError、stdout 变空 ——
+            # 巡检就会「静默全绿」（2026-09-16 实测：/settings 那 3771 字节全被吞掉）。
+            r = subprocess.run([sys.executable, me, '--page', p],
+                               capture_output=True, encoding='utf-8',
+                               errors='replace', timeout=180)
+            lines = [ln for ln in (r.stdout or '').splitlines() if ln.strip()]
+            last = lines[-1] if lines else ''
+            # 判据是子进程自报的末行结论（`OK ` / `BAD `），不是 returncode：
+            # `--page` 模式曾经把 main() 的返回值丢掉（见文件末尾修注），
+            # 于是无论页面坏成什么样 returncode 都是 0。现在两者都查。
+            if last.startswith('OK ') and r.returncode == 0:
+                print(f'[{i:2d}/{len(pages)}] {p:28s} ✔', flush=True)
+            else:
+                msg = last[4:] if last.startswith('BAD ') else (
+                    last or f'子进程无结论输出（rc={r.returncode}）'
+                    + (r.stderr or '')[-120:])
+                print(f'[{i:2d}/{len(pages)}] {p:28s} ✘ {msg[:110]}', flush=True)
+                bad.append((p, msg))
+        except subprocess.TimeoutExpired:
+            print(f'[{i:2d}/{len(pages)}] {p:28s} ✘ TIMEOUT', flush=True)
+            bad.append((p, 'TIMEOUT'))
+    print('=' * 64)
+    if bad:
+        print(f'✘ {len(bad)}/{len(pages)} 个页面有问题:')
+        for p, msg in bad:
+            print(f'  {p}\n      {msg}')
+        return 1
+    print(f'✔ 全部 {len(pages)} 个页面加载无 JS 报错，全局函数抽查通过')
+    return 0
+
+
 if __name__ == '__main__':
-    main()
+    # 默认走逐页独立进程：单进程内连续访问在本机 chromium 下会随机段错误
+    # （第 3~6 页之间不等），会让「页面巡检」变成不可信的红灯。要快可显式
+    # 加 --fast（单进程连续访问）。
+    # 2026-09-16 修：单页模式必须 sys.exit(main()) 把结论传出去 —— 原来只写
+    # `main()`，返回值被丢掉 ⇒ 子进程永远 exit 0 ⇒ 父进程的 returncode 判据
+    # 恒真，页面全坏也报「全部页面 ✔」。
+    if '--page' in sys.argv or '--fast' in sys.argv:
+        sys.exit(main())
+    else:
+        sys.exit(run_isolated())

@@ -36,6 +36,7 @@ def design_primers_for_seq(name, seq, num_return=3, product_range=None):
     字段名与历史版本一致（F_seq/F_pos/F_len/F_tm/F_gc、R_*、product、penalty、
     self_any_max、hairpin_max），并新增 score / recommendation / probe_* 与
     扩增子坐标。序列短于默认产物区间时自动收缩区间，避免 primer3 直接报错。
+    另有 `amp_seq`：从模板截取的真实扩增子序列（模板缺失/坐标越界时为空串）。
     """
     from . import primer_design as pd
     pr = product_range or ((60, max(len(seq), 80)) if len(seq) < 300
@@ -43,9 +44,14 @@ def design_primers_for_seq(name, seq, num_return=3, product_range=None):
     core = {'product_min': int(pr[0]), 'product_max': int(pr[1]),
             'num_return': int(num_return)}
     rec = pd.design_for_sequence(name, seq, ptype='PCR', core=core, adv={})
+    tpl = (seq or '').upper()
     pairs = []
     for i, p in enumerate(rec.get('pairs') or []):
         th = p.get('thermo') or {}
+        # 真实扩增子序列（供宿主特异性 BLAST 用）：amp_start/amp_end 为
+        # 1-based、均落在模板上（amp_end 即 R 引物 5' 端所在的正链碱基）
+        _a0, _a1 = int(p.get('amp_start', 0) or 0), int(p.get('amp_end', 0) or 0)
+        amp_seq = tpl[_a0 - 1:_a1] if 0 < _a0 <= _a1 <= len(tpl) else ''
         pairs.append({
             'name': f"{name}_P{i + 1}",
             'F_seq': p.get('f_seq', ''),
@@ -73,6 +79,7 @@ def design_primers_for_seq(name, seq, num_return=3, product_range=None):
             'probe_gc': p.get('probe_gc', 0.0),
             'amp_start': p.get('amp_start', 0),
             'amp_end': p.get('amp_end', 0),
+            'amp_seq': amp_seq,
         })
     return pairs
 
@@ -127,7 +134,12 @@ def conserved_regions_and_consensus(aln_fasta, min_len=400, min_ident=0.9,
 
 
 def check_specificity_blast(amplicons_fasta, host_genome=None, logger=None):
-    """可选：扩增子 blastn vs 宿主基因组，返回命中 contig/引物 集合。"""
+    """可选：扩增子 blastn vs 宿主基因组，返回命中 {引物名: [宿主 contig, ...]}。
+
+    命中判据按查询长度自适应：比对长度 >= min(100, 查询长度)。真实扩增子
+    （数百 bp）沿用 ≥100bp 的实质命中口径；占位序列（两引物串联，约 40bp）
+    要求整段命中，避免"永远不可能命中"的死阈值把 host_hit 固定成 NO。
+    """
     from .assembly import _ascii_work_base
     cfg = get_config()
     blastn = cfg.tool('blastn')
@@ -139,6 +151,7 @@ def check_specificity_blast(amplicons_fasta, host_genome=None, logger=None):
         if logger:
             logger.log('未配置宿主基因组（host-db），跳过引物特异性检查', 'WARN')
         return {}
+    qlen = {h.split()[0]: len(s) for h, s in iter_fasta(amplicons_fasta)}
     db_dir = _ascii_work_base('vp_blast')
     prefix = os.path.join(db_dir, 'host')
     import glob as _g
@@ -155,7 +168,11 @@ def check_specificity_blast(amplicons_fasta, host_genome=None, logger=None):
     with safe_open(out_tsv) as f:
         for line in f:
             parts = line.rstrip('\n').split('\t')
-            if len(parts) >= 4 and float(parts[3]) >= 100:
+            if len(parts) < 4:
+                continue
+            aln_len = float(parts[3])
+            thr = min(100.0, float(qlen.get(parts[0], 0) or 100))
+            if aln_len >= thr:
                 hits.setdefault(parts[0], []).append(parts[1])
     return hits
 
@@ -235,21 +252,37 @@ def design_primers(sample_dir, mode='conserved', num_return=3,
 
     # 特异性检查（可选）
     spec_hits = {}
+    amp_mode = 'skipped'
     if do_specificity:
+        from .utils import write_fasta_record
         amp_fa = os.path.join(out_dir, 'amplicons.fa')
+        n_real, n_ph = 0, 0
         with safe_open(amp_fa, 'wt') as f:
             for p in all_pairs:
-                # 近似扩增子：模板未知时用引物对连接串占位仅检查引物区不可行；
-                # 此处保存引物左臂+右臂反向互补的串联做 BLAST 粗筛
-                from Bio.Seq import Seq as BSeq
-                seq = p['F_seq'] + str(BSeq(p['R_seq']).reverse_complement())
-                from .utils import write_fasta_record
+                seq = p.get('amp_seq') or ''
+                if seq:
+                    n_real += 1
+                else:
+                    # 模板缺失/坐标越界时的降级：左臂 + 右臂反向互补串联。
+                    # 仅覆盖引物区（约 40bp），不代表真实扩增子。
+                    from Bio.Seq import Seq as BSeq
+                    seq = p['F_seq'] + str(BSeq(p['R_seq']).reverse_complement())
+                    n_ph += 1
                 write_fasta_record(f, p['name'], seq)
+        amp_mode = 'real' if n_real and not n_ph else ('placeholder' if not n_real else 'mixed')
+        if n_ph and logger:
+            logger.log(f"有 {n_ph}/{len(all_pairs)} 对引物未能取到扩增子模板序列，"
+                       f"其 amplicons.fa 记录为两引物串联占位（约 40bp），"
+                       f"BLAST 结果只反映引物区结合性、不代表完整扩增子", 'WARN')
         try:
             spec_hits = check_specificity_blast(amp_fa, logger=logger)
         except Exception as e:
             if logger:
-                logger.log(f"特异性检查失败: {e}", "WARN")
+                logger.log(f"特异性检查失败（{type(e).__name__}）: {e}", "WARN")
+        else:
+            if logger:
+                logger.log(f"特异性检查（{amp_mode} 扩增子）：{len(spec_hits)}/{len(all_pairs)} "
+                           f"对引物在宿主基因组中命中（占比 {len(spec_hits) / max(1, len(all_pairs)):.1%}）")
 
     tsv = os.path.join(out_dir, 'primers.tsv')
     with safe_open(tsv, 'wt') as f:
@@ -271,6 +304,7 @@ def design_primers(sample_dir, mode='conserved', num_return=3,
     summary = {'stage': step, 'mode': mode, 'n_primers': len(all_pairs),
                'tsv': 'primers.tsv',
                'specificity_checked': bool(do_specificity),
+               'specificity_amplicon': amp_mode,
                'groups': groups_used}
     with safe_open(summary_file, 'wt') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)

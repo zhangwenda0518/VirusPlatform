@@ -28,7 +28,13 @@ import sys
 import tempfile
 import time
 
-from playwright.sync_api import sync_playwright
+# playwright 属开发依赖（requirements-dev.txt），未装时本测试**跳过**而非失败：
+# 它是「真浏览器验证」的加强项，不该让没装开发依赖的环境整批测试变红。
+# 与其他浏览器探针（_it_download_ui / _it_async_ui 等）的约定保持一致。
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:                     # pragma: no cover - 取决于本机环境
+    sync_playwright = None
 
 # 控制台编码兜底：Windows 默认代码页是 GBK，✔/✘ 等字符会让 print 抛
 # UnicodeEncodeError。只改错误处理为 replace（编码不动，中文照常可读）。
@@ -123,12 +129,21 @@ def free_port(start=8791):
 
 
 def start_server(port):
-    """起一个临时平台实例（服务日志落文件：PIPE 写满会让服务阻塞）。"""
+    """起一个临时平台实例（服务日志落文件：PIPE 写满会让服务阻塞）。
+
+    注意 `-c` 代码里那行 sys.path 注入：项目自带的绿色版 Python 目录下有
+    `python312._pth`，存在该文件时 Python 进入 isolated 模式，`-c` 的
+    sys.path **不含当前工作目录**（只有 python.exe 所在目录），于是
+    `import app` 直接 ModuleNotFoundError、服务永远起不来。用脚本文件跑
+    时 sys.path[0] 是脚本所在目录，所以只有这种 `-c` 起子进程的写法会中招。
+    """
     logpath = os.path.join(tempfile.gettempdir(), f'vp_kvchain_ui_{port}.log')
     logf = io.open(logpath, 'w', encoding='utf-8', errors='replace')
     env = dict(os.environ, VP_NO_RECOVER='1')
     proc = subprocess.Popen(
         [sys.executable, '-c',
+         'import sys\n'
+         f'sys.path.insert(0, {ROOT!r})\n'
          'from werkzeug.serving import make_server\n'
          'import app\n'
          f"s = make_server('127.0.0.1', {port}, app.app, threaded=True)\n"
@@ -153,6 +168,11 @@ def main() -> int:
                     help='用已在运行的平台端口（默认自起临时实例）')
     ap.add_argument('--keep', action='store_true', help='保留临时实例（排查用）')
     args = ap.parse_args()
+
+    if sync_playwright is None:
+        print('[SKIP] 未安装 playwright，跳过真浏览器验证')
+        print('       安装: python -m pip install -r requirements-dev.txt')
+        return 0
 
     proc, logpath = None, ''
     port = args.port or free_port()

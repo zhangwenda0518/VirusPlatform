@@ -1,0 +1,1041 @@
+{
+ "tool": "phylodyn",
+ "mode": "pipeline",
+ "stages": [
+  {
+   "key": "prep",
+   "code": "A0",
+   "name": "数据准备",
+   "name_en": "Data prep",
+   "ran": true,
+   "ok": true,
+   "error": null
+  },
+  {
+   "key": "clock",
+   "code": "A1",
+   "name": "时间推断",
+   "name_en": "Molecular clock",
+   "ran": true,
+   "ok": true,
+   "error": null
+  },
+  {
+   "key": "phylogeo",
+   "code": "A2",
+   "name": "地理推断",
+   "name_en": "Phylogeography",
+   "ran": true,
+   "ok": true,
+   "error": null
+  },
+  {
+   "key": "report",
+   "code": "A5",
+   "name": "汇总溯源",
+   "name_en": "Run report",
+   "ran": true,
+   "ok": true,
+   "error": null
+  }
+ ],
+ "resumed_from": null,
+ "meta_pick": {
+  "n_rows": 15,
+  "date_src": {
+   "year": 15
+  },
+  "location_src": {
+   "region": 15
+  },
+  "name_src": {
+   "seq_id": 15
+  },
+  "release_date_rows": 0
+ },
+ "prune": {
+  "enabled": false,
+  "skipped": false,
+  "abandoned": false,
+  "reason": null,
+  "method": null,
+  "date_resolution": null,
+  "n_in": null,
+  "n_out": null,
+  "n_dropped": null,
+  "n_seqs_input": 15,
+  "how": null,
+  "n_groups": 0,
+  "n_clades": null,
+  "groups": [],
+  "dropped": [],
+  "n_dropped_total": 0,
+  "tree_pruned": null
+ },
+ "clock": {
+  "timetree_source": "TreeTime",
+  "root_year": 1978.4307,
+  "timetree": {
+   "x": [
+    1978.430726,
+    1978.430726,
+    null,
+    1978.430726,
+    2009.624476,
+    null,
+    2009.624476,
+    2009.624476,
+    null,
+    2009.624476,
+    2016.455556,
+    null,
+    2009.624476,
+    2009.624476,
+    null,
+    2009.624476,
+    2010.021386,
+    null,
+    2010.021386,
+    2010.021386,
+    null,
+    2010.021386,
+    2018.455556,
+    null,
+    2010.021386,
+    2010.021386,
+    null,
+    2010.021386,
+    2010.173026,
+    null,
+    2010.173026,
+    2010.173026,
+    null,
+    2010.173026,
+    2010.455546,
+    null,
+    2010.173026,
+    2010.173026,
+    null,
+    2010.173026,
+    2011.032186,
+    null,
+    2011.032186,
+    2011.032186,
+    null,
+    2011.032186,
+    2012.455546,
+    null,
+    2011.032186,
+    2011.032186,
+    null,
+    2011.032186,
+    2014.455546,
+    null,
+    1978.430726,
+    1978.430726,
+    null,
+    1978.430726,
+    1988.408056,
+    null,
+    1988.408056,
+    1988.408056,
+    null,
+    1988.408056,
+    2000.751786,
+    null,
+    2000.751786,
+    2000.751786,
+    null,
+    2000.751786,
+    2007.455556,
+    null,
+    2000.751786,
+    2000.751786,
+    null,
+    2000.751786,
+    2000.982876,
+    null,
+    2000.982876,
+    2000.982876,
+    null,
+    2000.982876,
+    2002.230706,
+    null,
+    2002.230706,
+    2002.230706,
+    null,
+    2002.230706,
+    2003.455556,
+    null,
+    2002.230706,
+    2002.230706,
+    null,
+    2002.230706,
+    2005.455556,
+    null,
+    2000.982876,
+    2000.982876,
+    null,
+    2000.982876,
+    2001.129416,
+    null,
+    2001.129416,
+    2001.129416,
+    null,
+    2001.129416,
+    2009.455556,
+    null,
+    2001.129416,
+    2001.129416,
+    null,
+    2001.129416,
+    2001.455556,
+    null,
+    1988.408056,
+    1988.408056,
+    null,
+    1988.408056,
+    2005.507666,
+    null,
+    2005.507666,
+    2005.507666,
+    null,
+    2005.507666,
+    2014.455556,
+    null,
+    2005.507666,
+    2005.507666,
+    null,
+    2005.507666,
+    2005.953336,
+    null,
+    2005.953336,
+    2005.953336,
+    null,
+    2005.953336,
+    2012.455556,
+    null,
+    2005.953336,
+    2005.953336,
+    null,
+    2005.953336,
+    2006.087906,
+    null,
+    2006.087906,
+    2006.087906,
+    null,
+    2006.087906,
+    2008.455546,
+    null,
+    2006.087906,
+    2006.087906,
+    null,
+    2006.087906,
+    2006.216206,
+    null,
+    2006.216206,
+    2006.216206,
+    null,
+    2006.216206,
+    2006.455546,
+    null,
+    2006.216206,
+    2006.216206,
+    null,
+    2006.216206,
+    2010.455546,
+    null
+   ],
+   "y": [
+    4.765625,
+    0.9375,
+    null,
+    0.9375,
+    0.9375,
+    null,
+    0.9375,
+    0.0,
+    null,
+    0.0,
+    0.0,
+    null,
+    0.9375,
+    1.875,
+    null,
+    1.875,
+    1.875,
+    null,
+    1.875,
+    1.0,
+    null,
+    1.0,
+    1.0,
+    null,
+    1.875,
+    2.75,
+    null,
+    2.75,
+    2.75,
+    null,
+    2.75,
+    2.0,
+    null,
+    2.0,
+    2.0,
+    null,
+    2.75,
+    3.5,
+    null,
+    3.5,
+    3.5,
+    null,
+    3.5,
+    3.0,
+    null,
+    3.0,
+    3.0,
+    null,
+    3.5,
+    4.0,
+    null,
+    4.0,
+    4.0,
+    null,
+    4.765625,
+    8.59375,
+    null,
+    8.59375,
+    8.59375,
+    null,
+    8.59375,
+    6.25,
+    null,
+    6.25,
+    6.25,
+    null,
+    6.25,
+    5.0,
+    null,
+    5.0,
+    5.0,
+    null,
+    6.25,
+    7.5,
+    null,
+    7.5,
+    7.5,
+    null,
+    7.5,
+    6.5,
+    null,
+    6.5,
+    6.5,
+    null,
+    6.5,
+    6.0,
+    null,
+    6.0,
+    6.0,
+    null,
+    6.5,
+    7.0,
+    null,
+    7.0,
+    7.0,
+    null,
+    7.5,
+    8.5,
+    null,
+    8.5,
+    8.5,
+    null,
+    8.5,
+    8.0,
+    null,
+    8.0,
+    8.0,
+    null,
+    8.5,
+    9.0,
+    null,
+    9.0,
+    9.0,
+    null,
+    8.59375,
+    10.9375,
+    null,
+    10.9375,
+    10.9375,
+    null,
+    10.9375,
+    10.0,
+    null,
+    10.0,
+    10.0,
+    null,
+    10.9375,
+    11.875,
+    null,
+    11.875,
+    11.875,
+    null,
+    11.875,
+    11.0,
+    null,
+    11.0,
+    11.0,
+    null,
+    11.875,
+    12.75,
+    null,
+    12.75,
+    12.75,
+    null,
+    12.75,
+    12.0,
+    null,
+    12.0,
+    12.0,
+    null,
+    12.75,
+    13.5,
+    null,
+    13.5,
+    13.5,
+    null,
+    13.5,
+    13.0,
+    null,
+    13.0,
+    13.0,
+    null,
+    13.5,
+    14.0,
+    null,
+    14.0,
+    14.0,
+    null
+   ],
+   "tips": [
+    {
+     "name": "SIM_Americas_4|Americas|2016",
+     "x": 2016.455556,
+     "y": 0.0
+    },
+    {
+     "name": "SIM_Americas_5|Asia|2018",
+     "x": 2018.455556,
+     "y": 1.0
+    },
+    {
+     "name": "SIM_Americas_1|Americas|2010",
+     "x": 2010.455546,
+     "y": 2.0
+    },
+    {
+     "name": "SIM_Americas_2|Americas|2012",
+     "x": 2012.455546,
+     "y": 3.0
+    },
+    {
+     "name": "SIM_Americas_3|Americas|2014",
+     "x": 2014.455546,
+     "y": 4.0
+    },
+    {
+     "name": "SIM_Asia_4|Asia|2007",
+     "x": 2007.455556,
+     "y": 5.0
+    },
+    {
+     "name": "SIM_Asia_2|Asia|2003",
+     "x": 2003.455556,
+     "y": 6.0
+    },
+    {
+     "name": "SIM_Asia_3|Asia|2005",
+     "x": 2005.455556,
+     "y": 7.0
+    },
+    {
+     "name": "SIM_Asia_5|Europe|2009",
+     "x": 2009.455556,
+     "y": 8.0
+    },
+    {
+     "name": "SIM_Asia_1|Asia|2001",
+     "x": 2001.455556,
+     "y": 9.0
+    },
+    {
+     "name": "SIM_Europe_5|Europe|2014",
+     "x": 2014.455556,
+     "y": 10.0
+    },
+    {
+     "name": "SIM_Europe_4|Europe|2012",
+     "x": 2012.455556,
+     "y": 11.0
+    },
+    {
+     "name": "SIM_Europe_2|Europe|2008",
+     "x": 2008.455546,
+     "y": 12.0
+    },
+    {
+     "name": "SIM_Europe_1|Europe|2006",
+     "x": 2006.455546,
+     "y": 13.0
+    },
+    {
+     "name": "SIM_Europe_3|Europe|2010",
+     "x": 2010.455546,
+     "y": 14.0
+    }
+   ],
+   "min_x": 1978.4307255555555,
+   "max_x": 2018.4555555555555,
+   "n_tips": 15,
+   "n_internal": 14,
+   "n_backfilled": 0,
+   "n_back_tips": 0,
+   "axis_label": "采样年（日历年）",
+   "source": "timetree.nwk",
+   "note": "横轴＝由时间树枝长反推的日历年（date_node = date_root + dist(root→node)，叶钉在采样年上）；时间树（采样年（日历年））：15 叶，坐标全部取自定年结果的节点时间。未做任何额外插值。",
+   "root_year": 1978.4307,
+   "n_dated": 29,
+   "n_date_map": 15,
+   "dating_source": "TreeTime"
+  },
+  "stats": [
+   {
+    "method": "TreeTime",
+    "model": "严格钟（默认）",
+    "rate": 0.003241,
+    "rate_unit": "每位点每年",
+    "r2": 0.44,
+    "tmrca_calendar": 1978.43,
+    "tmrca_ybp": 40.0248,
+    "cov": null,
+    "loglik": null,
+    "seconds": null,
+    "suspect": 0,
+    "suspect_reason": "",
+    "note": "ML 分子钟；r² 为根到尾回归（与 DRT 不是一回事）"
+   }
+  ],
+  "n_methods_ok": 1,
+  "n_methods_usable": 1,
+  "rtt_fit": {
+   "r2": 0.4447522764003706,
+   "slope": 0.003241318556701031,
+   "intercept": -6.420225893459335,
+   "n": 15
+  },
+  "rtt_points": [
+   [
+    2001.4556,
+    0.0638577
+   ],
+   [
+    2003.4556,
+    0.0638477
+   ],
+   [
+    2005.4556,
+    0.0638477
+   ],
+   [
+    2006.4556,
+    0.1136377
+   ],
+   [
+    2007.4556,
+    0.0618477
+   ],
+   [
+    2008.4556,
+    0.1130977
+   ],
+   [
+    2009.4556,
+    0.0638477
+   ],
+   [
+    2010.4556,
+    0.1095323
+   ],
+   [
+    2010.4556,
+    0.1144677
+   ],
+   [
+    2012.4556,
+    0.1108023
+   ],
+   [
+    2012.4556,
+    0.1142277
+   ],
+   [
+    2014.4556,
+    0.1099723
+   ],
+   [
+    2014.4556,
+    0.1092977
+   ],
+   [
+    2016.4556,
+    0.1061923
+   ],
+   [
+    2018.4556,
+    0.1098323
+   ]
+  ],
+  "drt": {
+   "real_r2": 0.6171,
+   "real_slope": 0.01169519587628866,
+   "n_valid": 200,
+   "n_invalid": 0,
+   "r2_percentile": 100.0,
+   "p_value": 0.005,
+   "n_ge": 0,
+   "passed": true,
+   "passed_percentile95": true,
+   "r2_best_root": 0.6171,
+   "old_threshold_pass": true,
+   "sign_consistent": false,
+   "conclusion": "✓ 通过：真实 R²=0.6171，经验 p=0.005（0/200 次日期随机化 ≥ 真实值，阈值 0.05）—— 时间信号显著，适合做分子钟定年",
+   "verdict": "pass",
+   "verdict_dissent": [],
+   "warnings": [
+    "rooting=\"optimize\"：零分布同样逐轮取最大根位 R²（与参照发布版管道 temporal_signal.py 一致）。真实数据\"最大根位 R²\" = 0.6171，而树自带根位只有 0.6132 —— 两者差距就是\"根位搜索\"贡献的量，**单看 R² 数值会高估信号**。"
+   ]
+  },
+  "tt_env": {
+   "ok": true,
+   "exe": "C:\\Python312\\Scripts\\treetime.exe",
+   "version": "0.12.1",
+   "how": "内置/首选解释器：C:\\Python312\\Scripts\\treetime.exe",
+   "problems": []
+  }
+ },
+ "phylogeo": {
+  "trait": "region",
+  "n_changes_ml": 4,
+  "n_changes_fitch": 4,
+  "n_corridors": 3,
+  "corridors": [
+   {
+    "from": "Americas",
+    "to": "Asia",
+    "ml": 1,
+    "fitch": 2,
+    "delta": -1
+   },
+   {
+    "from": "Asia",
+    "to": "Europe",
+    "ml": 2,
+    "fitch": 2,
+    "delta": 0
+   },
+   {
+    "from": "Asia",
+    "to": "Americas",
+    "ml": 1,
+    "fitch": null,
+    "delta": null
+   }
+  ],
+  "n_events_ml": 4,
+  "n_events_fitch": 4,
+  "events": [
+   {
+    "year": 2005.508,
+    "from": "Asia",
+    "to": "Europe",
+    "method": "TreeTime-ML",
+    "child": "NODE_0000009"
+   },
+   {
+    "year": 2009.456,
+    "from": "Asia",
+    "to": "Europe",
+    "method": "TreeTime-ML",
+    "child": "SIM_Asia_5|Europe|2009"
+   },
+   {
+    "year": 2009.624,
+    "from": "Asia",
+    "to": "Americas",
+    "method": "TreeTime-ML",
+    "child": "NODE_0000005"
+   },
+   {
+    "year": 2018.456,
+    "from": "Americas",
+    "to": "Asia",
+    "method": "TreeTime-ML",
+    "child": "SIM_Americas_5|Asia|2018"
+   },
+   {
+    "year": 1988.408,
+    "from": "Americas",
+    "to": "Asia",
+    "method": "Fitch",
+    "child": "NODE_0000004"
+   },
+   {
+    "year": 2005.508,
+    "from": "Asia",
+    "to": "Europe",
+    "method": "Fitch",
+    "child": "NODE_0000009"
+   },
+   {
+    "year": 2009.456,
+    "from": "Asia",
+    "to": "Europe",
+    "method": "Fitch",
+    "child": "SIM_Asia_5|Europe|2009"
+   },
+   {
+    "year": 2018.456,
+    "from": "Americas",
+    "to": "Asia",
+    "method": "Fitch",
+    "child": "SIM_Americas_5|Asia|2018"
+   }
+  ],
+  "sampling_bias": {
+   "state_counts": {
+    "Europe": 6,
+    "Asia": 5,
+    "Americas": 4
+   },
+   "shares": {
+    "Europe": 0.4,
+    "Asia": 0.3333,
+    "Americas": 0.2667
+   },
+   "max_share": 0.4,
+   "min_share": 0.2667,
+   "corrected": true,
+   "factor": 0.992887
+  },
+  "confidence_summary": {
+   "confidence_labels_raw": [
+    "A",
+    "B",
+    "C"
+   ],
+   "confidence_labels": [
+    "Americas",
+    "Asia",
+    "Europe"
+   ],
+   "confidence_labels_mapped": true,
+   "n_labels_unmapped": 0,
+   "confidence_labels_unmapped": [],
+   "n_nodes": 29,
+   "n_internal": 14,
+   "median_max_p_internal": 0.9995153476155009,
+   "min_max_p": 0.4296896863913765,
+   "n_below_0_7": 2,
+   "n_below_0_5": 1,
+   "frac_below_0_7": 0.1429
+  },
+  "edges_missing": 0,
+  "align": {
+   "tree": "divergence_tree.nwk",
+   "mu": 36.033338,
+   "n_changes": 4,
+   "counts": {
+    "Asia->Americas": 1,
+    "Americas->Asia": 1,
+    "Asia->Europe": 2
+   },
+   "n_skipped_missing": 0,
+   "n_unmatched": 0,
+   "aligned_by": "leafset",
+   "primary_n_changes": 4,
+   "delta": 0,
+   "rel_diff": 0.0,
+   "divergent": false
+  },
+  "rssp": null,
+  "coords": {
+   "Americas": [
+    10.0,
+    -80.0
+   ],
+   "Asia": [
+    34.0,
+    100.0
+   ],
+   "Europe": [
+    50.0,
+    10.0
+   ]
+  },
+  "coord_src": {
+   "Americas": "builtin",
+   "Asia": "builtin",
+   "Europe": "builtin"
+  },
+  "coord_missing": [],
+  "coord_regions": {
+   "Americas": 4,
+   "Asia": 5,
+   "Europe": 6
+  },
+  "coord_table": null
+ },
+ "coalescent": {
+  "ok": null,
+  "skyline": [],
+  "skyline_meta": {},
+  "rate_this_pass": null,
+  "r2_this_pass": null,
+  "is_hpd": false
+ },
+ "ancestral": {
+  "ok": null,
+  "n_mutations": null,
+  "tree_used": null
+ },
+ "extras": {},
+ "warnings": [
+  {
+   "stage": "clock",
+   "text": "rooting=\"optimize\"：零分布同样逐轮取最大根位 R²（与参照发布版管道 temporal_signal.py 一致）。真实数据\"最大根位 R²\" = 0.6171，而树自带根位只有 0.6132 —— 两者差距就是\"根位搜索\"贡献的量，**单看 R² 数值会高估信号**。"
+  },
+  {
+   "stage": "phylogeo",
+   "text": "2/14 个内部节点的ML 最大边际概率 < 0.7（最低 0.43）—— 涉及这些节点的迁移方向不可靠，做方向性结论前先看置信分布"
+  }
+ ],
+ "errors": [],
+ "files": [
+  {
+   "stage": "clock",
+   "tag": "clock_stats",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_stats.tsv",
+   "rel": "clock/clock_stats.tsv",
+   "size": 253,
+   "sha256_16": "8bd7217671b8c268"
+  },
+  {
+   "stage": "clock",
+   "tag": "divergence_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\divergence_tree.nwk",
+   "rel": "clock/divergence_tree.nwk",
+   "size": 3577,
+   "sha256_16": "f1b1f5255b1d6534"
+  },
+  {
+   "stage": "clock",
+   "tag": "drt_json",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_qc\\drt.json",
+   "rel": "clock/clock_qc/drt.json",
+   "size": 8725,
+   "sha256_16": "e5b8b05a866763cb"
+  },
+  {
+   "stage": "clock",
+   "tag": "rtt_scatter",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\clock_qc\\rtt_scatter.tsv",
+   "rel": "clock/clock_qc/rtt_scatter.tsv",
+   "size": 2509,
+   "sha256_16": "baf9667f94b969ba"
+  },
+  {
+   "stage": "clock",
+   "tag": "timetree_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\timetree.nwk",
+   "rel": "clock/timetree.nwk",
+   "size": 3521,
+   "sha256_16": "c59a4c6fdfe39187"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_ancestral_fasta",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\ancestral_sequences.fasta",
+   "rel": "clock/treetime/ancestral_sequences.fasta",
+   "size": 36573,
+   "sha256_16": "111aca98e8a5168b"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_auspice",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\auspice_tree.json",
+   "rel": "clock/treetime/auspice_tree.json",
+   "size": 11846,
+   "sha256_16": "17024368322a992f"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_divergence_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\divergence_tree.nexus",
+   "rel": "clock/treetime/divergence_tree.nexus",
+   "size": 4045,
+   "sha256_16": "70aaa6ffc22f0ebd"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_molecular_clock",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\molecular_clock.txt",
+   "rel": "clock/treetime/molecular_clock.txt",
+   "size": 60,
+   "sha256_16": "8d6eaa26f112dc48"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_rtt_pdf",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\root_to_tip_regression.pdf",
+   "rel": "clock/treetime/root_to_tip_regression.pdf",
+   "size": 16028,
+   "sha256_16": "c72bcc5c91e6d171"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_timetree_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.nexus",
+   "rel": "clock/treetime/timetree.nexus",
+   "size": 3990,
+   "sha256_16": "f4d7de8da795e010"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_timetree_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.nwk",
+   "rel": "clock/treetime/timetree.nwk",
+   "size": 3521,
+   "sha256_16": "c59a4c6fdfe39187"
+  },
+  {
+   "stage": "clock",
+   "tag": "tt_tree_pdf",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\clock\\treetime\\timetree.pdf",
+   "rel": "clock/treetime/timetree.pdf",
+   "size": 13019,
+   "sha256_16": "c3724d5f1e029188"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "corridors",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\corridors.tsv",
+   "rel": "phylogeo/corridors.tsv",
+   "size": 109,
+   "sha256_16": "4f794af77a9a2817"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "events_year",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\events_year.tsv",
+   "rel": "phylogeo/events_year.tsv",
+   "size": 488,
+   "sha256_16": "83629c9e8db2790d"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_annotated_nexus",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\annotated_tree.nexus",
+   "rel": "phylogeo/ml/annotated_tree.nexus",
+   "size": 1789,
+   "sha256_16": "98dc19c618a91f2e"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_confidence_csv",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\confidence.csv",
+   "rel": "phylogeo/ml/confidence.csv",
+   "size": 1788,
+   "sha256_16": "49c22d6ecf69f750"
+  },
+  {
+   "stage": "phylogeo",
+   "tag": "ml_gtr",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\phylogeo\\ml\\GTR.txt",
+   "rel": "phylogeo/ml/GTR.txt",
+   "size": 408,
+   "sha256_16": "dd880465ec8ddd13"
+  },
+  {
+   "stage": "prep",
+   "tag": "dates",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\dates.csv",
+   "rel": "prep/dates.csv",
+   "size": 668,
+   "sha256_16": "22e1e19adb24b97d"
+  },
+  {
+   "stage": "prep",
+   "tag": "prep_fasta",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.fasta",
+   "rel": "prep/prep.fasta",
+   "size": 18658,
+   "sha256_16": "7518725a9cbfed3e"
+  },
+  {
+   "stage": "prep",
+   "tag": "prep_nwk",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.nwk",
+   "rel": "prep/prep.nwk",
+   "size": 677,
+   "sha256_16": "140139383068ae96"
+  },
+  {
+   "stage": "prep",
+   "tag": "states",
+   "path": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\states.csv",
+   "rel": "prep/states.csv",
+   "size": 488,
+   "sha256_16": "3ffe1f96ed9c3156"
+  }
+ ],
+ "n_files": 22,
+ "params": {
+  "mode": "pipeline",
+  "stage": null,
+  "from_run": null,
+  "trait": "region",
+  "date_col": null,
+  "date_trait": null,
+  "seq_len": null,
+  "methods": [
+   "treetime"
+  ],
+  "reroot": "least-squares",
+  "keep_root": false,
+  "relax": null,
+  "drt": true,
+  "drt_perm": 200,
+  "clock_rate": null,
+  "prune": false,
+  "prune_method": "fps",
+  "prune_date_resolution": "month",
+  "prune_max_reps": 3,
+  "prune_min_snp_diff": 2,
+  "prune_clade_cutoff": 5,
+  "skyline": false,
+  "n_skyline": 10,
+  "gen_per_year": 50.0,
+  "sampling_bias_correction": "auto",
+  "cross_check": true,
+  "rssp_bs": 0,
+  "seed": 0,
+  "ancestral": false,
+  "homoplasy": false,
+  "divergence_tree": null,
+  "tree": null,
+  "meta": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.meta.csv",
+  "coord_table": null,
+  "rename_map": null
+ },
+ "seconds": 14.67,
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6"
+}

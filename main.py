@@ -332,14 +332,22 @@ def cmd_submit_validate(args):
     if not issues:
         print("✓ 所有必填字段已填写，可以提交")
         return
+    # validate_table 的 issue 形状：{column, kind, count, desc, examples}
+    # kind ∈ missing_col / placeholder / format / duplicate / blank
+    _KIND_LABEL = {'missing_col': '缺少列', 'placeholder': '必填未填',
+                   'format': '格式', 'duplicate': '重复'}
     print(f"校验：{len(issues)} 个问题")
     for it in issues:
-        if it['missing_count'] == -1:
-            print(f"  [缺少列] {it['column']} — {it['desc']}")
-        else:
-            ex = ', '.join(repr(e) for e in it['examples'][:3])
-            print(f"  [{it['missing_count']} 条未填] {it['column']} — {it['desc']}\n"
-                  f"      例: {ex}")
+        kind = it.get('kind', '')
+        n = it.get('count')
+        label = _KIND_LABEL.get(kind, kind or '问题')
+        if kind == 'missing_col' or n == -1:
+            print(f"  [{label}] {it['column']} — {it['desc']}")
+            continue
+        ex = ', '.join(repr(e) for e in (it.get('examples') or [])[:3])
+        print(f"  [{label} {n} 条] {it['column']} — {it['desc']}")
+        if ex:
+            print(f"      例: {ex}")
     print("修复占位符后再提交 GenBank（Web 端「提交准备」页可在线编辑）")
 
 
@@ -359,6 +367,27 @@ def cmd_submit_export(args):
         print(f"  {k:20s} {v}")
     print("提交：NCBI BankIt 上传 source.src / .fsa+.tbl，或 Sequin 导入；"
           "BioSample 用 biosample_template.tsv 批量注册。")
+
+
+def cmd_submit_adopt(args):
+    """MMPV-RNA discovery 产物一键收养为提交项目（class_KEEP.fasta + ref_info.tsv）。"""
+    from Virus_Platform_Core.ncbi_submit import adopt_mmpv
+    argv = []
+    for flag in ('out_dir', 'name', 'dataset', 'samples', 'run_name',
+                 'from_server', 'server_host', 'server_data_root',
+                 'isolate_prefix', 'public_metadata', 'min_length',
+                 'geo_loc', 'lat_lon', 'collection_date', 'host', 'tissue',
+                 'cultivar', 'dev_stage', 'collected_by', 'isolation_source',
+                 'authors', 'title', 'bioproject', 'biosample_prefix',
+                 'assembler', 'sequencer', 'coverage', 'annotation_pipeline',
+                 'enrichment'):
+        val = getattr(args, flag, None)
+        if val not in (None, ''):
+            argv += ['--' + flag.replace('_', '-'), str(val)]
+    for flag in ('force', 'dry_run', 'no_export'):
+        if getattr(args, flag, False):
+            argv.append('--' + flag.replace('_', '-'))
+    return adopt_mmpv.main(argv)
 
 
 def cmd_submit_sbt(args):
@@ -609,6 +638,45 @@ def cmd_tool_runs(args):
         return None
 
 
+def cmd_importprobe(args):
+    """内部命令：在**子进程**里逐个导入模块并打印协议行。
+
+    供 selfcheck 在冻结分发下探测「import 直接段错误」的模块 —— 段错误
+    会杀死子进程，但父进程靠已收到的行数就能定位肇事模块，平台自身
+    （web 服务）不再被一个坏模块拖死。协议：
+        P <模块名>          开始导入
+        F <模块名> <repr>   导入抛了异常
+        E <模块名>          枚举期就导不进来的子包
+        DONE <n> <n_fail>   全部跑完
+    """
+    import importlib
+    from Virus_Platform_Core.selfcheck import iter_platform_modules, FALLBACK_MODULES
+    mods, walk_errs = iter_platform_modules()
+    if not mods:
+        mods = FALLBACK_MODULES
+    wanted = [m.strip() for m in (args.modules or '').split(',') if m.strip()]
+    if wanted:
+        # 指定名单=按名单原样导入（不与平台模块表求交）：primer3_runtime
+        # 的子进程探测会传 `--cli importprobe primer3` 这类**第三方**模块名，
+        # 平台模块表里没有它，求交会得到空名单 → 什么都没导、exit 0，
+        # 探测就假阳性通过了。
+        mods = wanted
+        walk_errs = [w for w in walk_errs if w in wanted]
+    out = sys.stdout
+    for n in walk_errs:
+        out.write(f'E {n}.*\n'); out.flush()
+    n_fail = 0
+    for m in mods:
+        out.write(f'P {m}\n'); out.flush()
+        try:
+            importlib.import_module(m)
+        except Exception as e:
+            n_fail += 1
+            out.write(f'F {m} {e!r}\n'); out.flush()
+    out.write(f'DONE {len(mods)} {n_fail}\n'); out.flush()
+    return True
+
+
 def cmd_selfcheck(args):
     """环境自检：模块导入 / 外部工具 / 数据库 / 磁盘空间，一次摸底。"""
     import importlib
@@ -784,13 +852,13 @@ def main():
     sp.add_argument('--db-virus', default=cfg.databases['virus'])
     sp.add_argument('--threads', type=int, default=cfg.threads)
     sp.add_argument('--confidence', type=float, default=0.0)
-    sp.add_argument('--assembly-mode', default='metaviral',
-                    choices=['metaviral', 'meta', 'rna', 'isolate'])
+    sp.add_argument('--assembly-mode', default='rnaviral',
+                    choices=['rnaviral', 'metaviral', 'meta', 'rna', 'isolate'])
     sp.add_argument('--subsample', type=int, default=0,
                     help='仅取前 N 对 reads（快速测试用），0=全部')
     sp.add_argument('--min-contig-len', type=int, default=500)
     sp.add_argument('--top-n-refs', type=int, default=10, help='进化分析取近缘参考数')
-    sp.add_argument('--tree-tool', default='fasttree', choices=['fasttree', 'iqtree'])
+    sp.add_argument('--tree-tool', default='fasttree', choices=['fasttree', 'raxml-ng', 'nj'])
     sp.add_argument('--tree-sampling', default='blast',
                     choices=['blast', 'macro', 'genus', 'lineage'],
                     help='参考挑选: blast=按比对hits(默认); macro=同科建树'
@@ -930,7 +998,7 @@ def main():
     sp.add_argument('--host', help='宿主物种名')
     sp.add_argument('--lat-lon', help='经纬度 "38.47 N 106.27 E"')
     sp.add_argument('--sequencer', default='Illumina NovaSeq 6000')
-    sp.add_argument('--assembler', default='SPAdes;4.3.0;metaviral')
+    sp.add_argument('--assembler', default='SPAdes;4.3.0;rnaviral')
     sp.add_argument('--coverage', help='覆盖度（如 42.5x）')
     sp.set_defaults(func=cmd_submit_init)
 
@@ -947,10 +1015,54 @@ def main():
 
     sp = sub.add_parser('submit-export', help='提交准备：生成 source.src/miuvig/assembly/BioSample/report')
     sp.add_argument('--name', required=True)
-    sp.add_argument('--assembler', default='SPAdes;4.3.0;metaviral')
+    sp.add_argument('--assembler', default='SPAdes;4.3.0;rnaviral')
     sp.add_argument('--sequencer', default='Illumina NovaSeq 6000')
     sp.add_argument('--enrichment', default='rRNA depletion')
     sp.set_defaults(func=cmd_submit_export)
+
+    sp = sub.add_parser('submit-adopt',
+                        help='提交准备：从 MMPV-RNA discovery 产物一键建提交项目')
+    sp.add_argument('--out-dir',
+                    help='discovery 输出根（含 09b_Analysis_Verify/ 或 08_Rescue/）')
+    sp.add_argument('--from-server', metavar='DATASET',
+                    help='从服务器拉取 discovery 产物（相对 server-data-root 的'
+                         '数据集名，如 out10）；ssh/scp 免密需已配好')
+    sp.add_argument('--server-host', help='ssh 目标（默认 zhangwenda@202.119.189.246）')
+    sp.add_argument('--server-data-root',
+                    help='服务器数据根（默认 /home/zhangwenda/data-test）')
+    sp.add_argument('--name', required=True, help='提交项目名（字母/数字/_/-）')
+    sp.add_argument('--dataset', help='数据集名（默认取输出目录名），作 Isolate 前缀')
+    sp.add_argument('--samples',
+                    help='样本元数据表（TSV/CSV，需 match 列=contig 前缀/glob）')
+    sp.add_argument('--run-name', help='平台分类运行名（默认 contigs_mmpv_<数据集>）')
+    sp.add_argument('--force', action='store_true', help='项目已存在时清空重建')
+    sp.add_argument('--dry-run', action='store_true', help='只报会生成什么，不落盘')
+    sp.add_argument('--no-export', action='store_true', help='只出 unified_metadata.csv')
+    sp.add_argument('--min-length', type=int, default=0, help='过滤短于该长度的序列')
+    sp.add_argument('--isolate-prefix', help='Isolate 前缀（默认用 --dataset）')
+    sp.add_argument('--public-metadata',
+                    help='公共元数据表（默认自动探测上游 metadata_output/）')
+
+    g = sp.add_argument_group('提交元数据（单样本或作为多样本的兜底）')
+    g.add_argument('--geo-loc', help='采集地点 "China:Ningxia"')
+    g.add_argument('--lat-lon', help='经纬度 "37.48 N 105.68 E"')
+    g.add_argument('--collection-date', help='采集日期 YYYY[-MM[-DD]]')
+    g.add_argument('--host', help='宿主物种名')
+    g.add_argument('--tissue', help='组织类型')
+    g.add_argument('--cultivar', help='栽培品种')
+    g.add_argument('--dev-stage', help='发育阶段')
+    g.add_argument('--collected-by', help='采集人/机构')
+    g.add_argument('--isolation-source', help='分离来源')
+    g.add_argument('--authors', help='作者 "Last, First; ..."')
+    g.add_argument('--title', help='提交标题')
+    g.add_argument('--bioproject', help='你自己的 BioProject（PRJNA...）')
+    g.add_argument('--biosample-prefix', help='BioSample 前缀（SAMN...）')
+    g.add_argument('--assembler', help='组装方法（缺省从 pipeline_config 读）')
+    g.add_argument('--sequencer', help='测序平台')
+    g.add_argument('--coverage', help='基因组覆盖度（如 42.5x）')
+    g.add_argument('--annotation-pipeline', help='注释流程串')
+    g.add_argument('--enrichment', default='rRNA depletion', help='miuvig 富集方式')
+    sp.set_defaults(func=cmd_submit_adopt)
 
     sp = sub.add_parser('submit-sbt', help='提交准备：生成 template.sbt（作者/机构）')
     sp.add_argument('--name', required=True)
@@ -1074,6 +1186,10 @@ def main():
 
     sp = sub.add_parser('selfcheck', help='环境自检（模块/工具/数据库/磁盘/依赖）')
     sp.set_defaults(func=cmd_selfcheck)
+
+    sp = sub.add_parser('importprobe', help='内部命令：逐模块导入探测（供 selfcheck 子进程调用）')
+    sp.add_argument('modules', help='逗号分隔的模块名清单')
+    sp.set_defaults(func=cmd_importprobe)
 
     args = p.parse_args()
     rc = args.func(args)

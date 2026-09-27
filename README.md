@@ -12,7 +12,7 @@
 | ④ 宿主预测 | ICTV 宿主概率级联 | host_prediction.tsv、桑基/旭日图 |
 | ⑥ ORF 预测 | pyrodigal + pyrodigal-rv（orfipy 仅显式指定时运行） | faa/ffn/gff（+ orfipy pep/nt/bed） |
 | ⑥b ORF 功能注释 | DIAMOND/MMseqs2/blastp × RefSeq 病毒蛋白库 + 类别投票 + ICTV 映射 | orf_annotation.tsv、功能类别/科分布、注释 GFF3 |
-| ⑦ 进化分析 | MAFFT + trimAl 清剪 + FastTree / IQ-TREE（UFBoot+SH-aLRT 双支持值）；SDT 口径 identity 矩阵；可选追加 NCBI 下载参考 | tree.nwk、树图、sdt_matrix.csv + 热图 |
+| ⑦ 进化分析 | MAFFT + trimAl 清剪 + FastTree / RAxML-NG（ML + FBP 自举支持值）；SDT 口径 identity 矩阵；可选追加 NCBI 下载参考 | tree.nwk、树图、sdt_matrix.csv + 热图 |
 | ⑧ 引物设计 | primer3（保守区 / 全长两种模式，含热力学评分） | primers.tsv |
 | ⑨ 基因组图 | gbdraw 首选（SVG 圈图 + 线图）；缺则用 dna_features_viewer（DFV，按功能类别着色） | 09_genome_plots/*.svg |
 | ⑩ 可视化报告 | plotly + pycirclize + matplotlib + gbdraw/DFV | report.html |
@@ -23,12 +23,14 @@
 输出"预估 vs 实测"磁盘核对行。
 ## 界面（按分析工作流布局）
 顶部导航即工作流顺序：**总览 · 分析流程 · 结果中心 · 专项分析 · 数据下载 ·
-公共数据检索 · 数据库 · 公共病毒组 · LOGAN 溯源 · 提交准备 · 设置 · 手册**
-（🌐 一键切换中/英文；📂 打开平台目录）。
+公共数据检索 · 数据库 · 公共病毒组 · LOGAN 溯源 · 提交准备 · 任务中心 ·
+设置 · 手册**
+（🌐 一键切换中/英文；📂 打开平台目录；导航栏「任务中心」带运行中任务数
+角标）。
 - **总览**：**启动页封面**（平台定位一句话 + 「背景 / 方法 / 流程 / 意义」四张
   叙事卡）+ 数据库状态卡片 + 分析工作流入口（按 建库→分析→结果→专项→溯源 排序）
   + 最近样品
-- **分析流程**（原"分析管道"）：新建样品 + 按功能模块分组的 13 步级联流程（详见下文）
+- **分析流程**（原"分析管道"）：新建样品 + 按功能模块分组的 14 步级联流程（⓪~⑩，详见下文）
 - **结果中心**（原"结果"）：已分析样品（报告/目录/文件/删除）+ **专项结果入口**
   （LOGAN 溯源报告在此聚合）+ SDT / MSA / 进化树交互查看器
 - **专项分析**（原"工具箱"）：不分样品流程的独立分析，分两区——
@@ -98,7 +100,8 @@
      可勾选"截取子样本"先小规模验证；
    - 管道按**功能模块分组**显示（PhyloSuite 风格）：🧹测序数据预处理
      （⓪Fastp质控·可选 → ⓪b FASTQ→FASTA转换·可选 → ①宿主去除）→
-     🦠病毒鉴定（②b 已知病毒识别与定量：识别 + 定量）→ 🧬病毒组装（③组装·分类·病毒contigs提取）→
+     🦠病毒鉴定（②b 已知病毒识别与定量：识别 + 定量）→ 🧬病毒组装（③组装·分类·病毒contigs提取 →
+     ③b 候选序列验证 → ③c 共识序列与变异）→
      🧲宿主预测（④ICTV宿主判定）→
      🔬下游分析（⑥ORF → ⑥b ORF功能注释 → ⑦进化树与SDT → ⑧引物设计 → ⑨基因组图gbdraw）→
      📄报告（⑩可视化），
@@ -269,6 +272,8 @@ sankey_host.html（病毒科→宿主类别桑基图）、sunburst_host.html（�
                   子集，④⑦⑧⑨/logan 共用）, virus_contigs.tsv（11 列 =
                   kunpeng 5 列 + blast 6 列）, contig_blast.tsv（contig 级
                   BLASTN 最近参考：accession/identity/覆盖度/物种/科）
+03b_verify/       候选序列验证（宿主筛选 → 长度分流 → blastx/CDD + 类病毒 blastn）
+03c_consensus/    共识序列与变异（reads 回贴参考 → 逐参考位置计数 → 共识）
 04_orf/           orfipy_pep/nt/bed, pyrodigal.faa/ffn/gff, pyrodigal_rv.*
 04b_orf_annot/    orf_annotation.tsv（逐 ORF 功能注释）, orf_function_summary.tsv,
                   orf_family_summary.tsv, contig_function_profile.tsv,
@@ -562,7 +567,7 @@ Python gzip，无功能差异。
 ## 已知事项与设计说明
 - **中文路径兼容**：SPAdes 与 BLAST(LMDB) 不支持含中文的路径。平台自动处理：
   SPAdes 经 `%TEMP%\vp_spades`（纯 ASCII）中转并把结果拷回；BLAST 库建在 `%TEMP%\vp_blast`。
-  其余工具（kunpeng/mafft/FastTree/IQ-TREE）原生支持中文路径。
+  其余工具（kunpeng/mafft/FastTree/RAxML-NG）原生支持中文路径。
 - **宿主库构建（大基因组内存问题已修复）**：kunpeng convert 阶段按 60 条/批
   整批载入序列且无字节上限，多条大染色体（如玉米 chr01 176MB）同批会触发
   确定性的 ~20.8GB 巨型分配而失败（与机器内存、线程数无关，1.8GB 基因组
@@ -601,10 +606,15 @@ Python gzip，无功能差异。
 先到「数据库构建」页构建宿主库（需要 TaxID），或取消勾选"①宿主去除"阶段。
 **Q: SPAdes 报错 67 / non-ASCII？**
 旧版本问题，现已自动中转。若仍出现，检查 `%TEMP%` 路径是否含中文。
-**Q: 想用 IQ-TREE 更严谨建树？**
-分析页把「建树工具」切到 IQ-TREE（自动优先用 v3，缺失回退 v2；
-模型自动选择 `-m MFP` + UFBoot 1000 + SH-aLRT 1000 双支持值，
-最优模型与对数似然写入 05_phylo summary.json）。
+**Q: 想用 ML 更严谨建树？**
+分析页把「建树工具」切到 RAxML-NG（随包 `3rd/tools/raxml-ng/`，GTR+G，
+ML 搜索 + 100 次 FBP 自举支持值；固定种子可复现、线程自动封顶 8，
+最优模型与对数似然写入 05_phylo summary.json）。实测口径（209 条 × 966 nt）：
+ML 搜索 143 s，含自举总耗时 730.6 s（≈12.2 分钟）；IQ-TREE 3 同数据
+（GTR+G + 1000 次 UFBoot）1049 s（≈17.5 分钟）——端到端快约 1.4 倍。
+只要拓扑不要支持值可直接用 FastTree（秒级）；序列 <4 条或比对全 N 时
+自动降级 FastTree 保树（降级写入任务日志）。旧版 IQ-TREE 产物
+（treefile/contree）仍可在结果中心查看。
 **Q: 进化树想加入更多近缘参考（如整属全基因组）？**
 工具箱「⑤ NCBI 参考序列下载」：输入 Entrez 检索式（如
 `Tobamovirus[ORGN] AND complete genome[TITL]`）→ 搜索预览 → 下载为
@@ -636,7 +646,7 @@ Entrez 检索式 / 本机 .gb 导入。每次下载同时产出 GenBank 集合�
 集合可一键<b>🧬 提取 CDS/PEP</b>（genome / CDS / PEP 分类分目录 + 按基因
 拆分，直接送序列比对或基因建树）。
 「进化树构建（科/属级）」：选集合 → MAFFT + trimAl → NJ / FastTree /
-IQ-TREE（含双支持值），页内树查看与 SNP-only MSA 查看一体；也可直接
+RAxML-NG（ML + FBP 支持值），页内树查看与 SNP-only MSA 查看一体；也可直接
 输入 FASTA 建树。历史项目/测试样品已收进结果中心「归档项目」，各模块
 下拉只显示当前样品。
 CLI 全家桶：`gb-dl`（检索式/accession 下载）、`gb-import`（本机 .gb

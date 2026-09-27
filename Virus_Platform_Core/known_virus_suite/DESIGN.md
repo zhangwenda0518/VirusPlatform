@@ -83,12 +83,21 @@ class VirusEngine:
 | 维度 | salmon | minibwa |
 |------|--------|---------|
 | 比对方式 | 伪比对（k-mer 精确匹配） | 真比对（BWA 风格，允许错配） |
-| 索引 | `salmon index -k 31`，738MB | `minibwa index`，70MB |
+| 索引 | `salmon index -k 31`（常规）/ `-k 15`（小RNA按需另建 `salmon_k15/`），738MB | `minibwa index`，70MB |
 | 定量输出 | `quant.sf`（NumReads / TPM） | 无，需从 SAM 统计 |
 | 比对位点 | **无** | SAM 记录（POS + CIGAR + MD） |
 | 共识支持 | **不支持**（supports_consensus=False） | 支持 |
 | 远缘检测 | 弱（k-mer 必须精确） | 强（容忍错配） |
+| 小RNA支持 | ✓（k=15 索引，自动适配） | **不支持**（21-24nt 实测 0 映射，明确报错） |
 | 深度统计 | 依赖外部 pandepth | 默认 pandepth（严格照原管线），可切 samtools / 内置 |
+
+小RNA（siRNA/miRNA，21-30nt）适配（2026-09-15，Bari 250K 数据集实测）：
+- reads 头部采样最长 <32bp 时，identify 段自动改用 `salmon_k15` 索引
+  （与 `salmon_k31` 并存，建一次跨 run 复用）。k=31 索引对 21-24nt reads
+  映射率为 0（reads 短于 k 无种子可用）；k=15 实测映射率 ~11%，PVB 定量
+  与论文 BWA 真值差 3-6%（Massart et al. 2019 Potato 250K 数据集）。
+- minibwa 引擎遇小RNA 直接报错（BWA 0.7 seed-and-extend 对 21-24nt
+  实测 0/250,000 映射，任何 seed 参数；静默跑完只会产出全零定量）。
 
 ### 关键决策：salmon 的共识兜底
 
@@ -355,8 +364,12 @@ viroid 的变异位点仍会被检出并写入 `vcf/`，只是不做基因功能
 ### 索引复用（--index-dir）
 
 `_index_dir(args, out_dir)` 统一取 `--index-dir`，缺省 `<out>/index`。
-平台病毒库的 minibwa 索引预建在 `databases/virusref_db/kv_index/`（`minibwa.mbw` 61.9 MB + `.l2b` 7.9 MB），
-仅在 engine=minibwa 且参考为平台默认时传入，避免每次跑样品重建索引。
+库与引擎正交：同一鉴定库可同时带两套索引，判定路径为——
+- salmon：`databases/virusref_db/<库>/salmon_k31/info.json`
+- minibwa：`databases/virusref_db/<库>/minibwa/reference.mbw`（+ `.l2b`）
+
+仅在所选引擎的索引在位、且参考为平台默认时传入（`kv_stage.index_dir_for`），
+避免每次跑样品重建索引；缺索引时引擎在 `<out>/index/` 现建，不污染库。
 
 ---
 

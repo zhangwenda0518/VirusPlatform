@@ -4,8 +4,8 @@
 - 按病毒物种分组（BLAST top hit），每组 = 病毒 contigs + top-N 近缘参考
 - MAFFT 多序列比对
 - trimAl 比对清剪（automated1 自动模式；失败/过度修剪自动回退原比对）
-- FastTree（快速）/ NJ（极速，纯 Python identity 距离）/ IQ-TREE
-  （可选，模型选择 + UFBoot + SH-aLRT 双支持值）建树
+- FastTree（快速）/ NJ（极速，纯 Python identity 距离）/ RAxML-NG
+  （可选，ML + FBP 自举支持值）建树
 - SDT 全长成对 identity 矩阵（pairwise gap 删除口径，与 SDT 一致）
 - 输出 SDT GUI 可直接打开的比对 fasta
 """
@@ -18,7 +18,8 @@ from collections import defaultdict
 
 from .config import get_config
 from .utils import (check_path, safe_open, run_cmd, run_cmd_redirect,
-                    iter_fasta, write_fasta_record, is_step_done, mark_step_done)
+                    iter_fasta, write_fasta_record, is_step_done, mark_step_done,
+                    to_utf8_file)
 from .assembly import find_virus_ref_fasta
 
 # 建树参考序列长度上限（bp）。植物病毒基因组通常 2-20kb
@@ -294,7 +295,15 @@ def _run_mafft(in_fasta, out_fasta, threads=None, logger=None,
         except OSError:
             pass
     _ascii_fetch(staged_in, in_fasta, was_staged)
-    return check_path(out_fasta, must_exist=True)
+    out_path = check_path(out_fasta, must_exist=True)
+    # MAFFT 参数/输入异常时可能退出码 0 但产物为空或非 FASTA —— 不校验的话
+    # 空比对会一路流到建树/热图，报出"序列不足"之类的下游错误
+    n_out, cols_out = _fasta_size(out_path)[0], _alignment_cols(out_path)
+    if n_out == 0 or cols_out == 0:
+        raise RuntimeError(
+            f"MAFFT 输出为空或非 FASTA（序列 {n_out} 条 / {cols_out} 列）："
+            f"输入 {os.path.basename(in_fasta)} 可能格式异常或比对失败")
+    return out_path
 
 
 def _alignment_cols(aln_fasta):
@@ -354,8 +363,9 @@ def _run_trimal(in_aln, out_aln, logger=None, min_frac=0.3, min_cols=100):
         return out_aln, info
     except Exception as e:
         if logger:
-            logger.log(f"  trimAl 失败({e})，使用未清剪比对", "WARN")
-        info['error'] = str(e)
+            logger.log(f"  trimAl 失败（{type(e).__name__}: {e}），"
+                       f"使用未清剪比对", "WARN")
+        info['error'] = f'{type(e).__name__}: {e}'
         return in_aln, info
 
 
@@ -451,7 +461,7 @@ def _run_nj(aln_fasta, tree_out, logger=None):
     """纯 Python NJ 快速建树（identity 距离，SDT 口径）。
 
     输入为 MAFFT（可选 trimAl 清剪后）比对 FASTA —— 与 FastTree /
-    IQ-TREE 同一比对输入；无支持值，定位极速粗树/快速分型。
+    RAxML-NG 同一比对输入；无支持值，定位极速粗树/快速分型。
     """
     if logger:
         logger.log("NJ 建树 (identity 距离 · Saitou-Nei, 纯 Python)")
@@ -462,16 +472,26 @@ def _run_nj(aln_fasta, tree_out, logger=None):
     return check_path(tree_out, must_exist=False, in_platform=True)
 
 
-def _parse_iqtree_log(iqtree_file):
-    """从 .iqtree 报告提取最优模型与对数似然（用于摘要展示）。"""
+def _parse_raxml_log(prefix):
+    """从 RAxML-NG 产物提取最优模型与对数似然（用于摘要展示）。
+
+    模型在 <prefix>.raxml.bestModel（如 GTR{...}+FU{...}+G4m{...}, noname = 1-966，
+    去掉大括号内参数只留模型骨架）；对数似然在 <prefix>.raxml.log 的
+    "Final LogLikelihood:" 行。RAxML-NG 日志里没有 IQ-TREE 那样的
+    "Best-fit model" 行，解析口径与旧 _parse_iqtree_log 保持相同的键名。
+    """
     out = {}
     try:
-        with safe_open(iqtree_file) as f:
+        with safe_open(prefix + '.raxml.bestModel') as f:
+            head = f.readline().split(',')[0].strip()
+        if head:
+            out['model'] = re.sub(r'\{[^}]*\}', '', head)
+    except OSError:
+        pass
+    try:
+        with safe_open(prefix + '.raxml.log') as f:
             for line in f:
-                m = re.search(r'Best-fit model according to \w+: (\S+)', line)
-                if m:
-                    out['model'] = m.group(1)
-                m = re.search(r'Log-likelihood of the tree:\s*(-?[\d.]+)', line)
+                m = re.search(r'Final LogLikelihood:\s*(-?[\d.]+)', line)
                 if m:
                     out['logl'] = float(m.group(1))
     except OSError:
@@ -479,26 +499,55 @@ def _parse_iqtree_log(iqtree_file):
     return out
 
 
-def _run_iqtree(aln_fasta, prefix, threads=None, logger=None, bootstrap=1000,
-                alrt=1000):
-    """IQ-TREE v3 建树。
+RAXML_NG_THREAD_CAP = 8
 
-    -m MFP 自动选模；-B UFBoot + -alrt SH-aLRT 双支持值。
+
+def _raxml_threads(threads=None):
+    """RAxML-NG 线程数封顶 8（超过就变慢，不是变快）。
+
+    本机 i7-12700K（12 核 / 20 逻辑线程）实测：线程数接近逻辑核数时 PLL
+    工作线程在 HT/E 核上自旋互拖，性能反而崩塌——potexvirus 比对
+    （10 taxa × 5919 位点）19 线程 ML 搜索 10 分钟不出结果，8 线程 9.96 秒；
+    rsv209（209 taxa × 966 位点）19 线程 234.8 秒、8 线程 143.0 秒。
+    故上限取 8（≈物理 P 核数）；小数据同样用 8，实测不亏。
+    """
+    return max(1, min(int(threads or get_config().threads),
+                      RAXML_NG_THREAD_CAP))
+
+
+def _run_raxml_ng(aln_fasta, prefix, threads=None, logger=None, bootstrap=100,
+                  model='GTR+G'):
+    """RAxML-NG 建树（--all = ML 搜索 + Felsenstein 自举 FBP）。
+
+    model 默认 GTR+G（核酸）；蛋白（pep）数据须传 LG+G —— 不能沿用
+    IQ-TREE 的 MFP 自动选模，RAxML-NG 的 model 必须显式指定。
+    产物 <prefix>.raxml.support = ML 树 + FBP 支持值（0–100 标度，与
+    IQ-TREE 一致，前端按同一口径着色），另有 .bestTree / .bestModel / .log。
+    固定 --seed 保证可复现（RAxML-NG 默认按当前时间取种子）。
     """
     cfg = get_config()
-    iqtree = cfg.tool('iqtree3')
+    exe = cfg.tool('raxml-ng')
     if logger:
-        logger.log(f"IQ-TREE v3 建树 (MFP + UFBoot {bootstrap} + SH-aLRT {alrt})，"
-                   f"耗时较长")
+        logger.log(f"RAxML-NG 建树 ({model}，ML + {bootstrap} 次 FBP 自举)")
     pf = check_path(prefix, must_exist=False, in_platform=True)
-    cmd = [iqtree, '-s', check_path(aln_fasta, must_exist=True),
-           '-m', 'MFP', '-B', str(bootstrap), '-alrt', str(alrt),
-           '-T', str(threads or cfg.threads), '--prefix', pf, '-redo']
+    # --force perf_threads：RAxML-NG 启动时若判定「线程数 > 逻辑核数」会直接
+    # 拒绝运行（实测并发两个任务时第二个退出 1）；现虽已封顶 8 线程，低核数
+    # 机器或并发任务仍可能触发——该检查只防资源浪费、不影响结果正确性，
+    # 桌面平台上宁可慢也不要任务失败
+    cmd = [exe, '--all', '--msa', check_path(aln_fasta, must_exist=True),
+           '--model', model, '--threads', str(_raxml_threads(threads)),
+           '--seed', '1', '--redo', '--bs-trees', str(bootstrap),
+           '--bs-metric', 'fbp', '--force', 'perf_threads', '--prefix', pf]
     run_cmd(cmd, logger=logger)
-    nwk = pf + '.treefile'
-    if not os.path.isfile(nwk):
-        raise RuntimeError("IQ-TREE 未生成 .treefile")
-    return nwk
+    # RAxML-NG 按系统 ANSI 代码页写自产日志（含中文路径的行是 GBK）：
+    # 跑完立即就地转 UTF-8，与平台其余产物编码统一（树/model 文件纯 ASCII
+    # 时 to_utf8_file 原样跳过，零开销）
+    for suffix in ('.raxml.log', '.raxml.bestModel'):
+        to_utf8_file(pf + suffix)
+    for suffix in ('.raxml.support', '.raxml.bestTree'):
+        if os.path.isfile(pf + suffix):
+            return pf + suffix
+    raise RuntimeError("RAxML-NG 未生成树文件")
 
 
 def pairwise_identity_matrix(aln_fasta):
@@ -646,7 +695,8 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                 logger.log(f"kunpeng 兜底分类: {len(cls_map)} 条 contig 有谱系")
         except Exception as e:
             if logger:
-                logger.log(f"kunpeng 兜底分类失败（跳过）: {e}", "WARN")
+                logger.log(f"kunpeng 兜底分类失败（跳过）"
+                           f"（{type(e).__name__}: {e}）", "WARN")
     # 参考挑选限定完整基因组：提取时优先 complete_ref、回退全参考集；
     # 元数据用于 RefSeq/complete 优先
     ref_meta = {}
@@ -691,11 +741,11 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                 plant_accs = ictv_db.acvirus_acc_index()
             except Exception as _e:
                 if logger:
-                    logger.log(f"植物口径名单不可用（本次不做宿主过滤）: {_e}",
-                               "WARN")
+                    logger.log(f"植物口径名单不可用（本次不做宿主过滤）"
+                               f"（{type(_e).__name__}: {_e}）", "WARN")
     except Exception as e:
         if logger:
-            logger.log(f"ICTV VMR 库不可用（跳过）: {e}", "WARN")
+            logger.log(f"ICTV VMR 库不可用（跳过）：{type(e).__name__}: {e}", "WARN")
 
     def _ref_pref(sacc):
         """参考优选键：(RefSeq, 完整基因组)。bitscore 由调用方拼接。"""
@@ -853,7 +903,7 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                     logger=logger)
             except Exception as e:
                 if logger:
-                    logger.log(f"  NCBI 下载失败（跳过）: {e}", "WARN")
+                    logger.log(f"  NCBI 下载失败（跳过）：{type(e).__name__}: {e}", "WARN")
 
         # 参考谱系标注（植物库元数据 > ICTV VMR 当前版 > acvirus taxa.txt）
         refs_info = []
@@ -920,12 +970,35 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
 
         tree_file = None
         tree_extra = {}
+        # RAxML-NG 的 ML/自举要求 ≥4 条序列（<4 直接报 "less than 4 sequences"
+        # 退出）；提前降级为 NJ 并说明原因，别让整个组的树静默消失
+        _n_aln = _fasta_size(aln_used)[0]
+        tree_tool_used = tree_tool
+        if tree_tool == 'raxml-ng' and _n_aln < 4:
+            tree_tool_used = 'nj'
+            if logger:
+                logger.log(f"  比对仅 {_n_aln} 条序列（RAxML-NG 自举要求"
+                           f"≥4 条），降级为 NJ 快速建树", "WARN")
         try:
-            if tree_tool == 'iqtree':
-                tree_file = _run_iqtree(aln_used, os.path.join(gdir, 'iqtree'),
-                                        threads=threads, logger=logger)
-                tree_extra = _parse_iqtree_log(os.path.join(gdir, 'iqtree.iqtree'))
-            elif tree_tool == 'nj':
+            if tree_tool_used == 'raxml-ng':
+                try:
+                    tree_file = _run_raxml_ng(aln_used,
+                                              os.path.join(gdir, 'raxml'),
+                                              threads=threads, logger=logger)
+                    tree_extra = _parse_raxml_log(os.path.join(gdir, 'raxml'))
+                except Exception as e:
+                    # 无信息比对（所有列全 N / 全 gap，如合成集合 it_synteny）
+                    # 会触发 RAxML-NG 底层 pll 断言崩溃（实测 exit 1536）；
+                    # FastTree 对同款比对可正常出树（退化枝长 0）——降级保树
+                    tree_tool_used = 'fasttree'
+                    tree_extra = {}
+                    if logger:
+                        logger.log(f"  RAxML-NG 建树失败({e})，"
+                                   f"降级为 FastTree 建树", "WARN")
+                    tree_file = _run_fasttree(aln_used,
+                                              os.path.join(gdir, 'tree.nwk'),
+                                              logger=logger)
+            elif tree_tool_used == 'nj':
                 tree_file = _run_nj(aln_used, os.path.join(gdir, 'nj.nwk'),
                                     logger=logger)
             else:
@@ -933,7 +1006,8 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                                           logger=logger)
         except Exception as e:
             if logger:
-                logger.log(f"  建树失败({e})，保留比对与 SDT 结果", "WARN")
+                logger.log(f"  建树失败（{type(e).__name__}: {e}），"
+                           f"保留比对与 SDT 结果", "WARN")
 
         csv_path, sdt_fas, names, mat = write_sdt_outputs(aln, gdir)
         # 代表 contig 与最近参考的 identity
@@ -948,6 +1022,7 @@ def build_phylo(sample_dir, top_n_refs=10, tree_tool='fasttree', threads=None,
                                          if r['species']][:5],
                         'dir': gname, 'aln': 'aln.fasta',
                         'trim': trim_info,
+                        'tree_tool': tree_tool_used,   # 实际建树工具（可能降级）
                         'tree': os.path.basename(tree_file) if tree_file else None,
                         'tree_model': tree_extra.get('model'),
                         'tree_logl': tree_extra.get('logl'),

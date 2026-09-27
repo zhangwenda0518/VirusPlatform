@@ -8,8 +8,10 @@
 # 所有键名与 known_virus_suite.py 的 CLI 参数一一对应（下划线形式）。
 
 # ── 引擎 ──────────────────────────────────────────────
-# 定量唯一引擎 salmon：quant.sf 出 EM 定量，--writeBam 出映射位点
-# （排序 BAM + pandepth 覆盖度/深度）。共识段内部固定 minibwa，不经此参数。
+# 定量引擎二选一（与鉴定库正交，库里缺对应索引时运行目录现建）：
+#   salmon  —— EM 定量（quant.sf），--writeBam 出映射位点；多映射分摊更敏感（默认）
+#   minibwa —— 真比对计数（idxstats），同一覆盖度后端与 BAM 命名；需 samtools
+# 共识段内部固定 minibwa（自建单参考索引重新比对），不经此参数。
 engine: salmon
 
 # 覆盖度/深度统计后端。默认 pandepth：严格照原管线
@@ -56,7 +58,8 @@ filter:
 consensus:
   engine: minibwa            # 固定 minibwa（真比对出位点，共识/变异都吃它的 BAM）
   vc_qual: 20                # -q 碱基最低质量（原管线默认）
-  vc_depth: 5                # -d 单碱基最低支持深度（原管线默认）
+  vc_depth: 1                # -d 单碱基最低支持深度（2026-09 统一为 1；原管线默认 5，
+                             # 低滴度样品共识完整性优先，Q20 质量过滤前置兜底）
   vc_freq: 0.5               # -f 等位基因频率阈值（原管线默认）
   vc_ambig: N                # -a 低深度位点占位字符
   jobs: 4                    # 并行样本数

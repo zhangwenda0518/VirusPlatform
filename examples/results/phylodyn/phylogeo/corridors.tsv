@@ -1,0 +1,4 @@
+from	to	ml	sum_ml	fitch	sum_fitch	delta
+Asia	Europe	2	4	2	4	0
+Americas	Asia	1	4	2	4	-1
+Asia	Americas	1	4		4	

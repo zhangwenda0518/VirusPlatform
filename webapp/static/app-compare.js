@@ -258,7 +258,6 @@ async function loadGbCollections() {
       const cds = (c.records || []).reduce((s, r) => s + (+r.cds || 0), 0);
       const src = c.source === 'query' ? esc((c.term || '').slice(0, 36))
         : (c.source === 'accessions' ? esc(c.accessions) + ' 个 accession' : '本机导入');
-      const cmp = `/compare/${encodeURIComponent(c.name)}`;
       const results = [
         c.has_phylo ? `<a href="/results#msa" title="结果中心查看比对/树/SDT">🌳 MSA·树</a>` : '',
       ].filter(Boolean).join(' ') || '—';
@@ -409,8 +408,9 @@ function identityMatrixTable(names, matrix) {
 let _tvViewer = null;
 
 function _treeInternalLabelsAllNumeric(newick) {
-  /* FastTree tree.nwk 与 IQ-TREE treefile/contree 把支持值写成内部节点名
-     （如 )0.753: 或 )95.2:）；全部为数字时按支持值解析，否则保留为内部名。 */
+  /* FastTree tree.nwk 与 RAxML-NG raxml.raxml.support（旧 IQ-TREE treefile/contree
+     同款）把支持值写成内部节点名（如 )0.753: 或 )95.2:）；全部为数字时按支持值
+     解析，否则保留为内部名。 */
   const labels = [];
   const re = /\)[ \t]*([^,():;\[\]\s]*)[ \t]*:/g;
   let m;
@@ -422,19 +422,24 @@ function _treeInternalLabelsAllNumeric(newick) {
 }
 
 function renderTreeTo(box, newick, opts) {
-  /* opts: {layout}：'rectangular' | 'circular' | 'unrooted'。返回 tips 数。 */
+  /* opts: {layout, genomeOverlay}：'rectangular' | 'circular' | 'unrooted'。返回 tips 数。
+     genomeOverlay（可选）=「基因组分带 / 每叶基因轨道 / 同源连线」叠加数据，
+     只在矩形布局绘制；由 /api/tree/* 按「与树同名的 .overlay.json」给出。
+     有 track 与叶名对不上时该叶不画轨道，不影响树本身。 */
   if (_tvViewer) { try { _tvViewer.destroy(); } catch (e) { /* 重建即可 */ } _tvViewer = null; }
   box.innerHTML = '';
   const asConf = _treeInternalLabelsAllNumeric(newick);
   /* 同一容器重新 launch 即为官方的换树方式；launch 会整体重建面板。 */
-  _tvViewer = archaeopteryx.launchArchaeopteryx(box, 'tree.nwk', newick, {
+  const launchOpts = {
     layout: opts.layout || 'rectangular',
     nhConfidenceValuesAsInternalNames: asConf,
     nhConfidenceValuesInBrackets: !asConf,
     enableDownloads: true,
     enableAccessToDatabases: false,
     pngExportScale: 4,
-  });
+  };
+  if (opts.genomeOverlay) launchOpts.genomeOverlay = opts.genomeOverlay;
+  _tvViewer = archaeopteryx.launchArchaeopteryx(box, 'tree.nwk', newick, launchOpts);
   /* 面板中支持值复选框默认不勾选；树带支持值时自动勾上。 */
   setTimeout(() => {
     const cb = box.querySelector('#conf_cb');
@@ -493,7 +498,8 @@ async function treeToolLoadFile() {
     const r = await fetch(`/api/tree/file?path=${encodeURIComponent(p)}`);
     if (!r.ok) { $('tvMeta').textContent = esc((await r.json()).error || '加载失败'); return; }
     const d = await r.json();
-    tvData = { newick: d.newick, meta: { file: d.file, tool: '' } };
+    tvData = { newick: d.newick, meta: { file: d.file, tool: '' },
+               overlay: d.overlay || null };
     tvSource = 'file';
     treeToolRender();
   } catch (e) { $('tvMeta').textContent = '无法连接: ' + esc(e); }
@@ -530,7 +536,7 @@ async function treeToolView() {
     const r = await fetch(`/api/tree/data?sample=${encodeURIComponent(s)}&group=${encodeURIComponent(g)}&file=${encodeURIComponent(f)}`);
     if (!r.ok) { tvData = null; $('tvMeta').textContent = esc((await r.json()).error || '加载失败'); return; }
     const d = await r.json();
-    tvData = { newick: d.newick, meta: d };
+    tvData = { newick: d.newick, meta: d, overlay: d.overlay || null };
     tvSource = 'sample';
     treeToolRender();
   } catch (e) { $('tvMeta').textContent = '无法连接: ' + esc(e); }
@@ -541,7 +547,8 @@ function treeToolRender() {
   if (!tvData) { box.innerHTML = `<p class="hint">${t('c.noData2')}</p>`; $('tvMeta').textContent = ''; return; }
   let tips = 0;
   try {
-    tips = renderTreeTo(box, tvData.newick, { layout: 'rectangular' });
+    tips = renderTreeTo(box, tvData.newick,
+                        { layout: 'rectangular', genomeOverlay: tvData.overlay || null });
   } catch (e) {
     box.innerHTML = '<p class="hint" style="color:#b91c1c">树解析失败: ' + esc(e) + '</p>';
     return;
@@ -549,9 +556,19 @@ function treeToolRender() {
   const m = tvData.meta || {};
   $('tvMeta').textContent = [
     `${tips} 个序列`, m.tool, m.model ? '模型 ' + m.model : '',
-    m.logl ? 'logL ' + m.logl : '', m.file,
+    m.logl ? 'logL ' + m.logl : '', m.file, _tvOverlayNote(tvData.overlay),
     '查看器面板：布局切换 / 显示与支持值 / 缩放 / 搜索 / Download 导出',
   ].filter(Boolean).join(' · ');
+}
+
+function _tvOverlayNote(ov) {
+  /* 叠加数据的一行摘要（无叠加返回 ''，不占位）。 */
+  if (!ov || !(ov.tracks || []).length) return '';
+  const nGene = (ov.tracks || []).reduce((s, t) => s + ((t.genes || []).length), 0);
+  const nLink = (ov.links || []).length;
+  return `基因组叠加：${ov.tracks.length} 条轨道 / ${nGene} 个基因`
+    + (nLink ? ` / ${nLink} 条同源连线（按蛋白同一性着色）` : '')
+    + '（仅矩形布局绘制）';
 }
 
 async function treeToolInit() {
@@ -597,7 +614,8 @@ async function quickTreeLoad() {
     const r = await fetch(`/api/tool/quicktree_data?run=${encodeURIComponent(qtRun)}`);
     if (!r.ok) { $('tvMeta').textContent = esc((await r.json()).error || '加载失败'); return; }
     const d = await r.json();
-    tvData = { newick: d.newick, meta: { file: d.file, tool: d.tool } };
+    tvData = { newick: d.newick, meta: { file: d.file, tool: d.tool },
+               overlay: d.overlay || null };
     tvSource = 'quicktree';
     treeToolRender();
     const dl = $('qtDl');

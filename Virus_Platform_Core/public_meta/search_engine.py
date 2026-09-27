@@ -239,7 +239,7 @@ class GSAEngine:
                     rx = self.session.post("https://ngdc.cncb.ac.cn/gsa/file/exportExcelFile", data={"type": 3, "dlAcession": cra}, timeout=30)
                     if len(rx.content) > 1000:
                         with safe_open(xls_path, 'wb') as f: f.write(rx.content)
-                except: pass
+                except Exception: pass
 
             if os.path.exists(xls_path):
                 try:
@@ -276,7 +276,7 @@ class GSAEngine:
                                 'Age_GrowthStage': " | ".join(stage_parts) if stage_parts else pd.NA,
                                 'Location': row.get('geographic location', pd.NA)
                             }
-                except: pass
+                except Exception: pass
         return meta_dict
 
     def fetch_download_urls(self):
@@ -313,9 +313,43 @@ class GSAEngine:
                             entry['md5_2'] = str(v).strip() if pd.notna(v) and str(v).strip() else None
                     if entry.get('url_1'):
                         url_dict[acc] = entry
-            except: pass
+            except Exception: pass
         print(f"  ✓ 提取到 {len(url_dict)} 条下载链接")
         return url_dict
+
+    @staticmethod
+    def _token_near(a, b):
+        """种加词近似：完全相等，或长度≥5 且序列相似度 ≥0.8。
+        "chinese"↔"chinense" 相似度 0.93，可命中；无关词远低于阈值。"""
+        if a == b:
+            return True
+        if min(len(a), len(b)) < 5:
+            return False
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, a, b).ratio() >= 0.8
+
+    def _name_matches(self, scientific_name):
+        """检索词 vs 学名匹配。先试精确子串；失败后退到「属名命中 +
+        种加词近似」容错——用户常拼错种加词（实测：Lycium chinese 检索
+        L. chinense，248 个 GSA accession 因这一个硬过滤全军覆没）。"""
+        name = str(scientific_name or '').lower()
+        q = str(self.query or '').strip().lower()
+        if not q or not name:
+            return False
+        if q in name:
+            return True
+        toks = [t for t in re.split(r'[\s_.\-]+', q) if t]
+        ntoks = [t for t in re.split(r'[\s_.\-]+', name) if t]
+        if not toks or not ntoks:
+            return False
+        # 属名（首个词）必须严格命中（子串级），避免误配到别的属
+        if not any(toks[0] in t or t in toks[0] for t in ntoks):
+            return False
+        rest = toks[1:]
+        if not rest:
+            return True
+        tail = ntoks[1:] or ntoks
+        return any(self._token_near(rt, nt) for rt in rest for nt in tail)
 
     def _fetch_one_acc(self, acc):
         """Fetch and parse a single accession page. Thread-safe."""
@@ -335,7 +369,7 @@ class GSAEngine:
                 html = f.read()
 
             wf = self.parse_all_from_html(html, acc)
-            if self.query.lower() not in str(wf.get("ScientificName", "")).lower():
+            if not self._name_matches(wf.get("ScientificName")):
                 return None
 
             records = []
@@ -439,7 +473,7 @@ def run_ai_sanitizer(df, api_key, api_base, model):
                         df.at[idx, k] = pd.NA
                     else:
                         df.at[idx, k] = val
-        except: pass
+        except Exception: pass
     return df
 
 # ==========================================

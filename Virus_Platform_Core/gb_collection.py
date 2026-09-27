@@ -103,7 +103,12 @@ def _record_summary(rec):
     src, taxid = {}, ''
     for feat in rec.features:
         if feat.type == 'source':
-            for k in ('host', 'isolate', 'country', 'collection_date'):
+            # ⚠️ 必须收 `geo_loc_name`（2026-09-18 修）：INSDC 标准字段，
+            #    **现代 GenBank 记录基本只用它、不再给 `country`**
+            #    （实测 LC806292.1 只有 /geo_loc_name="Japan:Chiba"）——
+            #    漏了它，会让"有地点"的记录被误判成"缺地点"而整条丢弃。
+            for k in ('host', 'isolate', 'geo_loc_name', 'country',
+                      'collection_date'):
                 v = feat.qualifiers.get(k, [''])[0]
                 if v:
                     src.setdefault(k, v)
@@ -127,6 +132,10 @@ def _record_summary(rec):
         'has_translation': any(f.qualifiers.get('translation') for f in cds),
         'host': src.get('host', ''),
         'isolate': src.get('isolate', ''),
+        # ⚠️ 两个都给：现代记录用 `geo_loc_name`、老记录用 `country`，
+        #    消费方自己定优先级（我们侧一律 geo_loc_name 优先）。
+        #    只写进读取循环而忘了放进返回字典 = 值照样丢（2026-09-18 踩过）。
+        'geo_loc_name': src.get('geo_loc_name', ''),
         'country': src.get('country', ''),
         'date': rec.annotations.get('date', ''),
     }
@@ -301,6 +310,74 @@ def _fetch_accessions_gb(accs, log):
             if _versionless(a) not in seen:
                 missing.append(a)
     return pairs, missing
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 在线检索便利层（2026-09-18）：物种名/taxid → 检索式
+# 口径对齐上游 `virome_phylo_pipeline/utils/seqharvester_bridge.py`，
+# 但**不照搬其实现**（我们已有合规的 esearch/efetch 通路：白名单 + IP 校验 +
+# 限速 + 指数退避），这里只补"怎么把物种名变成靠谱的检索式"。
+# ══════════════════════════════════════════════════════════════════════
+
+def resolve_taxid(species=None, accession=None, logger=None):
+    """物种名 / accession → NCBI taxid；**拿不到返回 None（不猜）**。
+
+    两级（与上游 `get_taxid` 同思路，但复用我们自己的 efetch 通路）:
+      ① `accession` → 取该记录的 GBK，从 `source` 的 `db_xref=taxon:xxx` 读（最准）；
+      ② `species`   → `esearch(db='taxonomy', term=学名)` 取第一个 IdList。
+    """
+    log = logger or (lambda *_a, **_k: None)
+    if accession:
+        try:
+            pairs, _missing = _fetch_accessions_gb([str(accession).strip()], log)
+            for _chunk, m in pairs or []:
+                if m.get('taxid'):
+                    return str(m['taxid'])
+        except Exception as e:            # noqa: BLE001
+            log(f'从 {accession} 解析 taxid 失败：{type(e).__name__}: {e}')
+    if species:
+        try:
+            # 复用我们自己的 esearch（它已带白名单/IP 校验/限速/重试 + usehistory 会话），
+            # 只是把 db 换成 taxonomy —— 不要绕过它去手搓 URL。
+            from .ncbi_download import esearch as _esearch
+            res = _esearch(str(species).strip(), db='taxonomy', retmax=5)
+            if res.get('ids'):
+                return str(res['ids'][0])
+        except Exception as e:            # noqa: BLE001
+            log(f'按学名查 taxid 失败：{type(e).__name__}: {e}')
+    return None
+
+
+def build_query(species=None, taxid=None, term=None, full_length=False,
+                date_from=None, date_to=None):
+    """拼 Entrez 检索式（上游 SeqHarvester 口径）：
+
+      · `taxid` 优先 → `txid{id}[Organism]`（精确到 taxonomy 节点，避免学名歧义）；
+        否则 `"{species}"[Organism]`
+      · 恒定排除专利：`NOT patent[Title]`
+      · `full_length` → `AND (complete genome[Title] OR complete cds[Title]
+        OR complete sequence[Title])` —— 过滤片段/部分序列
+      · `date_from`/`date_to` → `AND {from}:{to}[PDAT]`
+
+    给了 `term` 就直接用（保留手写的自由度，不被拼装干扰）。
+    """
+    if term and str(term).strip():
+        return str(term).strip()
+    if taxid:
+        q = f'txid{str(taxid).strip()}[Organism]'
+    elif species:
+        q = f'"{str(species).strip()}"[Organism]'
+    else:
+        raise ValueError('需要 species / taxid / term 之一')
+    q += ' NOT patent[Title]'
+    if full_length:
+        q += (' AND (complete genome[Title] OR complete cds[Title]'
+              ' OR complete sequence[Title])')
+    a = (date_from or '').strip()
+    b = (date_to or '').strip()
+    if a or b:
+        q += f' AND {a}:{b}[PDAT]'
+    return q
 
 
 def download_gb_collection(name, term=None, accessions=None, max_records=50,
@@ -703,7 +780,7 @@ def extract_collection_features(name, logger=None, prog=None):
 def build_collection_phylo(name, tree_tool='fasttree', trim=True, threads=None,
                            logger=None, prog=None, cancel=None,
                            molecule='genome', gene=None):
-    """集合序列 → MAFFT 比对（可选 trimAl）→ FastTree / NJ / IQ-TREE。
+    """集合序列 → MAFFT 比对（可选 trimAl）→ FastTree / NJ / RAxML-NG。
 
     molecule: 'genome'（全基因组，默认）/ 'cds'（基因 CDS 核酸）/
     'pep'（基因蛋白）——后两者需 gene 关键词（对 CDS product/gene/note
@@ -711,7 +788,7 @@ def build_collection_phylo(name, tree_tool='fasttree', trim=True, threads=None,
     databases/misc/gb/<name>/gene_trees/<gene>_<molecule>/；
     genome 输出 phylo/。结果中心以伪样品 gb:<name>（genome）展示。
     """
-    from .phylo import (_run_fasttree, _run_iqtree, _parse_iqtree_log,
+    from .phylo import (_run_fasttree, _run_raxml_ng, _parse_raxml_log,
                         _run_mafft, _run_nj, _run_trimal)
     from .utils import write_fasta_record
 
@@ -771,18 +848,33 @@ def build_collection_phylo(name, tree_tool='fasttree', trim=True, threads=None,
 
     if cancelled():
         raise RuntimeError('用户取消')
-    if prog:
-        prog('tree', 0.6, '建树中' + ('（IQ-TREE 较慢）' if tree_tool == 'iqtree' else ''))
     tree_extra = {}
-    if tree_tool == 'iqtree':
-        tree_file = _run_iqtree(aln_used, os.path.join(out_dir, 'iqtree'),
-                                threads=threads, logger=logger)
-        tree_extra = _parse_iqtree_log(os.path.join(out_dir,
-                                                    'iqtree.iqtree'))
-    elif tree_tool == 'nj':
+    tree_tool_used = tree_tool
+    if tree_tool == 'raxml-ng' and len(recs) < 4:
+        tree_tool_used = 'fasttree'
+        log(f'集合仅 {len(recs)} 条序列（RAxML-NG 自举要求 ≥4 条），'
+            f'降级为 FastTree 建树', 'WARN')
+    if prog:
+        prog('tree', 0.6, '建树中' + ('（RAxML-NG 较慢）'
+                                      if tree_tool_used == 'raxml-ng' else ''))
+    if tree_tool_used == 'raxml-ng':
+        try:
+            tree_file = _run_raxml_ng(
+                aln_used, os.path.join(out_dir, 'raxml'),
+                threads=threads, logger=logger,
+                model=('LG+G' if molecule == 'pep' else 'GTR+G'))
+            tree_extra = _parse_raxml_log(os.path.join(out_dir, 'raxml'))
+        except Exception as e:
+            # 无信息比对（所有列全 N / 全 gap，如合成集合 it_synteny）
+            # 会触发 RAxML-NG 底层 pll 断言崩溃（实测 exit 1536）；
+            # FastTree 对同款比对可正常出树（退化枝长 0）——降级保树
+            tree_tool_used = 'fasttree'
+            tree_extra = {}
+            log(f'RAxML-NG 建树失败({e})，降级为 FastTree 建树', 'WARN')
+    if tree_tool_used == 'nj':
         tree_file = _run_nj(aln_used, os.path.join(out_dir, 'nj.nwk'),
                             logger=logger)
-    else:
+    elif tree_tool_used == 'fasttree':
         if molecule == 'pep':              # 蛋白树：FastTree 蛋白模式（无 -nt）
             from .utils import run_cmd_redirect
             from .config import get_config as _cfg
@@ -799,7 +891,7 @@ def build_collection_phylo(name, tree_tool='fasttree', trim=True, threads=None,
                                       logger=logger)
 
     summary = {'stage': 'gb_phylo', 'collection': name,
-               'n_seqs': len(recs), 'tree_tool': tree_tool,
+               'n_seqs': len(recs), 'tree_tool': tree_tool_used,
                'molecule': molecule,
                **({'gene': gene} if molecule != 'genome' else {}),
                'trim': trim_info,

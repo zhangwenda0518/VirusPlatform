@@ -50,6 +50,9 @@ tests/_ck_s*/
 tests/_hk*/
 tests/*.gz
 tests/*.fastq
+tests/_shots/
+# 参考文献 PDF（第三方下载，可重取，25MB）：不入库
+docs/paper/references_pdfs/
 
 # ---------- 6. Python / 工具链缓存 ----------
 __pycache__/

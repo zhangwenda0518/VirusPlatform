@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>植物病毒分析平台 · 全面体检报告（2026-09-15）</title>
+<style>
+  :root{
+    --ink:#1a1d23; --ink2:#4a5568; --ink3:#718096;
+    --line:#e2e8f0; --bg:#ffffff; --bg2:#f7fafc;
+    --ok:#0f766e; --okbg:#ecfdf5; --warn:#b45309; --warnbg:#fffbeb;
+    --bad:#b91c1c; --badbg:#fef2f2; --accent:#1e40af; --accentbg:#eff6ff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:40px 24px 64px;
+    background:var(--bg2); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",
+                "Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.75;
+  }
+  .wrap{max-width:960px; margin:0 auto}
+  header{border-bottom:3px solid var(--ink); padding-bottom:20px; margin-bottom:28px}
+  h1{margin:0 0 8px; font-size:26px; letter-spacing:-.3px}
+  .sub{color:var(--ink3); font-size:13px}
+  .lead{
+    margin:22px 0 0; padding:16px 18px; background:var(--accentbg);
+    border-left:4px solid var(--accent); border-radius:0 6px 6px 0;
+  }
+  .lead b{color:var(--accent)}
+  h2{
+    font-size:18px; margin:40px 0 14px; padding-bottom:8px;
+    border-bottom:1px solid var(--line);
+  }
+  h3{font-size:15px; margin:24px 0 8px}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+         gap:12px; margin:20px 0 8px}
+  .card{
+    background:var(--bg); border:1px solid var(--line); border-radius:8px;
+    padding:14px 16px;
+  }
+  .card .n{font-size:26px; font-weight:700; line-height:1.2}
+  .card .l{font-size:12px; color:var(--ink3); margin-top:2px}
+  .n-ok{color:var(--ok)} .n-bad{color:var(--bad)} .n-accent{color:var(--accent)}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13px}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top}
+  th{background:var(--bg2); font-weight:600; color:var(--ink2); white-space:nowrap}
+  code{
+    background:#f1f5f9; padding:1px 5px; border-radius:3px;
+    font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:12.5px;
+  }
+  .fix{
+    background:var(--bg); border:1px solid var(--line); border-left:4px solid var(--bad);
+    border-radius:0 6px 6px 0; padding:14px 18px; margin:16px 0;
+  }
+  .fix.p1{border-left-color:var(--warn)}
+  .fix.p2{border-left-color:var(--ink3)}
+  .fix h3{margin:0 0 6px; font-size:15px}
+  .fix .tag{
+    display:inline-block; font-size:11px; font-weight:700; padding:1px 7px;
+    border-radius:10px; margin-right:8px; vertical-align:1px;
+  }
+  .tag-bad{background:var(--badbg); color:var(--bad)}
+  .tag-warn{background:var(--warnbg); color:var(--warn)}
+  .tag-ok{background:var(--okbg); color:var(--ok)}
+  .fix dl{margin:8px 0 0; display:grid; grid-template-columns:64px 1fr; gap:3px 10px}
+  .fix dt{color:var(--ink3); font-size:12.5px}
+  .fix dd{margin:0}
+  ul{margin:8px 0; padding-left:22px}
+  li{margin:3px 0}
+  .ok::before{content:"✔ "; color:var(--ok); font-weight:700}
+  .bad::before{content:"✘ "; color:var(--bad); font-weight:700}
+  .warn::before{content:"△ "; color:var(--warn); font-weight:700}
+  .note{
+    background:var(--warnbg); border-left:4px solid var(--warn);
+    padding:12px 16px; border-radius:0 6px 6px 0; margin:16px 0;
+  }
+  footer{margin-top:48px; padding-top:16px; border-top:1px solid var(--line);
+         color:var(--ink3); font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>植物病毒分析平台 · 全面体检报告</h1>
+  <div class="sub">2026-09-15 &nbsp;·&nbsp; 模块上下游联通 &nbsp;·&nbsp; 图表展示链路 &nbsp;·&nbsp; 全链路自动化巡检</div>
+</header>
+
+<div class="lead">
+  <b>结论</b>：本轮共执行 9 类自动化巡检，覆盖 86 个 Python 模块、207 条后端路由、
+  21 个前端页面、26 组示例产物与全部图表引擎。发现并修复 <b>4 个功能缺陷</b>
+  （其中 1 个为用户可见的界面缺陷）、<b>3 处测试环境兼容问题</b>，
+  并改进了 4 处审计工具自身的误报与噪音。修复后所有巡检项与
+  <b>35 个集成测试全部通过</b>，未发现未解决的链路断点。
+</div>
+
+<div class="cards">
+  <div class="card"><div class="n n-bad">4</div><div class="l">修复的功能缺陷</div></div>
+  <div class="card"><div class="n n-accent">3</div><div class="l">测试环境兼容修复</div></div>
+  <div class="card"><div class="n n-accent">4</div><div class="l">审计工具改进</div></div>
+  <div class="card"><div class="n n-ok">35/35</div><div class="l">集成测试通过</div></div>
+</div>
+
+<h2>一、体检范围与方法</h2>
+<table>
+  <tr><th>维度</th><th>方法</th><th>结果</th></tr>
+  <tr><td>模块导入</td><td><code>main.py selfcheck</code> 递归导入全部子模块</td><td class="ok">86/86</td></tr>
+  <tr><td>外部工具</td><td>逐个探测 30 个依赖工具的可用性</td><td class="ok">30/30</td></tr>
+  <tr><td>数据库</td><td>Taxonomy / 宿主库 / 病毒库就绪性 + 身份一致性</td><td class="ok">全部就绪</td></tr>
+  <tr><td>后端路由健壮性</td><td>209 条路由各发一次空参数请求，统计 500 与未捕获异常</td><td class="ok">0 个 500</td></tr>
+  <tr><td>跨层契约</td><td>前端 URL ↔ 后端路由、i18n 键、静态资源、模块可达性</td><td class="ok">无硬性差异</td></tr>
+  <tr><td>页面运行时</td><td>真浏览器逐页加载 21 个页面，收集 JS 报错与 4xx 资源</td><td class="ok">21/21</td></tr>
+  <tr><td>管道上下游</td><td>阶段依赖拓扑、执行顺序、产物路径与下游读取路径比对</td><td class="warn">修 1 处</td></tr>
+  <tr><td>图表展示</td><td>SDT 热图配色 / 示例查看器 / 基因组图 / 产物签名校验</td><td class="ok">全部通过</td></tr>
+  <tr><td>集成测试</td><td>35 个集成/自检/真浏览器测试批量执行</td><td class="ok">35/35 通过</td></tr>
+</table>
+
+<h2>二、修复的功能缺陷</h2>
+
+<div class="fix">
+  <h3><span class="tag tag-bad">用户可见</span>i18n 缺失 18 个键，界面直接显示原始键名</h3>
+  <dl>
+    <dt>现象</dt><dd>专项分析页「系统地理分析」卡片的标题显示为 <code>tk.phylogeoH2</code>；
+      同页「重组检测 / 时间信号与定年」的描述显示为 <code>tk.rdpDesc</code>、<code>tk.rttDesc</code>；
+      公共病毒组页 5 个联动图表标题显示为 <code>vx.chYearT</code> 等；样品批量扫描提示同理。</dd>
+    <dt>根因</dt><dd>这些键在 <code>i18n.js</code> 的 zh/en 字典里都没有定义。
+      运行时 <code>t(key, null)</code> 在字典缺失时返回 <b>key 本身</b>，
+      而 <code>applyI18n()</code> 拿到非 null 值就写进元素 —— 于是中文与英文界面
+      <b>都会</b>把标题替换成键名字面量。</dd>
+    <dt>影响</dt><dd>用户在中文界面下就会看到乱码般的键名，属于一眼可见的界面缺陷。</dd>
+    <dt>修复</dt><dd>补齐 zh/en 各 17 个键（含缺失的 4 个 <code>tk.*</code>、5 个 <code>vx.ch*T</code>、
+      5 个 <code>sc.*</code>/<code>dz.*</code>）。</dd>
+    <dt>验证</dt><dd>新增 <code>tests/_verify_i18n.js</code>：用 Node 加最小 DOM 桩加载
+      <b>真实 i18n.js</b> 跑 <code>applyI18n</code>，修复前 10 处元素被写成键名，
+      修复后 0 处；契约审计的「代码使用但字典未定义」由 18 降为 0。</dd>
+  </dl>
+</div>
+
+<div class="fix p1">
+  <h3><span class="tag tag-warn">健壮性</span>管道阶段执行顺序依赖调用方传入顺序，报告可能先于组装执行</h3>
+  <dl>
+    <dt>现象</dt><dd><code>_stage_execution_order(['report','primer','orfa','orf','assembly'])</code>
+      返回 <code>['report','assembly','primer','orf','orfa']</code> —— 报告排在最前。</dd>
+    <dt>根因</dt><dd>拓扑排序只保证「已选阶段之间的硬依赖」先跑，同层保持调用方顺序；
+      而 <code>report</code> 的 deps 只声明了 <code>kvsuite</code>，
+      覆盖不了「报告天然最后」这类顺序约定。</dd>
+    <dt>影响</dt><dd>若有调用方传入乱序的阶段列表，报告会在组装之前生成，
+      生成出来的报告里就缺少组装/注释结果。当前前端传参顺序正确，
+      因此该问题尚未暴露，属于潜在缺陷。</dd>
+    <dt>修复</dt><dd>同层改为按 <code>STAGE_ORDER</code> 定序（它本身是拓扑合理的全序）。
+      完全逆序传入也能恢复正确顺序，按默认顺序传参的行为不变。</dd>
+  </dl>
+</div>
+
+<div class="fix p1">
+  <h3><span class="tag tag-warn">显示不一致</span>示例结果列表的产物计数虚高</h3>
+  <dl>
+    <dt>现象</dt><dd>「专项分析」各工具卡的示例结果列表显示的文件数与点进去看到的
+      文件列表对不上（实测 45 处差异）。</dd>
+    <dt>根因</dt><dd><code>/api/examples</code> 的 <code>n_files</code> 取
+      <code>manifest.json</code> 里 <code>files</code> 数组的长度（生成器跑完那一次的
+      <b>快照</b>），而详情接口 <code>/api/examples/&lt;module&gt;</code> 是
+      <b>遍历真实目录</b>。为控制仓库体积清理过大文件（<code>run.log</code>、
+      <code>*.fastq.gz</code>、SPAdes 中间产物）后，快照就落后于实际。</dd>
+    <dt>修复</dt><dd>列表计数改为与实际列表同源 —— 统一按文件系统统计
+      （新增 <code>_count_files()</code>）。26 个模块的计数与详情列表
+      <b>逐个比对全部一致</b>。</dd>
+  </dl>
+</div>
+
+<div class="fix p2">
+  <h3><span class="tag tag-ok">测试可信度</span>缺开发依赖时测试误报失败</h3>
+  <dl>
+    <dt>现象</dt><dd><code>tests/_check_kvchain_ui.py</code> 在未安装 playwright 时抛
+      <code>ModuleNotFoundError</code> 并被记为 FAIL。</dd>
+    <dt>根因</dt><dd>同目录其他浏览器探针（<code>_it_download_ui</code> 等）都实现了
+      「无浏览器时自动 SKIP 并返回 0」，唯独这个脚本没有。</dd>
+    <dt>影响</dt><dd>没装开发依赖的环境整批测试变红，掩盖真实结论。</dd>
+    <dt>修复</dt><dd>改为优雅 SKIP 并给出安装提示，与其他探针约定一致。</dd>
+  </dl>
+</div>
+
+<h2>三、测试基础设施修复（本机环境）</h2>
+
+<div class="note">
+  <b>关键发现</b>：项目自带的绿色版 Python 目录下有 <code>python312._pth</code>，
+  该文件存在时 Python 进入 <b>isolated 模式</b>，<code>sys.path</code> 完全由
+  <code>_pth</code> 决定 —— <b><code>python -c "..."</code> 时不含当前工作目录</b>。
+  而 <code>python 脚本.py</code> 时 <code>sys.path[0]</code> 是脚本所在目录，所以正常。
+</div>
+
+<p>这导致三处「用 <code>-c</code> 起临时服务」的测试永远起不来服务
+（日志里是 <code>No module named 'app'</code>）：</p>
+<ul>
+  <li><code>tests/_check_kvchain_ui.py</code></li>
+  <li><code>tests/_it_global_ctx_ui.py</code></li>
+  <li><code>tests/_it_nav_responsive.py</code></li>
+</ul>
+<p>已在三处的 <code>-c</code> 代码开头显式注入 <code>sys.path.insert(0, ROOT)</code>。
+修复后 <code>_check_kvchain_ui.py</code> 首次完整跑通（此前从未真正执行过它的检查项）。</p>
+
+<h2>四、审计工具本身的改进</h2>
+<p>巡检工具若自身有误报，红灯就不可信。本轮修掉三处：</p>
+<table>
+  <tr><th>问题</th><th>说明</th><th>修复</th></tr>
+  <tr>
+    <td>模块可达性扫描范围过宽</td>
+    <td><code>os.walk(ROOT)</code> 会遍历 <code>3rd/</code>（5224 个第三方 .py）、
+        <code>run/</code>、<code>_bioaider_re/</code>，既拖慢又因第三方代码里
+        非 raw 字符串的 <code>\s</code>/<code>\w</code> 刷出一片 SyntaxWarning，淹没真问题</td>
+    <td>排除这些目录，只审计平台自有代码 —— <b>审计从数秒降到 1.8 秒，警告归零</b></td>
+  </tr>
+  <tr>
+    <td>跨字符串拼接的 URL 被当成死链</td>
+    <td><code>'/tool_runs/' + run + '/rdp/events.json'</code> 逐行扫描只能拿到尾段，
+        匹配不到路由，被报成「前端引用但后端无匹配路由」</td>
+    <td>新增「仅在 <code>+</code> 拼接上下文生效」的宽松匹配，避免误伤真死链</td>
+  </tr>
+  <tr>
+    <td>动态拼接前缀被当成未定义键</td>
+    <td><code>t('tk.' + x[0], x[1])</code> 中的 <code>'tk.'</code> 被当成一个完整键</td>
+    <td>跳过以 <code>.</code> 结尾的前缀，并在输出中单独说明</td>
+  </tr>
+  <tr>
+    <td>可选依赖被误报为「未声明」</td>
+    <td>依赖审计只读 <code>requirements.txt</code>，于是
+        <code>adjustText</code> / <code>gbdraw</code> / <code>taxburst</code> 等
+        「以注释形式给出的可选依赖」以及 PyInstaller / playwright / psutil 等
+        <b>开发依赖</b>全被报成未声明（7 个）</td>
+    <td>审计改为同时读 <code>requirements-dev.txt</code>，并跳过已登记的
+        可选依赖 —— 告警由 7 个降为 <b>0 个</b></td>
+  </tr>
+</table>
+<p>此外删除了 <code>app-compare.js</code> 中定义后从未使用的死变量 <code>cmp</code>
+（它指向一个后端并不存在的 <code>/compare/&lt;name&gt;</code> 路由）。</p>
+<p>改进后跨层契约审计输出：<b>✔ 无硬性差异</b>；
+<code>main.py selfcheck</code> 由「存在未就绪项」变为 <b>✔ 自检通过</b>。</p>
+
+<h2>五、真浏览器巡检：一个环境坑与解法</h2>
+<p>在本机执行真浏览器巡检时发现：<b>同一个 chromium 进程内连续访问多个页面，
+会在第 3～6 页之间随机段错误</b>（headless shell 与完整 chromium 均如此）。
+经诊断：单页独立访问始终正常、与具体页面无关、系统内存充足（63.8 GB 总量），
+属于累积状态问题而非页面缺陷。</p>
+<p>解法：给页面巡检脚本增加 <b>逐页独立进程</b> 驱动（已设为默认模式，
+<code>--fast</code> 保留单进程连续访问）。改造后 21 个页面全部通过：</p>
+<ul>
+  <li class="ok"><code>/</code>、<code>/annotation</code>、<code>/build</code>、<code>/cds-export</code>、<code>/download</code>、<code>/genome</code>、<code>/help</code>、<code>/hostpredict</code>、<code>/hostremoval</code>、<code>/logan</code></li>
+  <li class="ok"><code>/meta</code>、<code>/orf</code>、<code>/pipeline</code>、<code>/primer</code>、<code>/results</code>、<code>/samples</code>、<code>/settings</code>、<code>/submit</code>、<code>/tasks</code>、<code>/tools</code>、<code>/vexplorer</code></li>
+</ul>
+
+<h2>六、图表展示链路验证</h2>
+<table>
+  <tr><th>项目</th><th>验证方式</th><th>结果</th></tr>
+  <tr><td>SDT 交互热图配色</td><td>真浏览器逐一切换 14 种配色，比对 Plotly colorscale 与内嵌位图哈希</td><td class="ok">14/14 全部真实重绘</td></tr>
+  <tr><td>示例查看器热图</td><td>SDT 主图渲染 + identity 的 NT/AA 切换</td><td class="ok">ALL OK</td></tr>
+  <tr><td>基因组图「打开即出图」</td><td>无人工操作等待自动出图；交互模式勾选/取消/再勾选</td><td class="ok">3.9 s 出图，SVG 794×650</td></tr>
+  <tr><td>首页封面</td><td>浅色/深色两版截图，叙事卡文案非空，无横向溢出</td><td class="ok">通过（4 卡齐全）</td></tr>
+  <tr><td>示例图表产物有效性</td><td>25 个 SVG/PNG/PDF/HTML 的签名与结构校验</td><td class="ok">全部有效</td></tr>
+  <tr><td>示例输入文件引用</td><td>前端「✨ 示例」引用的文件名 ↔ <code>examples/</code> 实际文件</td><td class="ok">无缺失</td></tr>
+</table>
+
+<h2>七、集成测试结果</h2>
+<div class="cards">
+  <div class="card"><div class="n n-ok">35</div><div class="l">通过</div></div>
+  <div class="card"><div class="n n-ok">0</div><div class="l">失败</div></div>
+  <div class="card"><div class="n n-ok">0</div><div class="l">跳过</div></div>
+  <div class="card"><div class="n">4</div><div class="l">真浏览器探针</div></div>
+</div>
+<table>
+  <tr><th>分组</th><th>覆盖内容</th><th>结果</th></tr>
+  <tr><td>平台与管道</td><td>平台骨架、MSA、并发闸门、系统发育、序列提取、NCBI 提交、比对、集合比较、共线性</td><td class="ok">10/10</td></tr>
+  <tr><td>公共数据下载链</td><td>删除、进度、格式转换、HTTP 回退、断点恢复、转入管道、转换取消、后台任务化</td><td class="ok">8/8</td></tr>
+  <tr><td>任务中心与 UI</td><td>下载页/异步 UI/任务中心/下载批次/修复路径 —— 全部真浏览器端到端</td><td class="ok">5/5</td></tr>
+  <tr><td>LOGAN 溯源</td><td>单样品溯源、批次溯源</td><td class="ok">2/2</td></tr>
+  <tr><td>环境与自检</td><td>宿主库身份与分类探针、ASCII 中转隔离、启动模式、浏览对话框、本地注释、
+      示例清单、库路径绝对性、全页面巡检、一键分析卡</td><td class="ok">9/9</td></tr>
+</table>
+<p>其中 <code>_check_kvchain_ui.py</code>（⚡一键分析全流程卡）<b>本轮首次真正跑通</b> ——
+此前它因缺 playwright 直接抛异常计 FAIL，装上开发依赖后又暴露出「<code>-c</code> 起服务
+找不到 app 模块」的环境问题（见第三节），修复后 7 项检查全部通过。</p>
+
+<h2>八、其他回归确认</h2>
+<ul>
+  <li class="ok"><b>库/目录类 API 的路径绝对性</b>：<code>/api/dbs</code>、
+    <code>/api/host_dbs</code>、<code>/api/kv_index_list</code> 返回的路径全部为绝对路径。
+    （历史事故：相对「数据库根」的路径在「数据库包与程序目录分离」的分发版下会解析错库，
+    开发机上又恰好能跑，问题被完全掩盖。）</li>
+  <li class="ok"><b>阶段目录命名一致</b>：15 个阶段的目录名（<code>03_assembly</code> 等）
+    在全部模块中完全一致，报告阶段读取的 8 个上游产物路径均能对上。</li>
+  <li class="ok"><b>.sra → FASTQ 产物识别</b>：下载链与工具箱仍共用同一份判定
+    （<code>_sra_fastq_outputs</code>），全仓无第二份 <code>startswith(base + '_')</code> 写法，
+    且有回归测试锁死该行为。</li>
+  <li class="ok"><b>异常处理</b>：<code>public_meta</code> 子包内 21 处裸 <code>except:</code>
+    已改为 <code>except Exception:</code> —— 原先会连 <code>KeyboardInterrupt</code> 一起吞掉，
+    用户无法用 Ctrl+C 中断卡住的检索。</li>
+</ul>
+
+<h2>九、打包与分发验收</h2>
+<p class="lead">本轮改动落在后端（<code>examples_api.py</code>、<code>pipeline.py</code>）与前端
+（<code>i18n.js</code>），因此重新打包并完整跑了一遍分发版验收。</p>
+
+<div class="cards">
+  <div class="card"><div class="n n-ok">85/85</div><div class="l">冻结产物模块</div></div>
+  <div class="card"><div class="n n-ok">30/30</div><div class="l">外部工具</div></div>
+  <div class="card"><div class="n n-ok">89/89</div><div class="l">PYZ ↔ 源码一致</div></div>
+  <div class="card"><div class="n n-ok">0</div><div class="l">产物缺件</div></div>
+</div>
+
+<table>
+  <tr><th>验收项</th><th>做法</th><th>结果</th></tr>
+  <tr><td>① 产物自检</td>
+      <td><code>VirusPlatform.exe --cli selfcheck</code></td>
+      <td class="ok">85/85 模块、30/30 工具；⑥ 如实输出「不适用：冻结分发无源码树可扫描」。
+        数据库 ✘ 属预期（本次未带 <code>--with-db</code>）</td></tr>
+  <tr><td>② 引擎回归（兼 polars 判据）</td>
+      <td><code>--run-engine known_virus_suite.py index</code></td>
+      <td class="ok">退出码 2（argparse 抱怨缺 <code>--out</code>）→ 引擎已加载，polars 已进包</td></tr>
+  <tr><td>③ 隔离验收</td>
+      <td>junction 把 <code>dist</code> 挂到源码树外再跑 ①</td>
+      <td class="ok">与树内结果完全一致 → 无残留的源码树隐式依赖</td></tr>
+  <tr><td>④ 字节码级确认</td>
+      <td>新工具 <code>dev_tools/pyz_vs_source.py</code></td>
+      <td class="ok">89/89 模块与源码逐字段一致（递归含函数内部）</td></tr>
+  <tr><td>⑤ 产物缺件清点</td>
+      <td>新工具 <code>dev_tools/dist_completeness.py</code></td>
+      <td class="ok">6 组应拷目录全部零缺件</td></tr>
+</table>
+
+<h3><span class="tag tag-ok">新增工具</span>把「验收」从人工判断变成可复跑</h3>
+<ul>
+  <li class="ok"><b><code>dev_tools/pyz_vs_source.py</code></b> —— 把 PYZ 里每个
+    <code>Virus_Platform_Core.*</code> 模块与磁盘源码<b>逐字段比较</b>
+    （<code>co_code</code> / <code>co_names</code> / <code>co_varnames</code> /
+    <code>co_flags</code>…），并<b>递归进嵌套 code</b>。
+    这比原先"打印符号表再人工看"硬得多：函数体内的改动也能覆盖。
+    配套 <code>tests/_selftest_pyz_cmp.py</code> 做灵敏度自检
+    （同一源码两遍 → 无差异；常量/运算符/新增函数/函数内部改动 → 均能报出），
+    确认比较器不是恒真。</li>
+  <li class="ok"><b><code>dev_tools/dist_completeness.py</code></b> —— 清点
+    <code>package.py</code> 应拷的目录是否都到位。<code>selfcheck</code> 只验
+    「模块能导入 / 工具能探测到」，<b>看不见「少了一批示例数据或模板」</b>。</li>
+  <li class="ok"><b><code>dev_tools/dist_manifest.py</code></b> —— 产物快照 +
+    <code>--diff</code>。起因是本次对账时发现历史基线（5555 文件 / 1.65 GB）
+    与实测（4743 文件 / 1.815 GB）对不上，而<b>没有任何手段能判断这 812 个文件差额
+    是正常漂移还是真缺件</b>。以后换基线存一份、打包后 diff 一下即可。</li>
+</ul>
+
+<h3><span class="tag tag-bad">打包卫生</span>spec 的 <code>datas</code> 把工具残留打进了分发版</h3>
+<ul>
+  <li class="ok"><b>问题</b>：<code>webapp/templates/.mimosa</code>（编辑器 hook 缓存，
+    5 KB）随 <code>webapp/</code> 整棵拷贝进了 <code>_internal/webapp/</code>。
+    <code>datas</code> 不支持 ignore 参数，写 <code>(目录, 目标)</code> 就是原样全拷。</li>
+  <li class="ok"><b>修法</b>：spec 内改为逐文件展开并显式排除
+    <code>.mimosa</code> / <code>__pycache__</code> / <code>.git</code>。
+    该改动风险是双向的（写错就是「前端文件被漏掉 → 某页面挂掉」），
+    因此配了 <code>tests/_check_spec_datas.py</code>：用 AST 把 spec 里的展开函数
+    <b>单独抽出来执行</b>（spec 是 exec 式的，不能直接 import —— 尾部会触发真正的
+    Analysis/EXE），断言「不漏文件（88 个全覆盖）+ 不带残留 + 目标路径 posix 风格」，
+    并<b>正面对照</b>残留确实存在于源码树（否则该测试无意义）。已挂
+    <code>tests/_run_all.py</code>。</li>
+</ul>
+
+<h3>体积与文件数的口径澄清</h3>
+<ul>
+  <li class="warn"><b>本次产出</b>：<code>dist/VirusPlatform</code> 1.815 GB / 4743 文件，
+    <code>dist/VirusPlatform-Examples</code> 196 文件（<code>playwright</code> 已确认
+    未混入）。</li>
+  <li class="warn"><b>这个字节数是 apparent size</b>（<code>getsize</code> 求和），
+    <b>硬链接会被重复计数</b>，所以<b>不等于磁盘占用</b>（本次去重省 235 MB，
+    实际占用约 1.58 GB）。真实占用请看 <code>du</code>。</li>
+  <li class="warn"><b>历史数字不可当断言</b>：09-10 记 1.9 GB、09-11 记 1.647 GB / 5555 文件、
+    09-15 实测 1.815 GB / 4743 文件。文件数下降的已知无害原因：polars 纯 Python 部分
+    进 PYZ（不落 <code>_internal/</code>）、<code>3rd/open-virome</code> 只拷
+    <code>frontend/build</code>（源树 463 文件 → 产物 24）、spec 排除 <code>playwright</code>。
+    <b>缺件与否以 <code>dist_completeness.py</code> 为准，不以数字为准。</b></li>
+</ul>
+
+<h3><span class="tag tag-ok">补充完成</span>数据库包（<code>--db-only</code>）</h3>
+<ul>
+  <li class="ok"><b>产出</b>：<code>dist/VirusPlatform-Database</code> <b>5.154 GB / 179 文件</b>
+    （11 个库树 + <code>genus_lens.tsv</code>），<code>databases/&lt;rel&gt;</code> 层级完整保留
+    —— <code>config.db_path()</code> 按 <code>DB_LAYOUT</code> 解析，展平会导致一个库都找不到。
+    宿主分类库<b>故意不入包</b>（按物种而异，每物种约 1.5 GB，由用户在「数据库构建」页自建）。</li>
+  <li class="ok"><b>自动识别验证</b>：数据库包与程序目录<b>同级</b>放置即被自动探测，无需配置。
+    <code>selfcheck</code> 的 ③ 由「三项全 ✘」变为 <b>NCBI Taxonomy ✔ / 病毒库 virus_db ✔</b>。</li>
+  <li class="ok"><b>A/B 对照（关键）</b>：把数据库包临时改名隐藏后重跑，三项立刻全部回退为 ✘；
+    改名恢复后两项又变 ✔ —— 这证明 ✔ <b>确实来自数据库包</b>，而不是程序目录里那套空的
+    <code>databases/</code> 骨架（后者恰好是历史上「两边都存在 → 静默用错库」的隐患场景，
+    本次实测未复现）。</li>
+  <li class="ok"><b>只读性</b>：平台运行后数据库包文件数仍为 179、无新增文件，
+    仅新建了一个空的 <code>host-db/</code> 槽位目录。</li>
+  <li class="warn"><b>宿主库 <code>host_db</code> 仍为 ✘，属预期</b>：库本体不入包。
+    该行提示里的 <code>目录 = classify</code> 是历史固定槽位
+    （<code>host-db/host/classify</code>）的兼容回退，不是路径解析错误。</li>
+</ul>
+
+<h2>十、遗留与建议</h2>
+<ul>
+  <li class="ok"><b>打包验收已完成</b>：本轮改动已重新打包并按五件套复核（见第九节），
+    冻结产物 85/85 模块、30/30 工具、PYZ 与源码 89/89 逐字段一致、零缺件。
+    数据库包也已补齐（<code>--db-only</code>，5.154 GB / 179 文件，同级自动识别已验证）。
+    <b>宿主库需在目标机按自己的物种自建</b>（见 <code>host-db/</code>）。</li>
+  <li class="warn"><b>阶段目录名硬编码在 26+ 处</b>：当前完全一致，但没有单一数据源，
+    建议后续抽成 <code>config</code> 里的常量表。</li>
+  <li class="warn"><b>开发依赖</b>：已把 <code>playwright</code> 装入 <code>3rd/python</code>
+    （<code>requirements-dev.txt</code> 本已声明），并在打包 spec 的 excludes 中显式排除，
+    避免被动入包。</li>
+</ul>
+
+<footer>
+  报告生成于 2026-09-15 · 全部结论均来自可复现的自动化巡检，
+  对应脚本已挂入 <code>tests/_run_all.py</code>，可随时重跑复核。
+</footer>
+
+</div>
+</body>
+</html>

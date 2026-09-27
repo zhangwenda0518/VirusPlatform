@@ -1,0 +1,75 @@
+{
+ "stage": "prep",
+ "ok": true,
+ "error": null,
+ "out_dir": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep",
+ "aln": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.fasta",
+ "meta": "D:\\桌面\\植物病毒分析平台\\examples\\example_phylogeo.meta.csv",
+ "tree_in": null,
+ "date_col": "date",
+ "trait": "region",
+ "warnings": [],
+ "outputs": {
+  "dates": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\dates.csv",
+  "states": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\states.csv",
+  "prep_fasta": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.fasta",
+  "prep_nwk": "D:\\桌面\\植物病毒分析平台\\run\\tool_runs\\phylodyn_20260921_035638_83ccc6\\prep\\prep.nwk"
+ },
+ "notes": [],
+ "n_seqs": 15,
+ "n_unique_names": 15,
+ "meta_pick": {
+  "n_rows": 15,
+  "date_src": {
+   "year": 15
+  },
+  "location_src": {
+   "region": 15
+  },
+  "name_src": {
+   "seq_id": 15
+  },
+  "release_date_rows": 0
+ },
+ "meta_columns": [
+  "seq_id",
+  "region",
+  "year",
+  "name",
+  "date",
+  "location"
+ ],
+ "trait_used": "region",
+ "date_trait": "year",
+ "n_seqs_input": 15,
+ "n_dates": 15,
+ "n_states": 15,
+ "n_no_date": 0,
+ "n_no_state": 0,
+ "unmatched_date": [],
+ "unmatched_state": [],
+ "date_source_mix": {
+  "元数据列 date": 15
+ },
+ "state_source_mix": {
+  "元数据列 region": 15
+ },
+ "aln_len": 1200,
+ "seq_len_modal": 1200,
+ "tree_source": "FastTree（本次现场建）",
+ "tree_tips": 15,
+ "tree_tips_no_date": 0,
+ "tree_tips_no_state": 0,
+ "tree_unmatched_date": [],
+ "tree_unmatched_state": [],
+ "date_range": [
+  2001.4556,
+  2018.4556
+ ],
+ "date_span": 17.0,
+ "state_counts": {
+  "Europe": 6,
+  "Asia": 5,
+  "Americas": 4
+ }
+}

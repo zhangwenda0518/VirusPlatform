@@ -1,16 +1,17 @@
 {
   "name": null,
-  "dir": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny",
+  "dir": "examples/results/synteny",
   "files": {
-    "html": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.html",
-    "svg": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.svg",
-    "png": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\compare.png",
+    "html": "compare.html",
+    "svg": "compare.svg",
+    "png": "compare.png",
     "lovis4u_pdf": null,
-    "clusters": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\gene_clusters.tsv",
-    "similarity": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\genome_similarity.tsv",
-    "faa": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\cds_proteins.faa",
-    "m8": "D:\\桌面\\植物病毒分析平台\\databases\\examples\\_work\\synteny\\cds_allvsall.m8"
+    "clusters": "gene_clusters.tsv",
+    "similarity": "genome_similarity.tsv",
+    "faa": null,
+    "m8": null
   },
+  "note": "内置示例快照：由当时的「LoVis4U 口径」内置引擎产出（该引擎 2026-09-13 随共线性卡一并摘除，中间产物 faa/m8 未随包，故无法原样重跑）。genome length 于 2026-09-17 随夹具修正同步为 5640bp；蛋白层面的 6 个同源家族与 ident 数值不受影响。",
   "n_genomes": 3,
   "n_genes": 18,
   "n_clusters": 6,
@@ -19,21 +20,21 @@
     {
       "acc": "example_synteny_A",
       "organism": "Potexvirus example A",
-      "length": 3300,
+      "length": 5640,
       "n_genes": 6,
       "model": "CDS"
     },
     {
       "acc": "example_synteny_B",
       "organism": "Potexvirus example B",
-      "length": 3300,
+      "length": 5640,
       "n_genes": 6,
       "model": "CDS"
     },
     {
       "acc": "example_synteny_C",
       "organism": "Potexvirus example C",
-      "length": 3300,
+      "length": 5640,
       "n_genes": 6,
       "model": "CDS"
     }

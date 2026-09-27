@@ -14,7 +14,6 @@ const RH_PAGES = {
   i_input: '/tools#t-identify', i_input2: '/tools#t-identify',
   a_r1: '/tools#t-assemble', a_r2: '/tools#t-assemble',
   c_fa: '/tools#t-contigs',
-  hp_tsv: '/hostpredict', hp_fa: '/hostpredict',
   of_fa: '/orf', oa_fa: '/annotation', oa_run: '/annotation',
   gp_fa: '/genome', gp_ann: '/genome', pr_fa: '/primer',
   al_fa: '/tools#t-align', qt_fa: '/tools#t-treebuild',
@@ -109,7 +108,6 @@ const RH_DEFS = [
   { box: 'rh-contigs', prefixes: ['contigs_'],
     chains: files => {
       const fa = rhPick(files, 'viral_contigs.fasta');
-      const tsv = rhPick(files, 'virus_classification.tsv');
       const out = [];
       if (fa) out.push(
         { label: '→ ORF', page: RH_PAGES.of_fa, fills: { of_fa: fa } },
@@ -119,9 +117,9 @@ const RH_DEFS = [
         { label: '→ SDT', page: RH_PAGES.sd_fa, fills: { sd_fa: fa } },
         { label: '→ 图谱', page: RH_PAGES.gp_fa, fills: { gp_fa: fa } },
         { label: '→ 引物', page: RH_PAGES.pr_fa, fills: { pr_fa: fa } });
-      if (fa && tsv) out.push(
-        { label: '→ 宿主预测', page: RH_PAGES.hp_tsv,
-          fills: { hp_tsv: tsv, hp_fa: fa } });
+      /* 「→ 宿主预测」链随 /hostpredict 孤儿页删除（2026-09-27）一并移除：
+         宿主预测现在由 contigs 分类后自动运行（tools.html autoHostIfMissing），
+         不再需要手动载入分类表。 */
       return out;
     } },
   { box: 'rh-orf', prefixes: ['orf_'],
@@ -150,6 +148,19 @@ const RH_DEFS = [
       out.push({ label: '→ 功能注释(orf 运行)', page: '/annotation',
                  fills: { oa_run: realRun } });
       return out;
+    } },
+  { box: 'rh-verify', prefixes: ['verify_'],
+    chains: files => {
+      // 验证通过/候选的序列 → 下游注释分析（历史运行此前没登记，这个盒子一直是空的）
+      const fa = rhPick(files, 'virus_input.fasta')
+        || rhPick(files, 'viroid_input.fasta');
+      if (!fa) return [];
+      return [
+        { label: '→ ORF', page: RH_PAGES.of_fa, fills: { of_fa: fa } },
+        { label: '→ 功能注释', page: RH_PAGES.oa_fa, fills: { oa_fa: fa } },
+        { label: '→ 比对', page: RH_PAGES.al_fa, fills: { al_fa: fa } },
+        { label: '→ 建树', page: RH_PAGES.qt_fa, fills: { qt_fa: fa } },
+        { label: '→ SDT', page: RH_PAGES.sd_fa, fills: { sd_fa: fa } }];
     } },
   { box: 'rh-genoplot', prefixes: ['genoplot_'], chains: () => [] },
   { box: 'rh-primer', prefixes: ['primer_'], chains: () => [] },
@@ -181,14 +192,6 @@ const RH_DEFS = [
       const csv = rhPick(files, 'sdt_matrix.csv');
       if (csv) out.push({ label: '⬇ 矩阵 CSV', page: '', fills: {}, dl: csv });
       return out;
-    } },
-  { box: 'rh-hostpredict', prefixes: ['contigs_'],
-    chains: files => {
-      const tsv = rhPick(files, 'virus_classification.tsv');
-      const fa = rhPick(files, 'viral_contigs.fasta');
-      if (!tsv) return [];
-      return [{ label: '→ 载入分类表', page: '/hostpredict',
-                fills: { hp_tsv: tsv, ...(fa ? { hp_fa: fa } : {}) } }];
     } }
 ];
 
@@ -250,11 +253,28 @@ async function rhRefresh() {
           ${chainBtns}
           ${rptBtn}
           <button class="btn small" onclick="rhFiles('${esc(run.name)}')">📁 文件</button>
+          <button class="btn small" data-dir="${esc(run.out_dir || '')}" onclick="rhOpenDir(this.dataset.dir)" title="在资源管理器中打开该运行目录（窗口置顶）">📂 打开</button>
           <button class="btn small danger" onclick="rhDel(this, '${esc(run.name)}')" title="删除该运行目录">🗑</button>
         </div>
+        ${run.out_dir ? `<div class="hint mono" style="font-size:11px;margin:2px 0 0;word-break:break-all" title="结果输出位置">📍 ${esc(run.out_dir)}</div>` : ''}
         ${open ? (run.name.startsWith('contigs_') ? `<div id="rhcontig-${esc(run.name)}" style="margin-top:8px"><p class="hint">加载病毒序列分类明细…</p></div>` : '') + `<div style="margin-top:4px" class="dlbtn-row">${fileHtml}</div>` : ''}
       </div>`;
     }).join('');
+  }
+}
+
+async function rhOpenDir(dir) {
+  if (!dir) return;
+  try {
+    const r = await fetch('/api/open_dir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: dir }) });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      toast(t('c.openFail', '打开失败'), d.error || (r.status + ''), {kind: 'failed', ttl: 12000});
+    }
+  } catch (e) {
+    toast(t('c.openFail', '打开失败'), String(e), {kind: 'failed', ttl: 12000});
   }
 }
 

@@ -216,23 +216,49 @@ def parse_gb_features(gb_path, logger=None):
     return final
 
 
-# ── 单图绘制（绘图代码照抄原管线 process_single_sample）────────
-GENE_COLORS = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462',
-               '#b3de69', '#fccde5', '#d9d9d9']
+# ── 单图绘制 ────────────────────────────────────────────────
+# 配色改用 Okabe-Ito（色盲安全）：深度=蓝、均值线=朱红；
+# 基因轨道取 Okabe-Ito 全家桶（旧 Set3 粉彩+黑边观感过时，2026-09-22 目检改版）
+DEPTH_COLOR = '#0072B2'
+MEAN_COLOR = '#D55E00'
+GENE_COLORS = ['#56B4E9', '#E69F00', '#009E73', '#CC79A7',
+               '#F0E442', '#0072B2', '#D55E00', '#999999']
+
+_FIG_W_IN = 10.2          # 画布宽（英寸）；双栏 170mm ≈ 6.7in，此图按宽版报告嵌排
+
+
+def _fit_gene_label(name, frac_len, max_x, cap=8.0, floor=5.2):
+    """基因标签自适应：按该基因在轨道上的物理宽度（pt）估字号——先缩字号
+    到 floor，仍放不下才截断加省略号（避免「viral repl..」这种生硬截断）。"""
+    usable_pt = (_FIG_W_IN - 0.9) * 72.0        # 去边距后的绘图区宽
+    gene_pt = max(6.0, (frac_len / max(1e-9, float(max_x))) * usable_pt)
+    fs = min(cap, gene_pt / (0.62 * max(1, len(name))))
+    if fs >= floor:
+        return name, fs
+    n = max(2, int(gene_pt / (0.62 * floor)) - 1)
+    return name[:n] + '…', floor
 
 
 def plot_one_virus(sample, virus, chrom_df, v_stat, virus_genes, out_dir,
                    window=10, fontsize=9):
-    """画单个病毒的深度图，返回 (pdf_path, png_path) 或 None"""
+    """画单个病毒的深度图，返回 (pdf_path, png_path) 或 None。
+
+    2026-09-22 目检改版（figure-maker 出版规范）：
+      - 标题一行为物种（accession），样品与统计降为灰色副标题行——
+        原两行大标题主次颠倒且占 ~15% 高度；
+      - 删掉左上角等宽字体统计框（与标题重复、遮挡数据），信息并入副标题；
+      - 深度图与基因轨道共用 x、间距收紧（原版两块之间大段空白）；
+      - y 轴「Read depth (×)」、浅实线横向网格、去顶右边框（despine）；
+      - Okabe-Ito 配色；基因标签按轨道物理宽度自适应字号。
+    """
     if chrom_df.empty:
         return None
     x = chrom_df['position'].values
     y = chrom_df['depth'].values
     mean_depth = float(v_stat.get('MeanDepth', 0) or 0)
-    tax = str(v_stat.get('taxonomy', 'Unknown'))
-    info_text = create_info_text(v_stat)
-    title = (f"Sample: {sample}\n"
-             f"{textwrap.shorten(tax, width=65, placeholder='...')} ({virus})")
+    tax = str(v_stat.get('taxonomy', '') or '').strip()
+    cov = float(v_stat.get('Coverage(%)', 0) or 0)
+    reads = int(v_stat.get('MappedReads', v_stat.get('Uniq_Reads', 0)) or 0)
     safe_tax = safe_name(tax)
     safe_vname = safe_name(virus)
     # 未注释参考的 taxonomy 会等于 accession，避免文件名重复
@@ -244,32 +270,53 @@ def plot_one_virus(sample, virus, chrom_df, v_stat, virus_genes, out_dir,
     max_x = (max(x) if len(x) > 0 else
              (virus_genes[-1]['end'] if virus_genes else 1000))
 
+    # 主标题：物种（accession）；taxonomy 缺失/与 accession 相同时不重复
+    tax_disp = textwrap.shorten(tax, width=55, placeholder='…') if tax else ''
+    main_title = virus if (not tax_disp or tax_disp == str(virus)) \
+        else f"{tax_disp} ({virus})"
+    subtitle = (f"Sample {sample} · coverage {cov:.1f}% · "
+                f"mean depth {mean_depth:.2f}× · {reads} reads")
+    tpm = v_stat.get('TPM')
+    if 'TPM' in v_stat and pd.notna(tpm):
+        subtitle += f" · TPM {float(tpm):.2f}"
+
     if virus_genes:
         fig, (ax, ax_g) = plt.subplots(
-            2, 1, figsize=(12, 7.5), sharex=True,
-            gridspec_kw={'height_ratios': [5, 1], 'hspace': 0.08})
+            2, 1, figsize=(_FIG_W_IN, 5.4), sharex=True,
+            gridspec_kw={'height_ratios': [4.2, 1], 'hspace': 0.06})
     else:
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(_FIG_W_IN, 4.6))
         ax_g = None
 
-    ax.fill_between(x, 0, y_smooth, alpha=0.3, color='#1f77b4')
-    ax.plot(x, y_smooth, color='#1f77b4', linewidth=1.5,
-            label=f'Smoothed Depth (Window={window})')
-    ax.axhline(y=mean_depth, color='#d62728', linestyle='--', linewidth=2,
-               label=f'Mean Depth: {mean_depth:.2f}x')
-    ax.annotate(info_text, xy=(0.02, 0.96), xycoords='axes fraction',
-                bbox=dict(boxstyle='round,pad=0.6', fc='#f8f9fa',
-                          ec='#ced4da', alpha=0.9),
-                fontsize=fontsize, family='monospace', ha='left', va='top')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=15)
-    ax.set_ylabel('Sequencing Depth (x)', fontsize=12)
-    ax.legend(loc='upper right', bbox_to_anchor=(0.98, 0.98), framealpha=0.9)
-    ax.grid(True, linestyle=':', alpha=0.6)
-    ax.set_ylim(bottom=0)
-    ax.set_xlim(0, max_x)
+    # 深度曲线 + 均值线
+    ax.fill_between(x, 0, y_smooth, color=DEPTH_COLOR, alpha=0.22, lw=0)
+    ax.plot(x, y_smooth, color=DEPTH_COLOR, lw=1.1,
+            label=f'Depth ({window}-site rolling mean)')
+    ax.axhline(y=mean_depth, color=MEAN_COLOR, linestyle=(0, (4, 2)), lw=1.2,
+               label=f'Mean depth {mean_depth:.2f}×')
+    ax.set_ylabel('Read depth (×)', fontsize=9.5)
+    ax.set_ylim(0, max(1.0, float(np.max(y_smooth)) if len(y_smooth) else 1.0) * 1.1)
+    ax.set_xlim(0, max_x * 1.01)
+    ax.legend(loc='upper right', fontsize=8, handlelength=1.8,
+              borderaxespad=0.4, frameon=True, framealpha=0.78,
+              facecolor='white', edgecolor='none')
+    ax.grid(axis='y', color='#d9d9d9', lw=0.6, alpha=0.8)
+    ax.set_axisbelow(True)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
+    ax.spines[['left', 'bottom']].set_color('#444444')
+    ax.tick_params(labelsize=8.5, color='#444444')
+    ax.xaxis.set_major_locator(plt.MaxNLocator(nbins=8, integer=True))
+
+    # 主标题 + 灰色副标题（统计信息）
+    ax.set_title(main_title, fontsize=11.5, fontweight='bold', pad=22)
+    ax.text(0.5, 1.025, subtitle, transform=ax.transAxes,
+            ha='center', va='bottom', fontsize=8.3, color='#555555')
 
     if ax_g is not None:
-        y_center, height = 0.5, 0.4
+        y_center, height = 0.5, 0.55
+        usable_pt = (_FIG_W_IN - 0.9) * 72.0
+        drawn = []          # (x_left, x_right, y) 已放置标签的占位，用于碰撞错行
         for i, gene in enumerate(virus_genes):
             start, end = gene['start'], gene['end']
             head_length = min(max_x * 0.015, (end - start) * 0.4)
@@ -282,22 +329,35 @@ def plot_one_virus(sample, virus, chrom_df, v_stat, virus_genes, out_dir,
                 np.column_stack((x_coords,
                                  [y_bottom, y_bottom, y_center, y_top, y_top])),
                 closed=True, facecolor=GENE_COLORS[i % len(GENE_COLORS)],
-                edgecolor='#444444', alpha=0.9)
+                edgecolor='#2b2b2b', linewidth=0.5, alpha=0.85)
             ax_g.add_patch(poly)
-            short_name = (gene['name'][:10] + '..'
-                          if len(gene['name']) > 12 else gene['name'])
-            ax_g.text(start + (end - start) / 2, y_center, short_name,
-                      ha='center', va='center', fontsize=8, fontweight='bold')
+            gname = str(gene.get('name') or '').strip()
+            if gname and gname.lower() != 'unknown':
+                label, gfs = _fit_gene_label(gname, end - start, max_x)
+                cx = start + (end - start) / 2
+                # 估算标签半宽（数据坐标）：与 _fit_gene_label 同一宽度模型
+                half_w = 0.31 * gfs * len(label) / usable_pt * max_x
+                # 与已放置标签水平重叠 → 上移一行（小基因相邻时避免叠印，
+                # 2026-09-22 目检：LC902918.1 TGB2/TGBp3 标签叠印）
+                y_lab = y_center
+                for lx0, lx1, ly in drawn:
+                    if cx - half_w < lx1 and cx + half_w > lx0:
+                        y_lab = ly + 0.34 if ly < 0.7 else ly
+                drawn.append((cx - half_w, cx + half_w, y_lab))
+                ax_g.text(cx, y_lab, label, ha='center', va='center',
+                          fontsize=gfs, fontweight='bold', color='#1a1a1a')
         ax_g.set_ylim(0, 1)
         ax_g.set_yticks([])
-        for spine in ['top', 'right', 'left']:
+        for spine in ('top', 'right', 'left'):
             ax_g.spines[spine].set_visible(False)
-        ax_g.set_xlabel('Genome Position (bp)', fontsize=12)
-        ax.tick_params(labelbottom=False)
+        ax_g.spines['bottom'].set_color('#444444')
+        ax_g.set_xlabel('Genome position (bp)', fontsize=9.5)
+        ax_g.tick_params(labelsize=8.5, color='#444444')
     else:
-        ax.set_xlabel('Genome Position (bp)', fontsize=12)
+        ax.set_xlabel('Genome position (bp)', fontsize=9.5)
 
-    plt.tight_layout()
+    # 不用 tight_layout（与 gridspec+sharex 组合会告警且收益有限）：
+    # 间距由 gridspec hspace 控制，savefig bbox_inches='tight' 负责收边
     try:
         plt.savefig(pdf_path, bbox_inches='tight', dpi=300)
         plt.savefig(png_path, bbox_inches='tight', dpi=300)

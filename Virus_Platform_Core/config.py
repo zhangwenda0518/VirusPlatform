@@ -830,7 +830,14 @@ def detect_tools():
         'fasttree': [which('fasttree'), which('FastTree'),
                      _glob_first(os.path.join(T, 'FastTree', 'FastTree*.exe')),
                      _glob_first(os.path.join(R, 'FastTree', 'FastTree*.exe'))],
+        # RAxML-NG：exe 必须与 3 个 msys DLL 同目录（捆绑副本按此布局打包）
+        'raxml-ng': [which('raxml-ng'), which('raxml-ng.exe'),
+                     _glob_first(os.path.join(T, 'raxml-ng*', 'raxml-ng*.exe')),
+                     _glob_first(os.path.join(R, 'raxml-ng*', 'raxml-ng*.exe'))],
         # IQ-TREE 只认 v3（v2 已退役，不再探测，避免自检长期误报"缺 iqtree2"）
+        # —— 建树引擎已换 RAxML-NG（实测 ML 搜索 143 s vs IQ-TREE 1049 s，快 ~7 倍；
+        #    含 100 次 FBP 自举总耗时 730.6 s vs IQ-TREE 1000 次 UFBoot 1049 s，
+        #    端到端快 ~1.4 倍），此处仅保留工具在位探测
         'iqtree3': [which('iqtree3'), which('iqtree3.exe'),
                     _glob_first(os.path.join(T, 'iQtree', '*', 'bin', 'iqtree3.exe')),
                     _glob_first(os.path.join(T, 'iQtree', '*', 'iqtree3*.exe')),
@@ -841,15 +848,10 @@ def detect_tools():
                     _glob_first(os.path.join(T, 'trimAl*', 'bin', 'trimal*.exe')),
                     os.path.join(R, 'trimAl', 'trimal.exe'),
                     _glob_first(os.path.join(R, 'trimAl*', 'bin', 'trimal*.exe'))],
-        'gblocks': [which('Gblocks'), which('Gblocks.exe'),
-                    os.path.join(T, 'Gblocks', 'Gblocks.exe'),
-                    _glob_first(os.path.join(T, 'Gblocks*', 'Gblocks*.exe')),
-                    os.path.join(R, 'Gblocks', 'Gblocks.exe'),
-                    _glob_first(os.path.join(R, 'Gblocks*', 'Gblocks*.exe'))],
-        'clustalw': [os.path.join(BIN, 'clustalw2.exe'),
-                     os.path.join(R, 'clustalw2.exe'), which('clustalw2')],
-        'muscle':   [_glob_first(os.path.join(BIN, 'muscle*.exe')),
-                     _glob_first(os.path.join(R, 'muscle*.exe')), which('muscle')],
+        # clustalw / gblocks / muscle 不再探测（2026-09-19）：全平台无任何模块
+        # 调用它们（比对走 mafft、修剪走 trimAl；RDP5 用的是 3rd/tools/rdp5
+        # 自带的 clustalw2，不经过本表）。列在这里只会让自检长期红着
+        # 「外部工具 31/34」误导用户，与上方退役 iqtree2 同理。
         'seqkit':   [which('seqkit'), _glob_first(os.path.join(BIN, 'seqkit*.exe')),
                      _glob_first(os.path.join(R, 'seqkit*.exe'))],
         'crabz':    [which('crabz'), which('crabz.exe'),
@@ -915,6 +917,18 @@ def detect_tools():
             _glob_first(os.path.join(T, 'viral_consensus*',
                                      'viral_consensus.exe')),
             os.path.join(R, 'viral_consensus.exe')],
+        'lsd2':     [which('lsd2'), which('lsd2.exe'),
+                     os.path.join(T, 'lsd2', 'lsd2.exe'),
+                     os.path.join(BIN, 'lsd2.exe'),
+                     os.path.join(R, 'lsd2.exe')],
+        # RDP5CL（重组检测命令行）与 dsRNAmax（dsRNA 判定）原先只靠代码内的
+        # 目录扫描兜底：设置页/自检看不到、platform.json 路径覆盖无效。
+        'RDP5CL':   [os.path.join(T, 'rdp5', 'RDP5CL.exe'),
+                     os.path.join(R, 'RDP5CL.exe'), which('RDP5CL')],
+        'dsRNAmax': [os.path.join(T, 'dsrnamax', 'dsRNAmax_det.exe'),
+                     os.path.join(T, 'dsrnamax', 'dsRNAmax.exe'),
+                     os.path.join(BIN, 'dsrnamax.exe'),
+                     os.path.join(R, 'dsRNAmax.exe'), which('dsRNAmax')],
         # 注：snpEff（jar）与 SNPGenie（perl 脚本）不是可直接执行的单文件工具，
         # 由 known_virus_suite 自己按 tools/snpeff/snpEff/snpEff.jar、
         # tools/snpgenie/snpgenie.pl 定位，不放进本探测表（避免"jar 当 exe"）。
@@ -937,11 +951,13 @@ class Config:
          'Default subsample pairs (0 = all)'),
         ('fastp_dedup',   'bool',   False,      'Fastp 质控默认去重 (--dedup)',
          'Dedup by default in fastp QC'),
+        ('fastp_min_len', 'int',    15,         'Fastp 最短保留读长 bp（sRNA 测序请保持 ≤18，原 50 会丢光小 RNA）',
+         'Fastp min read length to keep (keep <=18 for sRNA)'),
         ('do_fq2fa',      'bool',   True,       '默认 FASTQ→FASTA 预转换（分类提速）',
          'FASTQ to FASTA pre-conversion by default'),
-        ('assembly_mode', 'select', 'metaviral', 'SPAdes 组装模式',
+        ('assembly_mode', 'select', 'rnaviral', 'SPAdes 组装模式',
          'SPAdes assembly mode',
-         ['metaviral', 'rna', 'meta', 'isolate']),
+         ['rnaviral', 'metaviral', 'rna', 'meta', 'isolate', 'srna']),
         ('assembly_input','select', 'virus',    '组装输入 reads',
          'Assembly input reads',
          ['virus', 'kept', 'raw']),
@@ -954,7 +970,7 @@ class Config:
         ('top_n_refs',    'int',    10,         '进化分析近缘参考数',
          'Closest references for phylogenetics'),
         ('tree_tool',     'select', 'fasttree', '建树工具',
-         'Tree building tool', ['fasttree', 'iqtree']),
+         'Tree building tool', ['fasttree', 'nj', 'raxml-ng']),
         ('tree_sampling', 'select', 'blast',    '建树参考抽样策略',
          'Tree reference sampling', ['blast', 'macro', 'genus', 'lineage']),
         ('primer_mode',   'select', 'conserved', '引物设计模式',

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Archaeopteryx.js — Comparative Synteny &amp; Homology demo</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  #treeBox { position: absolute; inset: 0; }
+</style>
+<script src="d3.v7.min.js"></script>
+<script src="sax.js"></script>
+<script src="phyloxml.js"></script>
+<script src="forester.js"></script>
+<script src="archaeopteryx.js"></script>
+</head>
+<body>
+<div id="treeBox"></div>
+<script>
+'use strict';
+
+/* ------------------------------------------------------------------ *
+ * 属色带 + 每叶基因组结构轨道 + 叶间同源连线 的演示数据。
+ * tracks/links 的通用形状（同 literature overlay.json 约定）：
+ *   tracks: [{name, acc, genus, length, genes: [{id,start,end,strand,product,cid}]}]
+ *   links : [{q, t, ident}]        (ident 0-1 或 0-100 均可)
+ * ------------------------------------------------------------------ */
+
+const NEWICK =
+  "((('Olivavirus actinidiae (KX857665.1)':0.030,'Olivavirus flaviolae (AJ440010.1)':0.052)92:0.021," +
+  "('Sample_Contig SRR24100137_NODE_1':0.061,'Bluvavirus vaccinii (AB733585.1)':0.088)76:0.034):0.040," +
+  "(('Closterovirus tabaci (KT203917.1)':0.043,('Closterovirus rehmanniae (MH033652.1)':0.051," +
+  "'Closterovirus arracaciae (MG919988.1)':0.039)88:0.024)97:0.031," +
+  "(('Crinivirus tomatichlorosis (AY903447.1)':0.049,'Crinivirus flavisolani (AJ557128.1)':0.041)90:0.028," +
+  "(('Velarivirus septevitis (HE588185.1)':0.037,('Velarivirus tricordylinae (JQ599283.1)':0.028," +
+  "'Velarivirus arecae (KR349464.1)':0.046)84:0.019)95:0.026," +
+  "'Crinivirus ipomoeae (AJ428554.1)':0.058)71:0.030):0.022):0.048," +
+  "(('Ampelovirus unananas (AF414119.3)':0.051,('Ampelovirus pruni (EF546442.1)':0.041," +
+  "'Ampelovirus trivitis (AF037268.2)':0.057)93:0.028)86:0.024," +
+  "'Menthavirus menthae (KJ572575.1)':0.105):0.063);";
+
+const LEAVES = [
+  { name: 'Olivavirus actinidiae (KX857665.1)',   acc: 'KX857665.1', genus: 'Olivavirus' },
+  { name: 'Olivavirus flaviolae (AJ440010.1)',    acc: 'AJ440010.1', genus: 'Olivavirus' },
+  { name: 'Sample_Contig SRR24100137_NODE_1',     acc: 'SRR24100137_NODE_1', genus: 'Sample Contig' },
+  { name: 'Bluvavirus vaccinii (AB733585.1)',     acc: 'AB733585.1', genus: 'Bluvavirus' },
+  { name: 'Closterovirus tabaci (KT203917.1)',    acc: 'KT203917.1', genus: 'Closterovirus' },
+  { name: 'Closterovirus rehmanniae (MH033652.1)',acc: 'MH033652.1', genus: 'Closterovirus' },
+  { name: 'Closterovirus arracaciae (MG919988.1)',acc: 'MG919988.1', genus: 'Closterovirus' },
+  { name: 'Crinivirus tomatichlorosis (AY903447.1)', acc: 'AY903447.1', genus: 'Crinivirus' },
+  { name: 'Crinivirus flavisolani (AJ557128.1)',  acc: 'AJ557128.1', genus: 'Crinivirus' },
+  { name: 'Crinivirus ipomoeae (AJ428554.1)',     acc: 'AJ428554.1', genus: 'Crinivirus' },
+  { name: 'Velarivirus septevitis (HE588185.1)',  acc: 'HE588185.1', genus: 'Velarivirus' },
+  { name: 'Velarivirus tricordylinae (JQ599283.1)', acc: 'JQ599283.1', genus: 'Velarivirus' },
+  { name: 'Velarivirus arecae (KR349464.1)',      acc: 'KR349464.1', genus: 'Velarivirus' },
+  { name: 'Ampelovirus unananas (AF414119.3)',    acc: 'AF414119.3', genus: 'Ampelovirus' },
+  { name: 'Ampelovirus pruni (EF546442.1)',       acc: 'EF546442.1', genus: 'Ampelovirus' },
+  { name: 'Ampelovirus trivitis (AF037268.2)',    acc: 'AF037268.2', genus: 'Ampelovirus' },
+  { name: 'Menthavirus menthae (KJ572575.1)',     acc: 'KJ572575.1', genus: 'Menthavirus' }
+];
+
+/* 基因家族：core 在所有基因组按顺序出现（共线性主干），accessory 只在子集 */
+const FAMILIES = [
+  { cid: 'F01', product: 'RdRp (ORF1b)',              len: 2100, core: true },
+  { cid: 'F02', product: 'Hsp70h',                    len: 520,  core: true },
+  { cid: 'F03', product: 'Minor coat protein (CPm)',  len: 780,  core: true },
+  { cid: 'F04', product: 'Coat protein (CP)',         len: 280,  core: true },
+  { cid: 'F05', product: 'Helicase',                  len: 460,  core: true },
+  { cid: 'F06', product: 'Methyltransferase',         len: 610,  core: true },
+  { cid: 'F07', product: 'p6 hypothetical protein',   len: 180,  core: false, in: 0.7 },
+  { cid: 'F08', product: 'p8 hypothetical protein',   len: 240,  core: false, in: 0.5 },
+  { cid: 'F09', product: 'Alkaline exonuclease',      len: 540,  core: false, in: 0.4 },
+  { cid: 'F10', product: 'Movement protein',          len: 310,  core: false, in: 0.6 }
+];
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rnd = mulberry32(20260911);
+
+/* 每个基因组：按家族顺序铺基因，位置/长度抖动；Sample_Contig 短一截（scaffold） */
+const tracks = [];
+const geneByTrack = new Map();   // acc -> Map(cid -> gene)
+LEAVES.forEach(function (leaf, li) {
+  const jitter = 0.82 + rnd() * 0.4;
+  const scale = leaf.genus === 'Sample Contig' ? 0.62 : jitter;
+  const genes = [];
+  let pos = Math.round(120 + rnd() * 260);
+  FAMILIES.forEach(function (fam) {
+    if (!fam.core && !(leaf.genus === 'Sample Contig' ? false : rnd() < fam.in)) {
+      return;   // accessory family absent in this genome
+    }
+    const len = Math.max(140, Math.round(fam.len * (0.86 + rnd() * 0.28)));
+    const strand = fam.core ? '+' : (rnd() < 0.5 ? '+' : '-');
+    const gene = {
+      id: leaf.acc + '__' + genes.length,
+      start: pos,
+      end: pos + len,
+      strand: strand,
+      product: fam.product,
+      cid: fam.cid
+    };
+    genes.push(gene);
+    pos = gene.end + Math.round((160 + rnd() * 900) * scale);
+  });
+  const track = {
+    name: leaf.name, acc: leaf.acc, genus: leaf.genus,
+    length: pos + Math.round(80 + rnd() * 300),
+    genes: genes
+  };
+  tracks.push(track);
+  const m = new Map();
+  genes.forEach(function (g) { m.set(g.cid, g); });
+  geneByTrack.set(leaf.acc, m);
+});
+
+/* 同源连线：相邻两行的共享家族各连一条（像文献图那样几乎只连相邻行），
+   另加少量跨行长连线；identity 按亲缘远近给值 */
+const links = [];
+function identOf(a, b) {
+  if (a.genus === b.genus) { return 0.86 + rnd() * 0.12; }
+  const deep = (a.genus === 'Sample Contig' || b.genus === 'Sample Contig');
+  return deep ? 0.62 + rnd() * 0.2 : (0.44 + rnd() * 0.28);
+}
+for (let i = 0; i < LEAVES.length - 1; ++i) {
+  const A = LEAVES[i], B = LEAVES[i + 1];
+  const ga = geneByTrack.get(A.acc), gb = geneByTrack.get(B.acc);
+  ga.forEach(function (gene, cid) {
+    const other = gb.get(cid);
+    if (other) {
+      links.push({ q: gene.id, t: other.id, ident: identOf(A, B) });
+    }
+  });
+}
+/* 几条跨大支的长连线（颜色更浅 = identity 更低） */
+[['KX857665.1', 'KT203917.1'], ['AB733585.1', 'AY903447.1'],
+ ['HE588185.1', 'AF414119.3'], ['KJ572575.1', 'EF546442.1']]
+  .forEach(function (pair) {
+    const ga = geneByTrack.get(pair[0]), gb = geneByTrack.get(pair[1]);
+    ['F01', 'F03', 'F04'].forEach(function (cid) {
+      if (ga.has(cid) && gb.has(cid)) {
+        links.push({ q: ga.get(cid).id, t: gb.get(cid).id, ident: 0.34 + rnd() * 0.18 });
+      }
+    });
+  });
+
+/* ------------------------------------------------------------------ */
+const viewer = archaeopteryx.launchArchaeopteryx(
+  document.getElementById('treeBox'), 'demo.nwk', NEWICK, {
+    layout: 'rectangular',
+    nhConfidenceValuesInBrackets: false,
+    nhConfidenceValuesAsInternalNames: true,
+    enableAccessToDatabases: false,
+    enableDownloads: true,
+    pngExportScale: 2,
+    collapseControlPanel: true,
+    genomeOverlay: { tracks: tracks, links: links }
+  });
+</script>
+</body>
+</html>

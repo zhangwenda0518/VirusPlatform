@@ -104,6 +104,19 @@ def api_tasks_clear_finished():
     return jsonify({'removed': tm.clear_finished()})
 
 
+@bp.route('/api/tasks/stop_all', methods=['POST'])
+def api_tasks_stop_all():
+    """一键停止全部运行中/排队中的任务（不删任务记录、不碰结果文件，
+    与 /api/global/reset 的破坏性清理划清界限）。active_left：取消是异步
+    的，仍有任务在收尾时前端据此提示"N 个任务正在停止"。"""
+    cancelled = tm.cancel_all()
+    deadline = time.time() + 2.0
+    while time.time() < deadline and tm.active_ids():
+        time.sleep(0.1)
+    return jsonify({'ok': True, 'cancelled': cancelled,
+                    'active_left': len(tm.active_ids())})
+
+
 @bp.route('/api/global/reset', methods=['POST'])
 def api_global_reset():
     """全局重置：一次收拢所有模块的运行态与相互关联（**不删任何结果文件**）。

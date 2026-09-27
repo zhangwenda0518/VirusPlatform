@@ -42,6 +42,15 @@ DESTRUCTIVE_POST = {
     '/api/global/reset',            # 取消全部任务 + 清队列 + 清任务记录
     '/api/tasks/clear_finished',    # 删 tasks/*.json
     '/api/queue/clear_finished',    # 清批处理队列
+    '/api/tasks/stop_all',          # 空参数 POST 就会取消全部运行中任务
+    '/api/queue/pause',             # 空参数 POST 就会暂停批处理队列
+    '/api/queue/resume',            # 空参数 POST 就会恢复批处理队列
+    '/api/queue/start_all',         # 空参数 POST 就会启动全部待启动样品任务
+    '/api/build_taxonomy',          # 空参数 POST 会真启动建库任务（2026-09-20 巡检实
+    '/api/build_universal_db',      # 测：新增了两个 tasks/*.json）——一律跳过
+    '/api/set_host_db',             # 空参数 POST 改宿主库配置
+    '/api/settings',                # 空参数 POST 保存设置
+    '/api/submit/table/<name>/delete',  # 空参数 POST 删提交表数据
 }
 
 

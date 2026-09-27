@@ -399,16 +399,17 @@ def cdd_search_orfs(faa, out_dir, threads=None, logger=None):
                    f"({os.path.getsize(db) / 1e6:.0f}MB)")
     env = os.environ.copy()
     env['PATH'] = os.path.dirname(mmseqs) + os.pathsep + env.get('PATH', '')
-    from .utils import run_cmd
     out_tsv = os.path.join(out_dir, 'cdd_hits.raw.tsv')
     tmp = out_tsv + '.mmseqs_tmp'
     try:
-        run_cmd([mmseqs, 'easy-search', faa, db, out_tsv, tmp,
-                 '--format-output', 'query,target,evalue,pident,qlen,qstart,'
-                                    'qend,tstart,tend,bits',
-                 '-e', str(CDD_EVALUE_MAX), '--max-seqs', '5',
-                 '--threads', str(threads or cfg.threads)],
-                logger=logger, env=env)
+        # CDD prefilter 索引要一次性 ~5GB；小内存机器整库必死 → 统一走
+        # cdd_search.easy_search_cdd（整库失败自动 8 分片重试，结果等价）。
+        from .cdd_search import easy_search_cdd
+        easy_search_cdd(mmseqs, faa, db, out_tsv, tmp,
+                        format_output='query,target,evalue,pident,qlen,qstart,'
+                                      'qend,tstart,tend,bits',
+                        evalue=CDD_EVALUE_MAX, max_seqs=5,
+                        threads=threads or cfg.threads, env=env, logger=logger)
     finally:
         # mmseqs 的临时目录必须清掉：兄弟模块 orf_annot._run_search 有清理，
         # 这里原先没有，实测 results/ERR7586041/04b_orf_annot/ 下留有

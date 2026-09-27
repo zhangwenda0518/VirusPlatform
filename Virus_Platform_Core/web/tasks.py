@@ -24,7 +24,8 @@ import uuid
 from collections import deque
 
 from Virus_Platform_Core.config import DIRS
-from Virus_Platform_Core.utils import check_path, fmt_size, safe_open, safe_remove
+from Virus_Platform_Core.utils import (check_path, decode_output, fmt_size,
+                                       safe_open, safe_remove)
 from Virus_Platform_Core.web.state import cfg, tool_runs_root as _tool_runs_root
 
 _log = logging.getLogger('Virus_Platform_Core.web.tasks')
@@ -167,7 +168,10 @@ class TaskManager:
             self.tasks[tid] = rec
             self.order.insert(0, tid)
 
-        def _log(line):
+        # 命名为 _emit 而非 _log：本闭包（追加一行到任务日志）与模块级
+        # logger `_log` 同名会把它遮蔽掉 —— 曾导致任务失败分支的
+        # `_log.debug(堆栈)` 抛 AttributeError，异常堆栈永远进不了日志。
+        def _emit(line):
             with self.lock:
                 rec['log'].append(line)
             try:
@@ -204,7 +208,7 @@ class TaskManager:
                 rec['status'] = 'cancelled'
                 rec['error'] = '任务已停止（排队中取消）'
                 rec['finished'] = time.time()
-                _log('[CANCEL] ' + cfg.tr('排队中已取消',
+                _emit('[CANCEL] ' + cfg.tr('排队中已取消',
                                           'Cancelled while queued'))
                 self._persist(rec)
                 return
@@ -213,7 +217,7 @@ class TaskManager:
             self._persist(rec)
             task_bind(rec['cancel'], rec['procs'])
             try:
-                result = fn(_log, _progress, rec['cancel'])
+                result = fn(_emit, _progress, rec['cancel'])
                 # 终态与结果必须一次性原子写入（snapshot 在锁内读）
                 with self.lock:
                     rec['status'] = ('cancelled' if rec['cancel'].is_set()
@@ -222,15 +226,20 @@ class TaskManager:
                     rec['result_preview'] = build_result_preview(result,
                                                                  rec['name'])
                 if rec['status'] == 'done':
-                    _log('[OK] ' + cfg.tr('任务完成', 'Task finished'))
+                    _emit('[OK] ' + cfg.tr('任务完成', 'Task finished'))
             except Exception as e:
+                cancelled = rec['cancel'].is_set()
+                # 带异常类型：只留裸 message 时 FileNotFoundError/KeyError
+                # 这类信息量极低的失败无从排查（平台日志铁律）
+                err = ('任务已停止（用户取消）' if cancelled
+                       else f'{type(e).__name__}: {e}')
                 with self.lock:
-                    rec['status'] = ('cancelled' if rec['cancel'].is_set()
-                                     else 'failed')
-                    rec['error'] = ('任务已停止（用户取消）'
-                                    if rec['cancel'].is_set() else str(e))
-                _log(f"[ERROR] {rec['error']}" if rec['cancel'].is_set()
-                     else f"[ERROR] {e}")
+                    rec['status'] = 'cancelled' if cancelled else 'failed'
+                    rec['error'] = err
+                _emit(f"[ERROR] {err}")
+                if not cancelled:
+                    _log.debug('任务 %s 异常堆栈', rec.get('name'),
+                               exc_info=True)
             finally:
                 task_bind(None, None)
                 with self.lock:
@@ -493,7 +502,7 @@ class TaskManager:
                 # 一个空 started 当 0，显示成 49 万小时这种荒唐值。
                 st = {'status': 'running', 'pct': None, 'stage': '',
                       'msg': cfg.tr('状态读取失败（会自动恢复）',
-                                    'State read failed (recovers自动)'),
+                                    'State read failed (recovers automatically)'),
                       'error': '', 'log': [], 'started': started0}
             return self._ext_snapshot(tid, name, link, st, log_lines)
         with self.lock:
@@ -843,7 +852,9 @@ class TaskManager:
                 data = f.read()
         except OSError:
             return None
-        rows = data.decode('utf-8', errors='replace').splitlines()
+        # utf-8 优先、GBK 兜底：历史日志（2026-09-27 编码统一前）里子进程
+        # 按系统 ANSI 写的中文段按 utf-8+replace 会整体变 U+FFFD，读不回来
+        rows = decode_output(data).splitlines()
         if size > chunk and rows:
             rows = rows[1:]           # 首行可能被字节截断，丢弃
         tail = rows[-lines:]
@@ -898,6 +909,34 @@ def _tool_result_files(run_name, limit=12):
             for _mt, rel, sz in items[:limit]]
 
 
+def _flatten_stats(result, depth=2):
+    """把任务返回 dict 展平成单层统计（嵌套 dict 用点号连接键名）。
+
+    旧实现只取顶层标量，ORF 任务的 pyrodigal/orfipy/orfa 嵌套统计全被丢掉
+    （与 04_orf/summary.json 的 n_orfs 等字段对不上）。列表只记条数
+    （<key>_n），非有限浮点（NaN/inf）剔除——NaN 不能进 JSON 响应体。
+    """
+    import math
+    out = {}
+
+    def _ok(v):
+        if isinstance(v, bool) or v is None or isinstance(v, (str, int)):
+            return True
+        return isinstance(v, float) and math.isfinite(v)
+
+    def _walk(node, prefix, depth_left):
+        for k, v in node.items():
+            key = f'{prefix}{k}'
+            if _ok(v):
+                out[key] = v
+            elif isinstance(v, dict) and depth_left > 0:
+                _walk(v, key + '.', depth_left - 1)
+            elif isinstance(v, (list, tuple)):
+                out[key + '_n'] = len(v)
+    _walk(result, '', depth)
+    return out
+
+
 def build_result_preview(result, task_name=''):
     """把任务返回值规范化成前端可渲染的预览 dict（失败安全）。"""
     try:
@@ -908,10 +947,7 @@ def build_result_preview(result, task_name=''):
                 return {'kind': 'raw', 'text': str(result)}
             return _sample_result_preview(rel)
         if isinstance(result, dict):
-            out = {'kind': 'tool',
-                   'stats': {str(k): v for k, v in result.items()
-                             if isinstance(v, (str, int, float, bool))
-                             or v is None}}
+            out = {'kind': 'tool', 'stats': _flatten_stats(result)}
             run = result.get('run')
             if run:
                 out['run'] = str(run)          # 前端 toolrun 需顶层 run 名

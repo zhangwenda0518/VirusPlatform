@@ -19,7 +19,19 @@ import io
 import os
 import re
 
-import primer3
+# primer3 统一走 primer3_runtime（子进程探测 + 惰性导入 + bindings 校验）：
+# 模块级 import 在内存不足的机器上会让 pyd 初始化段错误杀掉整个进程，
+# 不可用时 _p3() 抛 RuntimeError，由调用方给出友好提示并软跳过。
+from . import primer3_runtime as _p3rt
+
+
+def _p3():
+    try:
+        return _p3rt.get_module()
+    except RuntimeError as e:
+        raise RuntimeError(
+            'primer3 不可用：T7 引物/热力学打分在本环境未启用（' + str(e) + '）')
+
 
 from . import primer_thermo as pt
 
@@ -234,7 +246,7 @@ def design_for_sequence(name, seq, ptype='PCR', core=None, adv=None):
         nmin = min(pmin, max(40, nmax - 20))
         opts['PRIMER_PRODUCT_SIZE_RANGE'] = [[nmin, nmax]]
 
-    res = primer3.bindings.design_primers(
+    res = _p3().bindings.design_primers(
         {'SEQUENCE_ID': (name or 'seq')[:80], 'SEQUENCE_TEMPLATE': subseq}, opts)
 
     n = res.get('PRIMER_PAIR_NUM_RETURNED', 0)

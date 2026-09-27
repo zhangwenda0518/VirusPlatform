@@ -5,6 +5,7 @@
 所有文件访问统一经由 safe_open()/safe_remove()：先 check_path 规范化校验
 （拒绝 .. 段、写模式限定平台根内、读模式要求存在），再执行 I/O。
 """
+import math
 import os
 import re
 import sys
@@ -16,6 +17,30 @@ import subprocess
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+
+def nan_to_null(o):
+    """把 NaN / ±Inf 递归换成 None（JSON 落盘 / 出口统一清洗）。
+
+    Python 的 `json.dumps` 默认 `allow_nan=True`，会把 NaN 原样吐成裸字面量
+    `NaN` —— 非法 JSON：Python 端 json.loads 能容忍（自测假通过），浏览器
+    `JSON.parse` 直接报 `Unexpected token 'N'`、整份响应被丢弃。来源是
+    pandas 聚合的均值/占比（空集合求均值 → NaN）。原实现随病毒浏览器
+    归档（archive/_retire_20260927），现收编为本模块的公共工具。
+    """
+    if isinstance(o, float):          # np.float64 也是 float 子类，一并覆盖
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: nan_to_null(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [nan_to_null(v) for v in o]
+    # plotly 的 fig.data 里 x/y/z 都是 numpy.ndarray；先 tolist 再递归清洗里面的
+    # NaN。float 分支必须在前，否则 np.float64 会先走 tolist 丢掉标量语义。
+    if hasattr(o, 'tolist'):
+        return nan_to_null(o.tolist())
+    if hasattr(o, 'item'):            # numpy 标量（np.int64 等不是 int 子类）
+        return nan_to_null(o.item())
+    return o
 
 
 
@@ -35,6 +60,47 @@ def decode_output(raw):
         except UnicodeDecodeError:
             continue
     return raw.decode('utf-8', errors='replace')
+
+
+def to_utf8_file(path):
+    """文本产物就地规范为 UTF-8（外部工具自写日志/报告专用）。
+
+    文件整体已是合法 UTF-8（含纯 ASCII）→ 原样保留、返回 False；
+    否则**按行**试解 utf-8 → GBK（decode_output 口径）后整体重写为
+    UTF-8，返回 True。按行而不是整 buffer：混编码文件（如 cmd 重定向
+    里 UTF-8 框线字符与 GBK 中文报错共存）里合法的 UTF-8 行逐字节保留、
+    只有 GBK 行被转写，两头都不损。
+
+    典型场景：RAxML-NG / LSD2 这类 C++ 工具把含中文路径的行按系统 ANSI
+    代码页（中文 Windows = GBK）写进自产日志，与平台其余产物的编码
+    不一致；跑完立即调用本函数即完成统一。IO/解码失败静默跳过。
+    """
+    try:
+        with safe_open(path, 'rb') as f:
+            raw = f.read()
+    except OSError:
+        return False
+    try:
+        raw.decode('utf-8')
+        return False
+    except UnicodeDecodeError:
+        pass
+    out, changed = [], False
+    for line in raw.splitlines(keepends=True):
+        try:
+            line.decode('utf-8')
+            out.append(line)
+        except UnicodeDecodeError:
+            changed = True
+            out.append(decode_output(line).encode('utf-8', errors='replace'))
+    if not changed:
+        return False
+    try:
+        with safe_open(path, 'wb') as f:
+            f.write(b''.join(out))
+        return True
+    except OSError:
+        return False
 
 
 # ------------------------------------------------------------------
@@ -646,6 +712,11 @@ def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None,
 
     append=True 时追加写入（kvsuite 引擎多个子命令共用一份日志）。
     返回 returncode；非零抛 RuntimeError。
+
+    子进程环境强制 PYTHONUTF8=1 / PYTHONIOENCODING=utf-8：Python 子进程
+    （如 kvsuite 引擎）把中文日志 print 到重定向文件时默认走系统 ANSI
+    代码页（中文 Windows = GBK），会让同一份日志里 UTF-8 与 GBK 混存；
+    声明 UTF-8 后落盘编码与平台自身日志一致。非 Python 工具忽略该变量。
     """
     cmd = [str(c) for c in cmd]
     out = check_path(out_path, must_exist=False, in_platform=True)
@@ -662,10 +733,13 @@ def run_cmd_redirect(cmd, out_path, logger=None, timeout=None, cwd=None,
     elif timeout <= 0:
         timeout = None
     t0 = time.time()
+    child_env = os.environ.copy()
+    child_env['PYTHONUTF8'] = '1'
+    child_env['PYTHONIOENCODING'] = 'utf-8'
     with safe_open(out, 'ab' if append else 'wb') as fo:
         proc = subprocess.Popen(
             cmd, stdout=fo, stderr=subprocess.PIPE,
-            cwd=cwd, creationflags=creationflags)
+            cwd=cwd, creationflags=creationflags, env=child_env)
         _task_register(proc)
         err_lines = []
         timed_out = threading.Event()
@@ -824,6 +898,43 @@ def count_fasta_seqs(path):
             if line.startswith('>'):
                 n += 1
     return n
+
+
+def load_alignment(path):
+    """读比对 FASTA → dict {name: 大写序列}（保序，允许 - 与 ?）。
+
+    name 取 FASTA 头**首个空白分隔 token** —— 与 phylo/viz 全平台的叶名口径
+    一致（Newick 叶名也是按首个 token 净化的），保证树上叶名能回映射到序列。
+    原为 rdp_detect.load_alignment；自研三序列法移除后上移到通用层，
+    供系统地理 / 重组结果摘要共用。
+    """
+    out = {}
+    for header, seq in iter_fasta(path):
+        tokens = header.split()
+        out[tokens[0] if tokens else header.strip()] = seq.upper()
+    return out
+
+
+def variable_cols(seqs):
+    """比对的可变位点下标：该列存在 ≥2 种非 gap 字符。
+
+    seqs 为等长序列列表。gap 含 '-' 与 '?'，任一序列为 gap 的列不参与判定。
+    原为 rdp_detect.variable_cols（三序列法的特征位池）。
+    """
+    if not seqs:
+        return []
+    out = []
+    for i in range(len(seqs[0])):
+        seen = set()
+        for s in seqs:
+            c = s[i]
+            if c in '-?':
+                continue
+            seen.add(c)
+            if len(seen) >= 2:
+                out.append(i)
+                break
+    return out
 
 
 # ------------------------------------------------------------------
@@ -1069,3 +1180,67 @@ def resolve_sample_name(name, base=None):
     except OSError:
         return canon
     return raw if raw in names else canon
+
+
+def open_in_explorer(path):
+    """在 Windows 资源管理器中打开目录/文件，并尽力把新窗口置顶。
+
+    为什么不直接 os.startfile：目录已有窗口或 Shell 复用窗口时，窗口常
+    开在当前前台窗口**后面**，用户点了「📂 打开」以为没反应（2026-09-20
+    用户实测反馈「点击文件夹，展示在页面最前端」）。这里 startfile 之后
+    用 EnumWindows 找新出现的 CabinetWClass 窗口 SetForegroundWindow；
+    没等到新窗口（复用旧窗口）就把现有资源管理器窗口顶上来。
+    非兜底不可时的 SetForegroundWindow 前台锁用「先敲一下 ALT」解锁。
+    """
+    path = str(path)
+    if sys.platform != 'win32':
+        try:
+            os.startfile(path)          # type: ignore[attr-defined]
+        except AttributeError:
+            subprocess.Popen(['xdg-open', path])
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND,
+                                  wintypes.LPARAM)
+
+    def _cabinet_windows():
+        out = []
+        buf = ctypes.create_unicode_buffer(64)
+
+        def cb(hwnd, _lparam):
+            user32.GetClassNameW(hwnd, buf, 64)
+            if buf.value == 'CabinetWClass' and user32.IsWindowVisible(hwnd):
+                out.append(hwnd)
+            return True
+        user32.EnumWindows(EnumProc(cb), 0)
+        return out
+
+    def _raise(hwnd):
+        user32.keybd_event(0x12, 0, 0, 0)       # ALT down：解前台锁
+        user32.SetForegroundWindow(hwnd)
+        user32.keybd_event(0x12, 0, 2, 0)       # ALT up
+
+    before = set(_cabinet_windows())
+    try:
+        os.startfile(path)
+    except OSError:
+        subprocess.Popen(['explorer', path])
+
+    # 置顶等待放后台线程：HTTP 请求立即返回，不被最多 2s 的窗口探测拖住
+    def _focus():
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            new = set(_cabinet_windows()) - before
+            if new:
+                _raise(next(iter(new)))
+                return
+            time.sleep(0.15)
+        hwnds = _cabinet_windows()
+        if hwnds:
+            _raise(hwnds[0])
+    threading.Thread(target=_focus, daemon=True,
+                     name='explorer-focus').start()

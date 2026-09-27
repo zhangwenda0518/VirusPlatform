@@ -3,10 +3,13 @@
 
 背景（2026-09-11 用户截图报障）：
 `.topnav` 原先 `height: 54px` 固定高度，而 `.navlinks` 是 `flex-wrap: wrap`。
-一级导航有 13 个链接（约占 1150px），窗口一窄 `.navlinks` 内部就换行，
-但绿色横条仍只有 54px —— 换行出来的第二行（样品/项目/全局清理/EN/📂）
-直接溢出到横条外的白底上。`height: auto` 的兜底只在 ≤720px 生效，远低于
-用户窗口宽度，所以平时必然踩到。
+一级导航当时 13 个链接（约占 1150px，现按 NAV_GROUPS 派生），窗口一窄
+`.navlinks` 内部就换行，但绿色横条仍只有 54px —— 换行出来的第二行
+（样品/项目/全局清理/EN/📂）直接溢出到横条外的白底上。`height: auto` 的兜底
+只在 ≤720px 生效，远低于用户窗口宽度，所以平时必然踩到。
+
+⚠️ 新增一级导航项会加宽这条横条（2026-09-18 加 detect 组即 +1 项），
+宽屏"必须单行"的断言（1920px 那条）是随之最可能先红的项 —— 加组后务必跑本脚本。
 
 本脚本在多个窗口宽度下断言：
   1. 横条不溢出：`scrollHeight <= clientHeight + 1`
@@ -34,6 +37,15 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
+# 一级导航链接数 = NAV_GROUPS 每个分组一条（.nav-drop 里的 <a>）
+# + 5 条非分组项（/、/pipeline、/tasks、/settings、/help）。
+# 别写死数字：09-17 恢复 compare 组、09-18 新增 detect 组，两次都会让它陈旧，
+# 而"数字对不上"这种红是噪声红，会掩盖真的溢出问题。
+from Virus_Platform_Core.web.pages import NAV_GROUPS as _NAV_GROUPS  # noqa: E402
+
+NON_GROUP_LINKS = 5
+EXPECT_LINKS = len(_NAV_GROUPS) + NON_GROUP_LINKS
 
 # 覆盖：宽屏单行 → 逐步变窄到必须换行 → 很窄
 WIDTHS = [1920, 1680, 1560, 1440, 1366, 1280, 1180, 1024, 960, 820, 720, 640]
@@ -98,7 +110,7 @@ const out = vis.filter(k => {
   return r.bottom > nr.bottom + 1 || r.top < nr.top - 1 ||
          r.right > nr.right + 1 || r.left < nr.left - 1;
 }).map(k => (k.id || k.className || k.tagName) + '');
-// 一级导航链接 = 13 个页面入口（.iconbtn 的 📂 已收进 .navtail，不在其中）
+// 一级导航链接 = NAV_GROUPS 分组 + 非分组项（本脚本的 EXPECT_LINKS 与之同源）
 const lv1 = [...document.querySelectorAll(
     '.navlinks > a, .navlinks > .nav-drop > a')]
   .filter(a => a.getClientRects().length);
@@ -138,6 +150,11 @@ def main():
     logf = open(logpath, 'w', encoding='utf-8', errors='replace')
     srv = subprocess.Popen(
         [sys.executable, '-c',
+         # 必须显式注入 ROOT：项目自带绿色版 Python 目录下有 python312._pth，
+         # 该文件存在时进入 isolated 模式，`-c` 的 sys.path 不含 cwd，
+         # `import app` 会 ModuleNotFoundError、服务起不来。
+         'import sys\n'
+         f'sys.path.insert(0, {ROOT!r})\n'
          'from werkzeug.serving import make_server\n'
          'import app\n'
          f"s = make_server('127.0.0.1', {port}, app.app, threaded=True)\n"
@@ -220,8 +237,9 @@ def main():
                           for k in ('chip', 'reset', 'lang', 'icon')),
                       f"chip={m['chip']} reset={m['reset']} "
                       f"lang={m['lang']} icon={m['icon']}")
-                check(f'{page} {tag} 13 个一级链接全在',
-                      m['links'] == 13, str(m['links']))
+                check(f'{page} {tag} {EXPECT_LINKS} 个一级链接全在',
+                      m['links'] == EXPECT_LINKS,
+                      f"{m['links']}（期望 {EXPECT_LINKS}）")
                 check(f'{page} {tag} 一级链接最多 2 行（不允许碎成 3 行以上）',
                       m['linkRows'] <= 2, det)            # 宽屏必须回到"品牌与导航同一行、横条 54px"
             viewport(1920)

@@ -91,6 +91,25 @@ def _kind(name):
     return 'other'
 
 
+def _count_files(d):
+    """统计模块目录下的**实际**产物文件数。
+
+    为什么不用 manifest 里的 files 长度：manifest 是生成器
+    （tests/make_example_results.py）跑完那一次的快照，之后为控制仓库体积
+    清理过大文件（run.log、*.fastq.gz、SPAdes 中间产物等）时并不会同步更新。
+    列表页显示 manifest 计数、详情页列实际文件，两边就对不上
+    （实测 45 个模块计数虚高）。以文件系统为单一数据源，天然一致。
+    """
+    n = 0
+    if os.path.isdir(d):
+        for _cur, _dirs, fs in os.walk(d):
+            for fn in fs:
+                if fn == 'manifest.json' or fn.startswith('.'):
+                    continue
+                n += 1
+    return n
+
+
 @bp.route('/api/examples')
 def api_examples():
     """示例结果清单：{module: {title, run, files, ...}}。"""
@@ -99,7 +118,8 @@ def api_examples():
     for module in sorted(man):
         e = man[module]
         out.append({'module': module, 'title': e.get('title', module),
-                    'run': e.get('run', ''), 'n_files': len(e.get('files', [])),
+                    'run': e.get('run', ''),
+                    'n_files': _count_files(_module_dir(module)),
                     'generated_at': e.get('generated_at', '')})
     return jsonify(out)
 
@@ -165,5 +185,15 @@ def api_example_file(module, filename):
     d = _module_dir(module)
     p = os.path.join(d, filename)
     if not _within(d, p) or not os.path.isfile(p):
+        # ⚠️ 2026-09-18：示例里的现成 HTML（sankey_host.html / sunburst_host.html /
+        # logan 的 trace_report.html）是**相对路径**引 `plotly.min.js` 的，
+        # 而示例产物目录里并没有这个 4.8 MB 的库 → 页面报
+        #   `Plotly is not defined` + 该文件 404（`_check_pages_console.py`
+        # 的 /hostpredict 就是这样长期红着，且看起来像"改坏了"）。
+        # 与其在每个示例目录里复制几份，不如在这里回落到平台自带的那一份。
+        if os.path.basename(filename) == 'plotly.min.js':
+            lib = os.path.join(PLATFORM_ROOT, 'webapp', 'static', 'plotly.min.js')
+            if os.path.isfile(lib):
+                return send_file(os.path.normpath(os.path.abspath(lib)))
         abort(404, '文件不存在')
     return send_file(os.path.normpath(os.path.abspath(p)))

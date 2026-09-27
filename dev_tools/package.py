@@ -4,19 +4,25 @@
 产物（默认分离布局，`dist/` 下三个互不干扰的目录）:
   dist/VirusPlatform/            ① 程序（exe + webapp + bin/ + tools/，~1GB）
   dist/VirusPlatform-Examples/   ② 示例数据（<程序>/examples/，~1MB）
-  dist/VirusPlatform-Database/   ③ 数据库（仅 --with-db 时生成，约 3.6GB）
+  dist/VirusPlatform-Database/   ③ 数据库（仅 --with-db 时生成）
 
-为什么分离：
-  - 程序可单独升级/分发，不必重拷几个 GB 的数据库；
-  - 数据库可放任意盘（设置 → 数据库目录 指向即可，或 db-migrate 迁移）；
-  - 示例数据只读、体量小，可随程序走也可单独给学员。
+分发口径（2026-09-19 起）：**原始数据集与数据库区分开**——
+  * 随包只发「原始数据集」（参考 FASTA + 注释表 + taxonomy dmp + 第三方
+    直接使用库），派生索引/分类库一律不预建：
+      - 病毒鉴定库引擎索引（salmon_k31/k15、minibwa，~1.66GB）不随包，
+        首次运行在库目录内自建一次后全局复用；
+      - kunpeng 病毒分类库（plant ~53MB / ref ~680MB）不随包，用户在
+        「数据库构建」页从数据集一键构建（数据集 = kv_index 的
+        reference.fasta + reference.ref_info.tsv，含 Accession/Taxid 列；
+        RefSeq 库 = databases/virus_ref/ 下的 viral.1.1.genomic.fna.gz）；
+    需要开箱即用的预建分类库时加 `--with-built-virusdb`。
+  * 宿主分类库按物种而异，向来由用户自建（host-db/，不入包）。
 
-数据库包内容（= `Virus_Platform_Core/db_migrate.py` 的整树口径，逐项见下方
-`_DB_TREES`；宿主分类库 host-db/ 按物种而异，故意不入包）：
-  分类/定量：kunpeng_db/{plant,ref}、tax_db、virusref_db/kv_index
+数据库包内容（逐项见下方 `_DB_TREES`）：
+  数据集：virusref_db（参考 FASTA/ref_info + 预置 v4 blastn 库）、tax_db、
+          virus_ref（RefSeq/RVDB 源 FASTA，本机有就随包）
   注释：annot_db/{prot,cdd,hmm}
-  比对/建树：virusref_db（含**预置 v4 blastn 库**，中文路径也可用，无需现建）、tree_db
-  其他：misc_db/{viroids,suvtk,prob}、genus_lens.tsv
+  建树/其他：tree_db、misc_db/{viroids,suvtk,prob}、genus_lens.tsv
 
 程序启动时按此顺序找示例目录（Virus_Platform_Core/config.py `_detect_examples_root`）：
   platform.json.examples_root → <程序>/examples →
@@ -24,7 +30,8 @@
 
 用法:
   python dev_tools/package.py                      # 程序 + 示例（无数据库，~1GB）
-  python dev_tools/package.py --with-db            # 再加数据库包（~3.6GB，另存一目录）
+  python dev_tools/package.py --with-db            # 再加数据库包（数据集口径）
+  python dev_tools/package.py --with-built-virusdb # 数据库包额外带预建 kunpeng 分类库
   python dev_tools/package.py --db-only            # 跳过 exe，只补数据库包
   python dev_tools/package.py --no-split           # 旧布局：示例/数据库放进程序目录
   python dev_tools/package.py --verify             # 打包后跑产物自检
@@ -42,6 +49,9 @@ import sys
 _parser = argparse.ArgumentParser(description='打包发布版（默认程序/数据库/示例三分离）')
 _parser.add_argument('--with-db', action='store_true',
                      help='同时生成独立的数据库包（开箱即用，体积大）')
+_parser.add_argument('--with-built-virusdb', action='store_true',
+                     help='数据库包额外携带预建 kunpeng 病毒分类库（plant/ref；'
+                          '默认不携带——分发数据集，用户在构建页一键自建）')
 _parser.add_argument('--db-only', action='store_true',
                      help='跳过 exe，仅生成/更新数据库包')
 _parser.add_argument('--no-split', action='store_true',
@@ -212,12 +222,101 @@ if not _args.db_only:
         shutil.copy2(orfipy, os.path.join(APP, 'orfipy.exe'))
         print('  + orfipy.exe')
 
+    # 便携 R + treedater（2026-09-17）：TreeDater-LTT 真引擎随包分发，
+    # 目标机免装 R/免联网。安装包 exe 与 doc/tests 不随包（省体积）。
+    if os.path.isdir('3rd/R'):
+        dst = os.path.join(APP, '3rd', 'R')
+        _rmtree(dst)
+        shutil.copytree('3rd/R', dst,
+                        ignore=shutil.ignore_patterns('*.exe', 'doc', 'tests'))
+        print('  + 3rd/R/（便携 R + treedater）')
+
     ov_build = os.path.join('3rd', 'open-virome', 'frontend', 'build')
     if os.path.isdir(ov_build):
         dst = os.path.join(APP, '3rd', 'open-virome', 'frontend', 'build')
         _rmtree(dst)
         shutil.copytree(ov_build, dst)
         print('  + 3rd/open-virome/frontend/build/')
+
+    # dsRNA 设计的小型数据文件（2026-09-19）：lookup.db 热力学查找表 /
+    # siRNA 参数 / 致死基因清单 —— 没有它们 dsRNA 卡一运行就报
+    # 「缺少热力学查找表」。合计 <100KB，随程序包开箱即用；大头的脱靶
+    # 面板 panel\（1.4G/8 物种）走数据库包（见 _DB_TREES）。
+    for _rel in ('databases/dsrna/lookup.db',
+                 'databases/dsrna/siRNA_parameters.txt',
+                 'databases/dsrna/lethal_lists'):
+        if os.path.isdir(_rel):
+            dst = os.path.join(APP, *_rel.split('/'))
+            _rmtree(dst)
+            shutil.copytree(_rel, dst)
+            print('  +', _rel + '/')
+        elif os.path.isfile(_rel):
+            dst = os.path.join(APP, *_rel.split('/'))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(_rel, dst)
+            print('  +', _rel)
+
+    # primer3-py 包副本（2026-09-20）：分发版在非 ASCII 安装路径下跑 primer3，
+    # 依赖「ASCII 镜像」机制 —— exe 启动时由 app.py 把程序包自带的
+    # primer3_pkg/primer3 镜像到 %ALLUSERSPROFILE%\VirusPlatformPrimer3App
+    # 并插入 sys.path。
+    # ⚠️ 必须携带 src/libprimer3/primer3_config/（dangle/stack 等热力学参数
+    # 表）：thermoanalysis.pyd 在 ThermoAnalysis() 构造时按
+    # <包目录>/src/libprimer3/primer3_config 定位并加载，缺文件会直接
+    # 段错误（0xC0000005）——build19 及之前漏带该目录正是「分发版 T7
+    # 引物段错误」的根因，与内存/非 ASCII 路径无关（2026-09-20 实测定位）。
+    # 源优先级：ProgramData 镜像 → 3rd/python 绿色版 → 构建机 site-packages；
+    # 缺 primer3_config 的候选会用其它候选补齐。整包缺失时跳过，
+    # 分发版引物热力学降级为不可用（其余功能不受影响）。
+    _p3_bases = [
+        os.path.join(os.environ.get('ALLUSERSPROFILE', r'C:\ProgramData'),
+                     'VirusPlatformPrimer3'),
+        os.path.join('3rd', 'python', 'Lib', 'site-packages'),
+        os.path.join(sys.prefix, 'Lib', 'site-packages'),
+    ]
+
+    def _p3_ok(d):
+        return os.path.isfile(os.path.join(d, 'bindings.py')) and \
+            os.path.isdir(os.path.join(d, 'src', 'libprimer3',
+                                       'primer3_config'))
+
+    def _p3_cfg_src(cands):
+        for d in cands:
+            c = os.path.join(d, 'src', 'libprimer3', 'primer3_config')
+            if os.path.isdir(c):
+                return c
+        return None
+
+    _p3_mirror = None
+    for _base in _p3_bases:
+        _cand = os.path.join(_base, 'primer3')
+        if os.path.isfile(os.path.join(_cand, 'bindings.py')):
+            _p3_mirror = _cand
+            break
+    if _p3_mirror:
+        dst = os.path.join(APP, 'primer3_pkg', 'primer3')
+        _rmtree(os.path.dirname(dst))
+        shutil.copytree(_p3_mirror, dst,
+                        ignore=shutil.ignore_patterns('__pycache__', 'src',
+                                                      '*.c', '*.pyx', '*.pxd',
+                                                      '*.h', '*.html'))
+        # primer3_config 无论候选是否完整都补齐（缺失 = 运行期段错误）
+        _cfg = _p3_cfg_src([os.path.join(b, 'primer3') for b in _p3_bases])
+        if _cfg:
+            _cfg_dst = os.path.join(dst, 'src', 'libprimer3', 'primer3_config')
+            if os.path.isdir(os.path.dirname(_cfg_dst)):
+                shutil.rmtree(os.path.dirname(_cfg_dst), ignore_errors=True)
+            os.makedirs(os.path.dirname(_cfg_dst), exist_ok=True)
+            shutil.copytree(_cfg, _cfg_dst)
+        elif not _p3_ok(dst):
+            print('  ! primer3_config 缺失且无处补齐：分发版引物热力学将段错误降级为不可用')
+        _ver = os.path.join(os.path.dirname(_p3_mirror), 'VERSION.txt')
+        if os.path.isfile(_ver):
+            shutil.copy2(_ver, os.path.join(APP, 'primer3_pkg', 'VERSION.txt'))
+        print(f'  + primer3_pkg/（primer3-py 副本，{sum(len(fs) for _d, _s, fs in os.walk(dst))} 个文件，'
+              f'含 primer3_config 热力学参数表）')
+    else:
+        print('  ! 未找到 primer3 包副本，分发版引物热力学将不可用')
 
     # ---- 干净 platform.json：零硬编码路径，示例/数据库靠自动探测 ----
     fresh_cfg = {'threads': 0, 'tools': {},
@@ -260,6 +359,24 @@ if not _args.db_only:
 # ------------------------------------------------------------------
 # 4) 数据库包（独立目录）
 # ------------------------------------------------------------------
+def _skip_engine_index(dir_path, names):
+    """virusref_db 各鉴定库目录内的引擎派生索引不随包分发（参考数据集照发）。
+
+    库有效性的锚点是参考真相（reference.fasta + reference.ref_info.tsv），
+    索引是派生物：salmon k31 全库现建约 10s、k15 约 35s、minibwa 数秒，
+    首次运行时由引擎在库目录内自建一次并全局复用（kv_stage.index_dir_for，
+    平台内所有库通用）。kv_index 一家就省 ~1.66GB 分发体积；其余库目录
+    （viromock_kv 等）同样适用。日志与历史备份目录一并跳过。
+    """
+    if 'reference.fasta' not in names and 'manifest.json' not in names:
+        return set()                         # 不是库目录（如 virusref_db/blast）
+    import fnmatch as _fn
+    skip = {'salmon_k31', 'salmon_k15', 'salmon', 'minibwa', 'logs'}
+    for pat in ('salmon_index*', 'backup_*', '*.log', '*.stale'):
+        skip |= {n for n in names if _fn.fnmatch(n, pat)}
+    return skip
+
+
 if _args.with_db or _args.db_only:
     print('== 4/5 数据库包 ==')
     target = APP if not SPLIT else DB_DIR
@@ -277,7 +394,7 @@ if _args.with_db or _args.db_only:
         os.makedirs(os.path.dirname(dst) if is_file else dst, exist_ok=True)
         return dst
 
-    def _copy_tree(rel, note, ignore=()):
+    def _copy_tree(rel, note, ignore=(), ignore_fn=None):
         """整树拷贝 `databases/<rel>`。返回 (文件数, 字节数)。"""
         src = os.path.join('databases', rel)
         if not os.path.isdir(src):
@@ -285,9 +402,13 @@ if _args.with_db or _args.db_only:
             return 0, 0
         dst = _db_dst(rel)
         _rmtree(dst)
-        shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
+        _ig = shutil.ignore_patterns(
             '__pycache__', '*.pyc', '*.tmp', '*.mmseqs_tmp', '.DS_Store',
-            *ignore))
+            *ignore)
+        if ignore_fn:
+            _base = _ig
+            _ig = lambda d, names: _base(d, names) | ignore_fn(d, names)
+        shutil.copytree(src, dst, ignore=_ig)
         n, size = _dir_stat(dst)
         print(f'  + databases/{rel}/  {_fmt(size)} / {n} 文件  {note}')
         return n, size
@@ -313,10 +434,17 @@ if _args.with_db or _args.db_only:
     #   `Virus_Platform_Core/db_migrate.py` 的口径就是整拷 `databases/`，
     #   这里对齐它；以后新增库文件也不必再改本脚本。
     #   各项体积会打印出来，要瘦身按行删即可。
+    #
+    # 原始数据集 vs 数据库（2026-09-19 口径）：
+    #   kunpeng 预建分类库（plant/ref）默认**不入包**——plant 可由数据集
+    #   （kv_index 的 reference.fasta + reference.ref_info.tsv，Accession/
+    #   Taxid 列齐备）在建库页一键重建；ref 可由 virus_ref/ 下的 RefSeq
+    #   源 FASTA 一键重建。需要开箱即用时加 --with-built-virusdb。
     _DB_TREES = (
-        ('kunpeng_db/plant', '← 病毒分类库（鉴定/定量必需）'),
-        ('kunpeng_db/ref',   '← 病毒参考 kraken2 库（通用参考序列获取）'),
-        ('tax_db',           '← NCBI Taxonomy（nodes/names/merged.dmp）'),
+        ('tax_db',           '← NCBI Taxonomy（nodes/names/merged.dmp，原始数据集）'),
+        ('virusref_db',      '← 病毒参考数据集（FASTA+ref_info，兼作分类库建库源）'
+                             ' + 预置 v4 blastn 库 + kv_index 鉴定库（引擎索引不随包，首跑自建）'),
+        ('virus_ref',        '← RefSeq/RVDB 源 FASTA（通用病毒库建库数据集；本机有就随包）'),
         ('annot_db/prot',    '← 功能注释层1：RefSeq 病毒蛋白（DIAMOND 库 + faa.gz + 元数据）'),
         ('annot_db/cdd',     '← 功能注释层2 / CDD 卡：mmseqs2 CDD 库 + cddid 表 + 病毒白名单'),
         ('annot_db/hmm',     '← 功能注释层2：Pfam-A-Viruses（已 hmmpress）'),
@@ -324,11 +452,20 @@ if _args.with_db or _args.db_only:
         ('misc_db/viroids',  '← 类病毒 blastn v4 库'),
         ('misc_db/suvtk',    '← NCBI 提交 BFVD 功能注释库'),
         ('misc_db/prob',     '← 宿主概率表'),
-        ('virusref_db',      '← 病毒参考 FASTA + 预置 v4 blastn 库 + kv_index 鉴定库'),
+        ('dsrna/panel',      '← dsRNA 脱靶面板（8 物种 RefSeq RNA，1.4G；'
+                             '小文件 lookup.db/参数/致死清单已随程序包）'),
     )
+    if _args.with_built_virusdb:
+        _DB_TREES = _DB_TREES + (
+            ('kunpeng_db/plant', '← 病毒分类库（预建，开箱即用；数据集在 virusref_db 可重建）'),
+            ('kunpeng_db/ref',   '← RefSeq 通用 kraken2 库（预建，开箱即用）'),
+        )
+    else:
+        print('  - kunpeng 预建分类库（plant/ref）不入包：分发数据集，'
+              '构建页一键自建（开箱即用加 --with-built-virusdb）')
     _db_files = _db_bytes = 0
     for _rel, _note in _DB_TREES:
-        _n, _s = _copy_tree(_rel, _note)
+        _n, _s = _copy_tree(_rel, _note, ignore_fn=_skip_engine_index)
         _db_files += _n
         _db_bytes += _s
     _n, _s = _copy_file('genus_lens.tsv', '← 属平均长度表（近完整基因组判据）')
@@ -345,6 +482,16 @@ if _args.with_db or _args.db_only:
               encoding='utf-8') as f:
         f.write(
             '本目录是「数据库包」，与程序目录分离，可放在任意盘。\n'
+            '\n'
+            '内容口径（原始数据集为主，派生库不预建）：\n'
+            '  · 病毒参考数据集（reference.fasta + ref_info.tsv）——鉴定库\n'
+            '    引擎索引（salmon/minibwa）首次运行自动现建并全局复用；\n'
+            '  · kunpeng 病毒分类库（plant/ref）不预带：到「数据库构建」页\n'
+            '    「原始数据集」区一键构建（plant 由参考数据集直接构建，\n'
+            '    ref 需先放入 RefSeq 源 FASTA）\n'
+            '  · NCBI Taxonomy / 注释库（CDD、Pfam、RefSeq 蛋白）/ 建树参考 /\n'
+            '    blastn 库等为第三方直接使用库，随包即用\n'
+            '  · 宿主分类库按物种而异，用「数据库构建」页自建\n'
             '\n'
             '对接方式（零配置优先）：\n'
             '  ① 与程序目录**同级放置**即被自动识别，无需任何设置\n'
@@ -384,10 +531,16 @@ if SPLIT and os.path.isdir(APP):
             '   - 与程序同级放置即可被自动识别；也可搬到别处后到\n'
             '     「设置 → 示例数据目录」填绝对路径\n'
             '\n'
-            '③ VirusPlatform-Database\\   数据库包（仅 --with-db 时生成，约 3.6GB）\n'
-            '   - kunpeng 病毒库 + NCBI Taxonomy + 病毒参考（含预置 blastn 库）\n'
-            '   - 注释库（RefSeq 病毒蛋白 / CDD / Pfam HMM）、建树参考、\n'
-            '     类病毒库、SUVTK、宿主概率表、属平均长度表\n'
+            '③ VirusPlatform-Database\\   数据库包（仅 --with-db 时生成）\n'
+            '   - 原始数据集：病毒参考（FASTA+注释表）、NCBI Taxonomy、\n'
+            '     RefSeq/RVDB 源 FASTA（若随包）\n'
+            '   - 第三方直接使用库：注释库（RefSeq 病毒蛋白 / CDD / Pfam HMM）、\n'
+            '     建树参考、类病毒库、SUVTK、宿主概率表、属平均长度表、\n'
+            '     预置 blastn 库\n'
+            '   - 派生库不预带、首跑/一键自建：鉴定库引擎索引首次运行自动\n'
+            '     现建；kunpeng 病毒分类库（plant/ref）到「数据库构建」页\n'
+            '     「原始数据集」区一键构建（开箱即用需求打包时加\n'
+            '     --with-built-virusdb）\n'
             '   - 不含宿主分类库（按物种而异，见 host-db/，用「数据库构建」页自建）\n'
             '   - 对接（零配置优先）：与本程序**同级放置**即被自动识别；\n'
             '     也可启动平台 →「设置 → 数据库目录」填该目录，\n'

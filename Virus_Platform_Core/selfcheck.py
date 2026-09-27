@@ -39,11 +39,50 @@ def iter_platform_modules():
     mods, errs = [], []
     try:
         import Virus_Platform_Core as _pkg
+        # 逐子包显式导入（带追踪）：pkgutil.walk_packages 遍历时会导入各
+        # 子包 __init__，那里崩了（冻结版 C 扩展 0xC0000005）连一行痕迹
+        # 都没有 —— 先自己按序导入并打印，肇事包一目了然。
+        import os as _os
+        import sys as _sys
+        _trace = _os.environ.get('VP_IMPORT_TRACE') == '1'
+        _subpkgs = []
+        for _e in _pkg.__path__:
+            for _n in sorted(_os.listdir(_e)):
+                _p = _os.path.join(_e, _n)
+                if _n.startswith('_'):
+                    continue
+                if _os.path.isfile(_os.path.join(_p, '__init__.py')):
+                    _subpkgs.append(_pkg.__name__ + '.' + _n)
+                elif _n.endswith('.py'):
+                    _subpkgs.append(_pkg.__name__ + '.' + _n[:-3])
+        for _full in _subpkgs:
+            if _trace:
+                print('[pkgimport] ' + _full, file=_sys.stderr, flush=True)
+            try:
+                importlib.import_module(_full)
+            except Exception as e:
+                errs.append(_full)
+                if _trace:
+                    print('[pkgimport FAILED] ' + repr(e), file=_sys.stderr,
+                          flush=True)
         for info in pkgutil.walk_packages(
                 _pkg.__path__, _pkg.__name__ + '.',
                 onerror=lambda n: errs.append(n)):
-            if not info.ispkg:
-                mods.append(info.name)
+            if info.ispkg:
+                continue
+            # 跳过**私有脚本**（`_smoke_test` 这类）。它们是"跑一次"的脚本，
+            # 不是平台模块，且模块级代码带副作用 —— explorer/_smoke_test.py
+            # 一被 import 就会完整跑一遍 explorer 冒烟测试（加载 19.9 万条
+            # 元数据 + 457MB FASTA，冷启动分钟级）。自检本意只是"导入看能不能
+            # 进来"，却因此把整个冒烟测试跑了一遍：既拖慢自检，又在 explorer
+            # 数据移出 databases/ 后让这一项必然报错（2026-09-17 查实，调用栈
+            # 为 api_selfcheck → _check_modules → importlib.import_module）。
+            # `__init__.py` 不在 walk_packages 的返回里；这里仍显式放行，
+            # 以免将来遍历实现变化时误伤包初始化。
+            _leaf = info.name.rsplit('.', 1)[-1]
+            if _leaf.startswith('_') and _leaf != '__init__':
+                continue
+            mods.append(info.name)
     except Exception as e:
         errs.append(f'<遍历失败: {e!r}>')
     return sorted(set(mods)), errs
@@ -64,19 +103,71 @@ FALLBACK_MODULES = [
 
 
 def _check_modules():
+    """逐模块导入探测。**必须走子进程**（importprobe 子命令）：
+
+    冻结分发里某个 C 扩展的 import 可能直接段错误（0xC0000005，进程即死、
+    无任何 Python 异常）。在 web 服务进程内做导入扫描时，一个坏模块就能把
+    整个平台拖死（2026-09-19 实测）；放子进程里跑，段错误最多杀死探测进程，
+    父进程靠协议行数定位肇事模块，平台自身毫发无损。
+    """
     mods, walk_errs = iter_platform_modules()
     if not mods:
         mods = FALLBACK_MODULES
     total = len(mods) + len(walk_errs)
     t0 = time.time()
+    import os
+    import subprocess as _sub
+    import sys as _sys
+    if getattr(_sys, 'frozen', False):
+        argv = [_sys.executable, '--cli', 'importprobe']
+    else:
+        argv = [_sys.executable, os.path.join(PLATFORM_ROOT, 'main.py'),
+                'importprobe']
+    mods_csv = ','.join(mods)
     fails = []
-    for m in mods:
-        try:
-            importlib.import_module(m)
-        except Exception as e:
-            fails.append((m, repr(e)))
-    for n in walk_errs:                # 遍历阶段就导不进来的子包（如缺依赖）
-        fails.append((n + '.*', '子包导入失败，其下模块未能枚举'))
+    crashed_at = None
+    seen_p = 0
+    last_p = None
+    _env = os.environ.copy()
+    _env['VP_IMPORT_TRACE'] = '1'      # 子进程 stderr 留下逐包导入痕迹，崩溃可溯源
+    try:
+        proc = _sub.run(argv + [mods_csv], capture_output=True,
+                        text=True, errors='replace', timeout=900, env=_env)
+    except Exception as e:
+        fails.append(('<importprobe>', f'探测子进程启动失败: {e!r}'))
+        proc = None
+
+    if proc is not None:
+        done = False
+        pending = None
+        for ln in (proc.stdout or '').splitlines():
+            if ln.startswith('P '):
+                pending = ln[2:]
+                seen_p += 1
+            elif ln.startswith('F '):
+                _m, _, _e = ln[2:].partition(' ')
+                fails.append((_m, _e))
+                pending = None
+            elif ln.startswith('E '):
+                fails.append((ln[2:], '子包导入失败，其下模块未能枚举'))
+                pending = None
+            elif ln.startswith('DONE'):
+                done = True
+                pending = None
+        if pending:
+            crashed_at = pending
+        elif not done and seen_p == 0:
+            crashed_at = '<枚举阶段>'
+        if crashed_at:
+            # 探测子进程被原生段错误杀死：肇事模块 + 其后未探测的都标失败
+            _err_tail = ((proc.stderr or '').strip().splitlines() or [''])[-1]
+            fails.append((crashed_at,
+                          f'导入时进程崩溃（原生段错误）· 崩溃前最后痕迹: '
+                          f'{_err_tail[:120]}'))
+            idx = mods.index(crashed_at) if crashed_at in mods else 0
+            for m in mods[idx + 1:]:
+                fails.append((m, '未探测（探测进程在先前的模块崩溃后中止）'))
+
     return {'id': 'modules', 'title': '模块导入',
             'ok': not fails, 'warn': False,
             'summary': f'{total - len(fails)}/{total}',

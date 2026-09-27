@@ -74,6 +74,7 @@
       <span data-i18n="gx.onlyCur">只看当前样品</span><span id="curOnlySample"></span></label>
     <label class="label-chk"><input type="checkbox" id="autoChk" checked>
       <span data-i18n="tk.auto">自动刷新</span></label>
+    <button class="btn small danger" onclick="stopAllTasks()" data-i18n="tk.stopAll">⛔ 停止全部任务</button>
     <button class="btn small" onclick="clearFinished()" data-i18n="tk.clear">🧹 清空已完成</button>
     <button class="btn small" onclick="refreshAll(true)" data-i18n="tk.refresh">↻ 刷新</button>
   </div>
@@ -401,6 +402,21 @@ async function clearFinished() {
   archLoaded = false;
   await refreshAll(true);
 }
+async function stopAllTasks() {
+  if (!confirm(t('tk.confirmStopAll', '停止全部运行中 / 排队中的任务？（任务记录与结果文件保留）'))) return;
+  try {
+    const d = await jf('/api/tasks/stop_all', { method: 'POST' });
+    if (d.active_left > 0) {
+      toast(t('tk.stoppingAll', '正在停止'),
+            t('tk.stopAllLeft', '已受理 {n} 个停止请求，还有 {m} 个任务在收尾')
+              .replace('{n}', d.cancelled).replace('{m}', d.active_left), { ttl: 5000 });
+    } else {
+      toast(t('tk.stoppedAll', '已全部停止'),
+            t('tk.cancelledN', '共停止 {n} 个任务').replace('{n}', d.cancelled), { ttl: 4000 });
+    }
+  } catch (e) { alert(e.message); }
+  refreshAll();
+}
 
 /* ── 只看当前样品 ──
    任务名里带样品名的三种写法与后端 samples._task_matches_sample 保持一致
@@ -468,6 +484,7 @@ window.stopTask = stopTask;
 window.restartTask = restartTask;
 window.delTask = delTask;
 window.clearFinished = clearFinished;
+window.stopAllTasks = stopAllTasks;
 window.refreshAll = refreshAll;
 window.onLogToggle = onLogToggle;
 

@@ -6,7 +6,7 @@
 「全长序列」路径（比对 / 基因组图谱）读到的 genome.fa 全是 N → 比对全 N。
 
 本脚本：
-  1) 以固定随机种子生成一条 ~3300bp、GC≈55% 的母序列；
+  1) 以固定随机种子生成一条与 LOCUS 等长、GC≈55% 的母序列；
   2) A = 母序列；B = 母序列 2% 替换；C = 母序列 8% 替换（三者同源 → 比对有意义）；
   3) 重写每个 .gb 的 ORIGIN 段（每组 10 bp、每行 60 bp、行首坐标）；
   4) 删除集合并重跑 extract_collection_features，重建 genome.fa / CDS.fa / PEP.fa。
@@ -35,8 +35,10 @@ def _gen_len(path: str) -> int:
     for ln in io.open(path, encoding='utf-8'):
         if ln.startswith('LOCUS'):
             m = re.search(r'(\d+)\s+bp', ln)
-            return int(m.group(1)) if m else 3300
-    return 3300
+            if not m:
+                raise RuntimeError(f'{path} 的 LOCUS 行读不出长度: {ln.strip()}')
+            return int(m.group(1))
+    raise RuntimeError(f'{path} 无 LOCUS 行')
 
 
 def _revcomp(s: str) -> str:

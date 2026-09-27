@@ -30,6 +30,24 @@ def api_submit_tables():
     return jsonify(store.list_tables())
 
 
+@bp.route('/api/submit/adopt_sample', methods=['POST'])
+def api_submit_adopt_sample():
+    """样品注释产物一键建档（管道页注释段「提交准备」按钮直达）。
+
+    body: {sample} → 建/复用同名提交项目 + 导入 ③组装分类表 + 关联 orf 注释。
+    缺产物不报错（missing 里如实标注引导先跑对应段），全缺才 400。"""
+    body = request.get_json(force=True) or {}
+    sample = str(body.get('sample') or '').strip()
+    if not sample:
+        abort(400, '请提供样品名')
+    from Virus_Platform_Core.ncbi_submit import store
+    try:
+        res = store.adopt_sample(sample)
+    except (ValueError, KeyError, FileNotFoundError, OSError) as e:
+        abort(400, str(e))
+    return jsonify(res)
+
+
 @bp.route('/api/submit/samples')
 def api_submit_samples():
     """内置示例数据集（对应原 GUI Samples 菜单）。"""
@@ -168,7 +186,7 @@ def api_submit_table_export(name):
     try:
         files = store.export_files(
             name,
-            assembler=str(body.get('assembler') or 'SPAdes;4.3.0;metaviral'),
+            assembler=str(body.get('assembler') or 'SPAdes;4.3.0;rnaviral'),
             sequencer=str(body.get('sequencer') or 'Illumina NovaSeq 6000'),
             enrichment=str(body.get('enrichment') or 'rRNA depletion'))
     except Exception as e:

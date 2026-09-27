@@ -99,6 +99,11 @@ def main():
     logf = open(logpath, 'w', encoding='utf-8', errors='replace')
     srv = subprocess.Popen(
         [sys.executable, '-c',
+         # 必须显式注入 ROOT：项目自带绿色版 Python 目录下有 python312._pth，
+         # 该文件存在时进入 isolated 模式，`-c` 的 sys.path 不含 cwd，
+         # `import app` 会 ModuleNotFoundError、服务起不来。
+         'import sys\n'
+         f'sys.path.insert(0, {ROOT!r})\n'
          'from werkzeug.serving import make_server\n'
          'import app\n'
          f"s = make_server('127.0.0.1', {port}, app.app, threaded=True)\n"
@@ -217,8 +222,14 @@ def main():
             time.sleep(0.4)
             empty = W("const e=document.querySelector('.tk-empty');"
                       "return e ? e.textContent : ''")
+            # 空态有两种等价文案：无任务时的「暂无任务」，以及 2026-09 起
+            # 过滤命中 0 条时的「已按当前样品过滤，另有 N 个任务被隐藏」
+            # （后者信息量更大，是刻意改进）。守卫语义不变：勾选后列表必须
+            # 呈现空态提示，而不是残留别的样品的任务卡。
             check('勾选后列表被过滤（当前无该样品任务，应显示空态）',
-                  '暂无任务' in (empty or '') or not empty,
+                  '暂无任务' in (empty or '')
+                  or '已按当前样品过滤' in (empty or '')
+                  or not empty,
                   (empty or '')[:60])
             W("return localStorage.removeItem('vp_ctx_sample')")
             drv.refresh()
