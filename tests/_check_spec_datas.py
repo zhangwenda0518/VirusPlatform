@@ -93,7 +93,11 @@ check('不带残留', not extra, f'多 {extra[:5]}' if extra else '')
 bak_leak = sorted(got_src & bak_src)
 check('备份文件（*.bak*）不在 datas 里', not bak_leak,
       f'混入 {bak_leak[:3]}' if bak_leak else '')
-check('源码树里确实存在备份文件（否则本条无意义）', bool(bak_src))
+# 2026-09-27 起源码树不再有 *.bak_*（71 个手工备份移 archive/_bak_20260927，
+# 规则见 .gitignore §8）——反向断言：若再出现，说明有人又复制了手工备份，
+# 应归档而不是提交；此时「不在 datas 里」的排除逻辑重新变得可证伪。
+check('源码树已无 .bak 手工备份（若再现请归档 archive/_bak_*）', not bak_src,
+      f'出现 {sorted(bak_src)[:3]}')
 
 # --- 残留确实被排掉（正面对照，避免"两边都错"）-------------------------
 residue = [s for s, _d in datas if '.mimosa' in s or '__pycache__' in s]

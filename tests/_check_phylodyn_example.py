@@ -396,8 +396,12 @@ chk(tp['n_trees'] == 12
 
 print('[13] TreeDater 真引擎（便携 R + treedater；不可用时 SKIP）')
 td_ok, td_info = pt.treedater_available()
-chk(td_ok, '便携 R + treedater 可用' if td_ok
-    else '不可用: %s' % td_info)
+if not td_ok:
+    # 环境依赖段：本机未装便携 R / treedater 时按本段标题口径 SKIP，
+    # 不计入失败（其余 [1]-[12]/[14] 段照常守护引擎契约）
+    print('[SKIP] TreeDater 真引擎不可用（%s）' % td_info)
+else:
+    chk(True, '便携 R + treedater 可用')
 if td_ok:
     o = out('treedater')
     lt = use(os.path.join(EX, 'TreeDater-LTT', 'nwk_file', 'h3n2_na_500.nwk'))

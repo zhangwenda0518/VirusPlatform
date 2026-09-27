@@ -122,7 +122,10 @@ try:
           (s or {}).get('stage'))
     check('（1）进度为 0（不是 None，前端要能画空进度条）',
           bool(s) and s.get('pct') == 0.0, str((s or {}).get('pct')))
-    check('（1）文案说明在等批处理名额', bool(s) and '等待批处理名额' in s.get('msg', ''),
+    # 2026-09-19 起扫描导入改为「入队后待手动启动」（33a4bda）：
+    # queued 且未点 ▶ 启动 时文案是「已入队，待手动启动」；
+    # 「等待批处理名额」只出现在手动启动后的排队期（samples.py:388）。
+    check('（1）文案说明已入队待手动启动', bool(s) and '已入队' in s.get('msg', ''),
           (s or {}).get('msg', '')[:80])
     check('（1）「前往页面」指向管线页并带样品名',
           bool(s) and s.get('link') == '/pipeline?sample=ITEXT1',

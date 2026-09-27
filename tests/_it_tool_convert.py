@@ -44,11 +44,11 @@ def check(label, ok, extra=''):
 
 from Virus_Platform_Core import public_data                      # noqa: E402
 from Virus_Platform_Core.web import tool_jobs                    # noqa: E402
+import Virus_Platform_Core.utils as _vputils                     # noqa: E402
 
 # 工厂期会取引擎；真 exe 是否存在与本测试无关，直接打桩。
 public_data.sra_convert_engine = lambda: ('sracha', 'sracha.exe')
 
-_REAL_RUN = subprocess.run
 _CALLS = []
 
 
@@ -60,23 +60,30 @@ def _make_ctx(run_dir, inp, target='fastq'):
         opt=lambda k, d=None: p.get(k, d))
 
 
-def _fake_run(writes):
-    """返回 subprocess.run 桩：按 writes 列表把文件写进 cwd（模拟 sracha）。"""
-    def _run(cmd, **kw):
-        _CALLS.append(list(cmd))
-        out_dir = cmd[cmd.index('-O') + 1]
-        for n in writes:
-            with open(os.path.join(out_dir, n), 'wb') as f:
-                f.write(b'\x1f\x8b\x08\x00fake')
-        return subprocess.CompletedProcess(cmd, 0, b'', b'')
-    return _run
+# 旧桩打在 subprocess.run 上；转换任务 2026-09 起改走 utils.run_cmd
+# （Popen 直连才有实时日志 / 取消 / 超时看门狗，见 tool_jobs convert 段），
+# 桩随之下沉到同一接缝：函数内 `from ...utils import run_cmd` 在调用期解析，
+# 这里替换模块属性即可拦截。exe 名保持裸名（不会被真正执行）。
+_CURRENT_WRITES = []
+
+
+def _fake_run_cmd(cmd, logger=None, timeout=None, **kw):
+    _CALLS.append([str(c) for c in cmd])
+    out_dir = cmd[cmd.index('-O') + 1]
+    for n in _CURRENT_WRITES:
+        with open(os.path.join(out_dir, n), 'wb') as f:
+            f.write(b'\x1f\x8b\x08\x00fake')
+    return 0
+
+
+_vputils.run_cmd = _fake_run_cmd
 
 
 def _case(label, target, writes, expect_n, expect_names):
     d = tempfile.mkdtemp(prefix='vp_toolconv_')
     sra = os.path.join(d, 'SRR39909446.sra')
     open(sra, 'wb').write(b'\x00' * 16)
-    subprocess.run = _fake_run(writes)
+    _CURRENT_WRITES[:] = list(writes)
     try:
         job = tool_jobs._tool_job_convert(_make_ctx(d, sra, target))
         res = job(lambda m: None, lambda *a, **k: None, lambda: False)
@@ -85,7 +92,7 @@ def _case(label, target, writes, expect_n, expect_names):
               f"n={res['n_files']} files={names}")
         check(f'{label}：文件名正确', names == sorted(expect_names), str(names))
     finally:
-        subprocess.run = _REAL_RUN
+        _CURRENT_WRITES[:] = []
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -106,7 +113,7 @@ print('\n== 真无输出时仍须报错（防止判定被放得过宽）==', flu
 d = tempfile.mkdtemp(prefix='vp_toolconv_')
 sra = os.path.join(d, 'SRR39909446.sra')
 open(sra, 'wb').write(b'\x00' * 16)
-subprocess.run = _fake_run(['SRR39909446.sra.sracha-progress'])
+_CURRENT_WRITES[:] = ['SRR39909446.sra.sracha-progress']
 try:
     job = tool_jobs._tool_job_convert(_make_ctx(d, sra))
     try:
@@ -115,7 +122,7 @@ try:
     except RuntimeError as e:
         check('无产物时抛 sracha 无输出', '无输出' in str(e), str(e))
 finally:
-    subprocess.run = _REAL_RUN
+    _CURRENT_WRITES[:] = []
     shutil.rmtree(d, ignore_errors=True)
 
 print('\n== --fasta 标志只在 fasta 目标出现 ==', flush=True)
@@ -123,13 +130,13 @@ _CALLS.clear()
 d = tempfile.mkdtemp(prefix='vp_toolconv_')
 sra = os.path.join(d, 'SRR39909446.sra')
 open(sra, 'wb').write(b'\x00' * 16)
-subprocess.run = _fake_run(['SRR39909446.fasta.gz'])
+_CURRENT_WRITES[:] = ['SRR39909446.fasta.gz']
 try:
     tool_jobs._tool_job_convert(_make_ctx(d, sra, 'fasta'))(
         lambda m: None, lambda *a, **k: None, lambda: False)
     check('fasta 目标带 --fasta', '--fasta' in _CALLS[0], str(_CALLS[0]))
 finally:
-    subprocess.run = _REAL_RUN
+    _CURRENT_WRITES[:] = []
     shutil.rmtree(d, ignore_errors=True)
 
 print('\n' + ('全部通过' if not FAIL else f'失败 {len(FAIL)} 项：{FAIL}'))
