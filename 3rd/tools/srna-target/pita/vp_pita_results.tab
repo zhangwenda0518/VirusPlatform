@@ -1,0 +1,80 @@
+UTR	microRNA	Start	End	Seed	Loop	dGduplex	dG5	dG3	dG0	dG1	dGopen	ddG
+NC_001440	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	1403	1395	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	1439	1431	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	713	705	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	861	853	8:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	1666	1658	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	1714	1706	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	2022	2014	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	1208	1200	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	1500	1492	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	2213	2205	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	179	172	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	1841	1833	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	1237	1229	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2138	2130	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	1740	1733	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	1745	1737	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2031	2023	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	683	677	6:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	797	789	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）	2001	1993	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	499	491	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_001440	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	861	853	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	1794	1786	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	588	580	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	990	982	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	1366	1358	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	2248	2241	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	2649	2641	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	3164	3156	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	609	601	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	843	835	8:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	1172	1164	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	1688	1680	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	3354	3346	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	1762	1755	7:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	2071	2063	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	2896	2888	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	3131	3124	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2090	2083	7:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2402	2395	7:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2469	2461	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	3280	3272	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	935	927	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2270	2262	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2694	2686	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2722	2714	8:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	3173	3165	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	564	556	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）	1555	1547	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）	992	984	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	1174	1167	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002034	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	2506	2498	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	249	242	7:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	2548	2541	7:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	1102	1094	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	1459	1451	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	2175	2167	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	2858	2850	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	1487	1479	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	2376	2370	6:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	2411	2403	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	2493	2485	8:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	2514	2506	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	261	255	6:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	3047	3039	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	1235	1227	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	2661	2653	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2974	2966	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	3031	3023	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	818	810	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	1412	1405	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	1686	1679	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2312	2304	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	2867	2859	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	944	936	8:1:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	1014	1008	6:0:0	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	1824	1816	8:1:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	2347	2340	7:0:1	0	-1	-1	-1	-1	-1	0	-1
+NC_002035	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	2373	2365	8:1:1	0	-1	-1	-1	-1	-1	0	-1

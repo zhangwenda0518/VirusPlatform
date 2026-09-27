@@ -1,0 +1,3 @@
+@echo off
+rem SPAdes launcher - runs metaspades.py with the bundled Python.
+"%~dp0..\python\python.exe" "%~dp0metaspades.py" %*

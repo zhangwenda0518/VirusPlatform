@@ -1,0 +1,24 @@
+RefSeq	microRNA	Sites	Score
+NC_001440	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	4	-2.68
+NC_001440	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	3	-2.56
+NC_001440	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	3	9.64
+NC_001440	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	2	0.42
+NC_001440	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	2	-8.68
+NC_001440	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	5	1.43
+NC_001440	ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）	1	-1.78
+NC_001440	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	2	-3.97
+NC_002034	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	3	0.66
+NC_002034	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	6	-8.91
+NC_002034	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	3	4.33
+NC_002034	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	4	0.51
+NC_002034	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	5	-3.45
+NC_002034	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	5	-7.75
+NC_002034	ath-miR168a-5p Arabidopsis thaliana（抗病毒相关：靶向 AGO1）	2	-5.07
+NC_002034	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	2	0.35
+NC_002035	Brachypodium_distachyon_miRNA_00736 Brachypodium distachyon（对示例 TMV 有 strict 级预测命中）	2	-4.54
+NC_002035	Oryza_sativa-miRN73-5p Oryza sativa（PAmiRDB 生产命中对：vs ACMV，能量 -26.2）	4	-3.20
+NC_002035	Rhamphospermum_arvense_miRNA_00033 Rhamphospermum arvense（对示例 CMV RNA3 有 strict 级预测命中，score 69 / ΔG -20.6）	7	-2.04
+NC_002035	Theobroma_cacao_miRNA_00667 Theobroma cacao（对示例 CMV RNA3 有 strict 级预测命中，score 77 / ΔG -23.2）	2	1.69
+NC_002035	ath-miR156a-5p MIMAT0000183 Arabidopsis thaliana（文献级保守序列，靶向 SPL 转录因子）	3	9.27
+NC_002035	ath-miR159a MIMAT0000177 Arabidopsis thaliana（靶向 MYB；PAmiRDB 原站 Quick Example 同款）	5	-0.70
+NC_002035	osa-miR408-3p Oryza sativa（PAmiRDB 原站 Quick Example 同款）	4	-5.55

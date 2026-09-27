@@ -1,0 +1,104 @@
+Table key:
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.
+
+,,,Breakpoint Positions
+,,In Alignment, ,In Recombinant Sequence, ,Relative to A,,, , , , , , Detection Methods
+Recombination Event Number, Number In .RDP File, Begin, End,Begin, End,Begin, End, Recombinant Sequence(s), Minor Parental Sequence(s), Major Parental Sequence(s), RDP, GENECONV, Bootscan, Maxchi, Chimaera, SiSscan,PhylPro, LARD, 3Seq
+ 1 ,1, 9570, 2250, 9395, 2195, 9434, 2209,I,T,Q, 3.24270023047449E-195, 1.52214255203325E-188, 5.1438132349142E-192, 5.94207678263567E-53, 4.34734845959015E-52, 7.80389764074634E-67,NS,NS, 3.21554166908921E-256,
+ 1,,,,,,,,J[P],K,
+ 1,,,,,,,,N[P],,
+ 1,,,,,,,,O[P],,
+ 1,,,,,,,,W,,
+
+ 2 ,2, 5552, 5970, 5476, 5893, 5478, 5894,B,Unknown (D),M, 2.45211799765072E-146,NS,NS,NS,NS,NS,NS,NS,NS,
+
+ 3 ,3, 5680, 8460, 5602, 8359, 5604, 8367,N,T,Q, 5.99283407386951E-136, 2.47716277376883E-122, 1.84692408540169E-133, 4.36949444023947E-53, 1.23568136743233E-53, 4.65930768298387E-64,NS,NS, 3.69992457413476E-224,
+ 3,,,,,,,,W[P],U,
+
+ 4 ,4, 5681*, 6577, 5603*, 6499, 5605*, 6501,J,N,Q, 2.54688579735018E-64, 1.26311963281548E-97, 1.06025876467472E-100, 3.00025240694642E-25, 8.60686524928208E-26, 1.0248526393889E-30,NS,NS, 3.99356502624723E-108,
+ 4,,,,,,,,,T,
+
+ 5 ,5, 7810, 8227, 7713, 8130, 7721, 8138,K,L,T, 3.61383322130587E-70, 3.50171247391824E-69, 3.22522407758836E-70, 8.87352441327556E-14, 8.73684042662621E-14, 2.68898331663415E-15,NS,NS,NS,
+
+ 6 ,6, 7794, 8210, 7703, 8119, 7705, 8121,H,U,Y, 2.82784135844285E-56, 1.81007218084123E-54, 1.36875650909274E-56, 2.91763971411854E-13, 3.54796165244243E-13, 6.43832233660843E-15,NS,NS, .000304688726019298,
+ 6,,,,,,,,,R,
+ 6,,,,,,,,,T,
+
+ 7 ,7, 315, 2235*, 289, 2180*, 303, 2194*,O,W,L, 6.43066521152586E-50,NS,NS, 1.2284023405484E-18, 1.19079818726631E-18,NS,NS,NS, 1.80860096998583E-58,
+ 7,,,,,,,,J,L,T
+ 7,,,,,,,,N,,
+
+ 8 ,8, 8465*, 9094, 8360*, 8966, 8372*, 8992,W,T,I, 7.26291301146264E-50, 1.95142425788729E-44, 4.95299882721705E-49, 1.62850501626567E-14, 6.30920281158028E-15, 1.11816582730372E-14,NS,NS, 1.92778897786942E-45,
+
+ 9 ,9, 9290, 382, 9162, 350, 9188, 364,X,Q,V, 6.40256057611675E-27, 6.9989192736785E-19, 1.72353829503114E-29, 5.06198344079389E-12, 3.92125264545009E-10, 3.6078979593117E-15,NS,NS, .00449912755803639,
+ 9,,,,,,,,,,B
+ 9,,,,,,,,,,M
+
+ 10 ,10, 3498, 9585, 3427, 9408, 3429, 9447,^U,T,R, 1.35739468104521E-18, 1.64078351386159E-14, 1.23552278068501E-10, 2.36923405797061E-18, 1.89457602400058E-17, 1.44048681662524E-09,NS,NS, 1.33537367555516E-35,
+
+ 11 ,11, 9419, 9582, 9274, 9412, 9309, 9444,H,Unknown (S),Y, 6.63121703475124E-12, 1.20060816843903E-07, 8.17843698248786E-12, .00138171313537766, .000183750855747007,NS,NS,NS, 6.94438038184586E-08,
+ 11,,,,,,,,,Unknown(V),L
+ 11,,,,,,,,,,Q
+
+ 12 ,12~, 7796, 7871, 7699, 7774, 7707, 7782,^M,Unknown (A),I, 4.95978651304491E-09, .000540173675123157,NS,NS,NS,NS,NS,NS, .00120234622738691,
+ 12,,,,,,,,B[T],Unknown(G),J
+ 12,,,,,,,,,,L
+ 12,,,,,,,,,,O
+ 12,,,,,,,,,,Q
+ 12,,,,,,,,,,Y
+
+ 13 ,13, 9482, 9592, 9366, 9454, 9366, 9454,^A,R,G, 7.52864740035708E-09,NS,NS,NS,NS,NS,NS,NS,NS,
+
+ 14 ,14, 120, 306, 100, 280, 114, 294,^B,V,M, 1.29187216922026E-08, 1.69029024110756E-07, 8.74813075558449E-07, 1.40265006289356E-08, 2.39165667794061E-10, .00229389448991277,NS,NS,NS,
+
+ 15 ,15, 377, 581, 345, 543, 359, 556,M,H,B, 3.51260525138038E-09, .000135793891642422, 2.57893643685127E-10, 2.28363731880256E-07, 4.79108228092539E-08, 1.82173240365217E-08,NS,NS, 2.42583730880597E-10,
+
+ 16 ,16~, 8854, 45, 8738, 44, 8752, 42,^D,F,Unknown (G), 2.80093359256973E-07, 2.91833839341451E-06, 6.09649013157666E-09, 1.5840316356584E-07, 8.52133078968205E-06, 6.59960126132489E-14,NS,NS,NS,
+
+ 17 ,17~, 2365, 2506, 2309, 2450, 2311, 2452,^R,I,T, 9.71170680652515E-06,NS, .0146826279090667, 1.66372310782622E-05,NS, 1.15527101841264E-28,NS,NS,NS,
+ 17,,,,,,,,U[P],J,K
+ 17,,,,,,,,,N,
+ 17,,,,,,,,,O,
+ 17,,,,,,,,,W,
+
+ 18 ,18, 4274, 5587*, 4201, 5509*, 4203, 5511*,^J,N,Q, .00018354160367296, .00841519999430496, 7.35262172855289E-05, 1.02598551061684E-07,NS,NS,NS,NS, 2.48449658768468E-06,
+
+ 19 ,19~, 8138, 8222, 8038, 8122, 8049, 8133,^C,W,Unknown (Y), .000575724500598628,NS,NS,NS,NS,NS,NS,NS,NS,
+ 19,,,,,,,,,,Unknown(I)
+ 19,,,,,,,,,,Unknown(S)
+
+ 20 ,20~, 8984, 9352, 8856, 9218, 8882, 9246,^M,Unknown (V),B, .00105682745679942, .00360654599377048, .000656604297399534,NS,NS,NS,NS,NS, .00154017526850834,
+
+ 21 ,21~, 138, 247, 117, 224, 131, 238,M,Unknown (U),S, .00133676672229434,NS,NS,NS,NS,NS,NS,NS,NS,
+ 21,,,,,,,,,Unknown(R),
+
+ 22 ,22~, 2262, 4091, 2217, 4009, 2219, 4020,^C,F,Unknown (E), .00152963894883292, 6.55675397196654E-05,NS, 2.69638483241534E-131, 7.95085005763356E-05, 2.88128037563415E-23,NS,NS,NS,
+
+ 23 ,23~, 3456, 3730, 3385, 3657, 3387, 3659,M,H,B, .0017620621163209,NS, .00148272948088929,NS,NS, .00012084656439126,NS,NS,NS,
+
+ 24 ,24, 9534*, 3998, 9367*, 3925, 9407*, 3927,^O,I,Q, .0189675273840565,NS,NS, .000126516801425479,NS, .0189952689524954,NS,NS, .00568936612482285,
+
+ 25 ,25~, 9593*, 104*, 9455*, 98*, 9455*, 98*,^A,Unknown (R),M,NS,NS,NS,NS,NS,NS,NS,NS,NS,
+ 25,,,,,,,,G[T],,
+
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.

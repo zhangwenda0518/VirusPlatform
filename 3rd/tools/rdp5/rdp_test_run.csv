@@ -1,0 +1,41 @@
+Table key:
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.
+
+,,,Breakpoint Positions
+,,In Alignment, ,In Recombinant Sequence, ,Relative to NC_001440.1,,, , , , , , Detection Methods
+Recombination Event Number, Number In .RDP File, Begin, End,Begin, End,Begin, End, Recombinant Sequence(s), Minor Parental Sequence(s), Major Parental Sequence(s), RDP, GENECONV, Bootscan, Maxchi, Chimaera, SiSscan,PhylPro, LARD, 3Seq
+ 1 ,1~, 2194, 2249, 2187, 2241, 1704, 1759,^NC_002034.1,NC_001440.1,AJ276479.1, 2.30932027508364E-06, 1.22383034817375E-07, .00156586732579941, .000547856659447334,NS, 6.27049937625243E-07,NS,NS, .000334427374562574,
+ 1,,,,,,,,NC_002035.1,,
+ 1,,,,,,,,AJ276480.1,,
+
+ 2 ,2~, 2108, 2193*, 305, 338*, 1618, 1703*,^KU144672.1,AJ276480.1,Unknown (AJ276479.1), .00348647521595076, 7.39879659694687E-05, 5.29993536447602E-06, .000760451651283954, .0161447598730147,NS,NS,NS, .0120881902773106,
+ 2,,,,,,,,,NC_002035.1,Unknown(NC_002034.1)
+
+ 3 ,3~, 2250*, 145, 1760*, 93, 1760*, 93,^NC_001440.1,Unknown (NC_002034.1),AJ276480.1, .000530508654310359, 2.13935309245628E-06, 9.72732867711753E-07, .0019825880109232, .00312939946778461,NS,NS,NS,NS,
+ 3,,,,,,,,,Unknown(NC_002035.1),NC_002034.1
+ 3,,,,,,,,,Unknown(AJ276480.1),AJ276479.1
+
+ 4 ,4~, 1615, 1745, 1243, 1337, 1243, 1337,^NC_001440.1,Unknown (NC_002035.1),AJ276479.1,NS,NS,NS, .00790810424000787,NS, 2.16490836122034E-24,NS,NS,NS,
+ 4,,,,,,,,,Unknown(AJ276480.1),NC_002034.1
+
+~            = It is possible that this apparent recombination signal could have been caused by an evolutionary
+               process other than recombination.
+*            = The actual breakpoint position is undetermined (it was most likely either overprinted by a subsequent 
+               recombination event or off the edges of the analysed sequence fragments).
+$            = This might not be breakpoint - it is likey the edge of a genome segment (possibly exchanged during reassortment)
+^            = The recombinant sequence may have been misidentified (one of the identified parents might be the recombinant)
+Minor Parent = Parent contributing the smaller fraction of sequence.
+Major Parent = Parent contributing the larger fraction of sequence.
+Unknown      = Only one parent and a recombinant need be in the alignment for a recombination event to be detectable.
+               The sequence listed as unknown was used to infer the existance of a missing parental sequence.
+NS           = No significant P-value was recorded for this recombination event using the particular method in question.

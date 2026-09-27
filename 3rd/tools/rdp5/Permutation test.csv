@@ -1,0 +1,16 @@
+
+C:\Documents and Settings\Administrator\Desktop\Papers\Recombination Chapter 2014\HXB2 Genbank File.txt
+2014/05/22,10:14:19 AM
+Test, Breakpoints No in region, Breakpoint No outside region, breakpoints/100nts in region, breakpoints/100nts outside region, Probability of fewer than expected BPs in region, Probability of more than expected BPs in region
+Intergenic regions vs all ORFs combined 35, 656, 6.90399913610021, 8.11416091358345, .986, .019,
+gag polyprotein vs rest of ORFs, 108, 548, 5.76533975757719, 7.12623229432914, .004, .996
+pol polyprotein (NH2-terminus uncertain) vs rest of ORFs, 197, 459, 7.06121998671037, 6.75332553884959, .024, .979
+sor 23K protein vs rest of ORFs, 59, 597, 9.73882320097519, 6.66443306903694, .146, .883
+R (ORF) protein vs rest of ORFs, 24, 632, 9.96712983175237, 6.77976315469347, .262, .799
+tat protein vs rest of ORFs, 32, 624, 12.6677542048886, 6.70344053563775, .059, .955
+trs protein vs rest of ORFs, 18, 638, 18.9215265324679, 6.73976362633981, .014, .996
+envelope polyprotein vs rest of ORFs, 211, 445, 6.16856332951395, 7.22712528722891, 1, 0
+27K protein (premature termination) vs rest of ORFs, 39, 617, 7.3231850656621, 6.8302398528884, .019, .986
+End 50% vs Middle 50%, 426, 301, 9.86248590005196, 7.02006755008376, 0, 1
+End 25% vs Middle 75%, 240, 487, 11.2438125689273, 7.52402604578989, 0, 1
+End 10% vs Middle 90%, 83, 644, 9.6771997310707, 8.3102996645381, .024, .987

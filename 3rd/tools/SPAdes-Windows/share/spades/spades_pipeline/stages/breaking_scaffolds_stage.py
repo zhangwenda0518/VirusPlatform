@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+############################################################################
+# Copyright (c) 2023-2024 SPAdes team
+# Copyright (c) 2015-2022 Saint Petersburg State University
+# Copyright (c) 2011-2014 Saint Petersburg Academic University
+# All Rights Reserved
+# See file LICENSE for details.
+############################################################################
+
+import os
+import sys
+
+from ..options_storage import OptionStorage
+options_storage = OptionStorage()
+from . import stage
+from ..commands_parser import Command
+
+
+class BreakingScaffoldsStage(stage.Stage):
+    STAGE_NAME = "Breaking scaffolds"
+
+    def get_command(self, cfg):
+        args = [os.path.join(self.python_modules_home, "spades_pipeline", "supplemetary", "breaking_scaffolds_script.py"),
+                "--result_scaffolds_filename", self.output_files["result_scaffolds_filename"],
+                "--misc_dir", self.output_files["misc_dir"],
+                "--threshold_for_breaking_scaffolds", str(options_storage.THRESHOLD_FOR_BREAKING_SCAFFOLDS)]
+
+        return [Command(stage=self.STAGE_NAME,
+                        path=sys.executable,
+                        args=args,
+                        short_name=self.short_name)]
+
+
+def add_to_pipeline(pipeline, _, output_files, tmp_configs_dir, dataset_data,
+                    bin_home, ext_python_modules_home, python_modules_home):
+    pipeline.add(BreakingScaffoldsStage("bs", output_files,
+                                        tmp_configs_dir, dataset_data, bin_home,
+                                        ext_python_modules_home, python_modules_home))
