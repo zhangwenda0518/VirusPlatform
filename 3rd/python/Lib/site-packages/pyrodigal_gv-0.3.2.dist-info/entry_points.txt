@@ -1,0 +1,2 @@
+[console_scripts]
+pyrodigal-gv = pyrodigal_gv.cli:main

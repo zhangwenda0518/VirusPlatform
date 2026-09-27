@@ -1,0 +1,2 @@
+[console_scripts]
+taxburst = taxburst.__main__:main

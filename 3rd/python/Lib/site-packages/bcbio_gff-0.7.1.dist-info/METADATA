@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: bcbio-gff
+Version: 0.7.1
+Summary: Read and write Generic Feature Format (GFF) with Biopython integration.
+Home-page: https://github.com/chapmanb/bcbb/tree/master/gff
+Author: Brad Chapman
+Author-email: chapmanb@50mail.com
+License: Biopython License
+License-File: LICENSE
+Requires-Dist: six
+Requires-Dist: biopython
+
