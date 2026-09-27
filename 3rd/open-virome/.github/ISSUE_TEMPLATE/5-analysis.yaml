@@ -1,0 +1,68 @@
+name: Analysis
+description: Perform an experiment with Open Virome
+labels: analysis
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: Overview
+      description: |
+        Provide a brief overview of your experiment. What is the purpose or goal of it?
+
+  
+  - type: textarea
+    id: background
+    attributes:
+      label: Background / Context
+      description: |
+        Elaborate on the background or context surrounding the analysis the analysis.
+        Some things to consider:
+        * What are the biological constraints involved?
+        * Would this experiment be specific to a particular virus clade?
+        * Any ecological implications that should be considered?
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: |
+        Formulate a testable statement to carry out using the experiment.
+        *Example: Does virus diversity go up/down with changes in temperature?*        
+  
+  - type: textarea
+    id: experiment
+    attributes:
+      label: Experiment
+      description: |
+        Describe how the experiment is going to be performed?
+        What are your input/output variables?
+        How are you going to measure them?
+  
+  - type: textarea
+    id: controls
+    attributes:
+      label: Controls
+      description: |
+        Positive and negative controls for your Open Virome experiment.
+  
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected Outcome
+      description: |
+        Without getting too technical, what would you consider a positive outcome of this experiment, in support for your hypothesis?
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: Open Questions
+      description: |
+        Are there any other questions that you anticipate they would be interesting to approach further down the road?
+  
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: |
+        Any references you may consider important to support this analysis.
+        *Example: Papers, quotes, websites, ... be as resourceful as you can.*

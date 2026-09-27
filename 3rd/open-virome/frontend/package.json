@@ -1,0 +1,73 @@
+{
+    "name": "frontend",
+    "version": "0.1.0",
+    "private": true,
+    "dependencies": {
+        "@emotion/react": "^11.11.4",
+        "@emotion/styled": "^11.11.5",
+        "@fingerprintjs/botd": "^1.9.1",
+        "@mui/icons-material": "^5.15.19",
+        "@mui/material": "^5.15.19",
+        "@reduxjs/toolkit": "^2.2.5",
+        "chroma-js": "^2.4.2",
+        "cytoscape": "^3.30.0",
+        "cytoscape-fcose": "^2.2.0",
+        "echarts": "^5.6.0",
+        "echarts-for-react": "^3.0.2",
+        "echarts-stat": "^1.2.0",
+        "html2canvas": "^1.4.1",
+        "markdown-to-jsx": "^7.7.1",
+        "pako": "^2.1.0",
+        "react": "^18.3.1",
+        "react-cytoscapejs": "^2.0.0",
+        "react-dom": "^18.3.1",
+        "react-redux": "^9.1.2",
+        "react-virtuoso": "^4.7.11",
+        "react-world-flags": "^1.6.0",
+        "redux-query-sync": "^0.1.10"
+    },
+    "scripts": {
+        "start": "cross-env REACT_APP_USE_LAMBDA=true react-scripts start",
+        "start-local": "react-scripts start",
+        "build": "react-scripts build",
+        "test": "react-scripts test",
+        "eject": "react-scripts eject",
+        "prettify": "prettier --write ."
+    },
+    "eslintConfig": {
+        "extends": [
+            "react-app",
+            "react-app/jest"
+        ]
+    },
+    "browserslist": {
+        "production": [
+            ">0.2%",
+            "not dead",
+            "not op_mini all"
+        ],
+        "development": [
+            "last 1 chrome version",
+            "last 1 firefox version",
+            "last 1 safari version"
+        ]
+    },
+    "devDependencies": {
+        "@svgr/webpack": "^8.1.0",
+        "@testing-library/jest-dom": "^5.17.0",
+        "@testing-library/react": "^13.4.0",
+        "@testing-library/user-event": "^13.5.0",
+        "@types/jest": "^29.5.12",
+        "@types/node": "^20.14.1",
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0",
+        "cross-env": "^10.1.0",
+        "eslint": "^8.57.0",
+        "prettier": "^3.3.0",
+        "react-scripts": "^5.0.1",
+        "typescript": "3.2.1"
+    },
+    "overrides": {
+        "@svgr/webpack": "$@svgr/webpack"
+    }
+}

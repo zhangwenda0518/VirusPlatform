@@ -1,0 +1,27 @@
+name: Optimization
+description: Submit a proposal/request for optimizing the performance, speed, or resource usage of Open Virome.
+labels: optimization
+body:
+  - type: textarea
+    id: optimization-issue
+    attributes:
+      label: What aspect of Open Virome needs optimization? What is the current issue or inefficiency?
+      description: >
+        Provide a clear and concise description of the behaviour or component of Open Virome that requires optimization. Describe the current problem or inefficiency that you are experiencing. This might include performance bottlenecks, high resource consumption, slow processing times, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-solution
+    attributes:
+      label: What is your proposed solution or approach to optimize?
+      description: >
+        Detail your proposed solution or approach to optimizing the identified issue. If this involves code changes, configurations, or architecture alterations, please describe them here.
+
+  - type: textarea
+    attributes:
+      label: Additional context
+      description: >
+        Add any other context or information that might be relevant, such as related GitHub issues, screen captures, etc.
+    validations:
+      required: false

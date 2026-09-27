@@ -1,0 +1,48 @@
+name: Bug Report
+description: Report a bug encountered while using Open Virome
+labels: bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Describe the bug
+      description: |
+        Please provide as much info as possible. Not doing so may result in your bug not being addressed in a timely manner.
+        If this matter is security related, please disclose it privately via email rnabased.lifeforms@gmail.com
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  
+  - type: textarea
+    id: modules
+    attributes:
+      label: Modules involved
+      description: |
+        If there's a specific part of Open Virome related to this bug, tell us about it.
+        e.g. Data, Ecology, Virus Network, Website
+    
+  - type: textarea
+    id: system
+    attributes:
+      label: System information
+      description: |
+        OS: [e.g. macOS, Windows]
+        Browser: [e.g. chrome, safari]
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context

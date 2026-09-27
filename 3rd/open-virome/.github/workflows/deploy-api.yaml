@@ -1,0 +1,56 @@
+name: Deploy serverless API
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**"
+jobs:
+  deploy_zip:
+    name: deploy lambda function
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16"
+
+      - name: Install dependencies
+        working-directory: ./api
+        run: npm install
+
+      - name: Create .env
+        working-directory: ./api
+        run: |
+          touch .env
+          echo PG_DATABASE_LOGAN=${{ secrets.PG_DATABASE_LOGAN }} >> .env
+          echo PG_HOST=${{ secrets.PG_HOST }} >> .env
+          echo PG_PASSWORD_LOGAN=${{ secrets.PG_PASSWORD_LOGAN }} >> .env
+          echo PG_PORT=5432 >> .env
+          echo PG_USER_LOGAN=${{ secrets.PG_USER_LOGAN }} >> .env
+          echo NEO4J_URI=${{ secrets.NEO4J_URI }} >> .env
+          echo NEO4J_USERNAME=${{ secrets.NEO4J_USERNAME }} >> .env
+          echo NEO4J_PASSWORD=${{ secrets.NEO4J_PASSWORD }} >> .env
+          echo OPENAI_TOKEN=${{ secrets.OPENAI_TOKEN }} >> .env
+          echo OPENAI_ENDPOINT_gpt4o=${{ secrets.OPENAI_ENDPOINT_GPT4O }} >> .env
+          echo OPENAI_ENDPOINT_o1=${{ secrets.OPENAI_ENDPOINT_O1 }} >> .env
+          echo OPENAI_ENDPOINT_gpt4o_mini=${{ secrets.OPENAI_ENDPOINT_GPT4O_MINI }} >> .env
+          echo OPENAI_ENDPOINT_gpt4o_mini2=${{ secrets.OPENAI_ENDPOINT_GPT4O_MINI2 }} >> .env
+
+      - name: Build
+        run: |
+          cd api &&  zip -r build.zip .
+      - name: default deploy
+        uses: appleboy/lambda-action@v0.2.0
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: us-east-1
+          function_name: open-virome-api
+          zip_file: api/build.zip
+          memory_size: 512
+          timeout: 500
+          runtime: nodejs16.x

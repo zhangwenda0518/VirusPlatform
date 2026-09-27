@@ -1,0 +1,31 @@
+name: Documentation
+description: Suggest an improvement to Open Virome's documentation
+labels: documentation
+body:
+  - type: textarea
+    id: link
+    attributes:
+      label: Link
+      description: |
+        Add a link to the page which needs improvement (if relevant)
+  
+  - type: textarea
+    id: problem
+    attributes:
+      label: Describe the problem
+      description: |
+        Is the documentation missing? Or is it confusing? Why is it confusing?
+  
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Describe the improvement
+      description: |
+        A clear and concise description of the improvement.
+  
+  - type: textarea
+    id: content
+    attributes:
+      label: Additional context
+      description: |
+        Add any other context or screenshots that help clarify your question.
