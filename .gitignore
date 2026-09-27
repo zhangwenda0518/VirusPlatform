@@ -27,9 +27,13 @@ examples/_work/
 
 # ---------- 2. 归档 / 备份 / 审计快照（不参与日常开发） ----------
 _archive/
+archive/
 _audit_20260909/
 _backup_before_*/
 git-repo/
+# archive/ 统一收纳（2026-09-27 起）：模块归档（_retire_*）、手工备份（_bak_*）、
+# 运行残留（_run_dev_leftovers_*）与更早的根目录快照（20260919_root）。
+# 归档代码在 git 历史仍可回溯：git show <sha>:<旧路径>。
 # 第三方（BioAider）逆向工作区：反编译产物与解密脚本，仅本地参考，
 # 绝不能进版本库（合规风险）
 _bioaider_re/
